@@ -30,7 +30,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
         platform_appMain(firstFrame, reload, &isRunning, wData, &threadQueue, &appMemory);
 
         if(firstFrame) firstFrame = false;
-
     }
 
 	return 0;

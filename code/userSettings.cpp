@@ -19,17 +19,17 @@ const char* watchFolders[] = {
 
 enum TextureId {
 	TEXTURE_WHITE = 0,
-	TEXTURE_RECT,
-	TEXTURE_CIRCLE,
-	TEXTURE_TEST,
+	// TEXTURE_RECT,
+	// TEXTURE_CIRCLE,
+	// TEXTURE_TEST,
 	TEXTURE_SIZE,
 };
 
 char* texturePaths[] = {
 	"..\\data\\Textures\\Misc\\white.png",
-	"..\\data\\Textures\\Misc\\rect.png",
-	"..\\data\\Textures\\Misc\\circle.png",
-	"..\\data\\Textures\\Misc\\test.png",
+	// "..\\data\\Textures\\Misc\\rect.png",
+	// "..\\data\\Textures\\Misc\\circle.png",
+	// "..\\data\\Textures\\Misc\\test.png",
 };
 
 //
@@ -145,10 +145,7 @@ enum SamplerType {
 //
 
 enum FrameBufferType {
-	FRAMEBUFFER_3dMsaa = 0,
-	FRAMEBUFFER_3dNoMsaa,
-	FRAMEBUFFER_Reflection,
-	FRAMEBUFFER_2d,
+	FRAMEBUFFER_2d = 0,
 
 	FRAMEBUFFER_DebugMsaa,
 	FRAMEBUFFER_DebugNoMsaa,
@@ -378,7 +375,9 @@ const char* fragmentShaderQuad = GLSL (
 		if(uv.z > -1) texColor = texture(sArray[0], vec3(uv.xy, floor(uv.z)));
 		else texColor = texture(s, uv.xy);
 
+		// color = texColor * Color;
 		color = texColor * Color;
+		// color = Color;
 	}
 );
 

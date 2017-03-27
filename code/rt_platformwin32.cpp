@@ -230,6 +230,8 @@ void systemDataInit(SystemData* sd, HINSTANCE instance) {
 	sd->instance = instance;
 }
 
+// int globalMouseX, globalMouseY;
+
 LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch(message) {
         case WM_DESTROY: {
@@ -272,11 +274,17 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	ws->fullRes.y = GetSystemMetrics(SM_CYSCREEN);
 	ws->aspectRatio = (float)res.w / (float)res.h;
 
-	ws->style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-	if(resizable) ws->style |= WS_THICKFRAME;
-	if(maximizable) ws->style |= WS_MAXIMIZEBOX;
+	// ws->style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+	// if(resizable) ws->style |= WS_THICKFRAME;
+	// if(maximizable) ws->style |= WS_MAXIMIZEBOX;
 	// if(visible) ws->style |= WS_VISIBLE;
 
+	// ws->style = 0;
+	// ws->style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
+	
+	// ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
+	ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
+	// ws->style = WS_POPUP| WS_SYSMENU;
 
 
 	RECT cr = {0, 0, res.w, res.h};
@@ -318,7 +326,7 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
         1,
         PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,    //Flags
         PFD_TYPE_RGBA,            //The kind of framebuffer. RGBA or palette.
-        32,                        //Colordepth of the framebuffer.
+        24,                        //Colordepth of the framebuffer.
         0, 0, 0, 0, 0, 0,
         0, //8
         0,
@@ -345,19 +353,19 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
     if(!result) { printf("Could not set Opengl Context.\n"); }
 
 
-    #ifndef HID_USAGE_PAGE_GENERIC
-    #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
-    #endif
-    #ifndef HID_USAGE_GENERIC_MOUSE
-    #define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
-    #endif
+    // #ifndef HID_USAGE_PAGE_GENERIC
+    // #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
+    // #endif
+    // #ifndef HID_USAGE_GENERIC_MOUSE
+    // #define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
+    // #endif
 
-    RAWINPUTDEVICE Rid[1];
-    Rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC; 
-    Rid[0].usUsage = HID_USAGE_GENERIC_MOUSE; 
-    Rid[0].dwFlags = RIDEV_INPUTSINK;   
-    Rid[0].hwndTarget = systemData->windowHandle;
-    bool r = RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
+    // RAWINPUTDEVICE Rid[1];
+    // Rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC; 
+    // Rid[0].usUsage = HID_USAGE_GENERIC_MOUSE; 
+    // Rid[0].dwFlags = RIDEV_INPUTSINK;   
+    // Rid[0].hwndTarget = systemData->windowHandle;
+    // bool r = RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
 
     // printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
 }
@@ -367,6 +375,8 @@ void showWindow(HWND windowHandle) {
 }
 
 void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
+	WaitMessage();
+
 	input->anyKey = false;
 
     input->mouseWheel = 0;
@@ -450,22 +460,19 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
                 input->inputCharacterCount++;
             } break;
 
-            case WM_INPUT: {
-            	RAWINPUT inputBuffer;
-            	UINT rawInputSize = sizeof(inputBuffer);
-            	GetRawInputData((HRAWINPUT)(message.lParam), RID_INPUT, &inputBuffer, &rawInputSize, sizeof(RAWINPUTHEADER));
-            	RAWINPUT* raw = (RAWINPUT*)(&inputBuffer);
+            // case WM_INPUT: {
+            // 	RAWINPUT inputBuffer;
+            // 	UINT rawInputSize = sizeof(inputBuffer);
+            // 	GetRawInputData((HRAWINPUT)(message.lParam), RID_INPUT, &inputBuffer, &rawInputSize, sizeof(RAWINPUTHEADER));
+            // 	RAWINPUT* raw = (RAWINPUT*)(&inputBuffer);
             	
-            	if (raw->header.dwType == RIM_TYPEMOUSE) {
-            	    int xPosRelative = raw->data.mouse.lLastX;
-            	    int yPosRelative = raw->data.mouse.lLastY;
+            // 	if (raw->header.dwType == RIM_TYPEMOUSE) {
+            // 	    int xPosRelative = raw->data.mouse.lLastX;
+            // 	    int yPosRelative = raw->data.mouse.lLastY;
 
-            	    input->mouseDeltaX = -xPosRelative;
-            	    input->mouseDeltaY = -yPosRelative;
-            	} break;
-            } break;
-
-            // case WM_SIZE: {
+            // 	    input->mouseDeltaX = -xPosRelative;
+            // 	    input->mouseDeltaY = -yPosRelative;
+            // 	} break;
             // } break;
 
             case WM_DESTROY: {
@@ -496,6 +503,9 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 
     input->mouseDelta = input->mousePos - input->lastMousePos;
     input->lastMousePos = input->mousePos;
+
+    // input->mouseDelta = vec2(point.x-input->lastMousePos.x, point.y-input->lastMousePos.y);
+    // input->lastMousePos = vec2(point.x, point.y);
 
     input->firstFrame = false;
 }

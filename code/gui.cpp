@@ -144,6 +144,8 @@ struct Gui {
 	float heightStack[4];
 	int heightStackIndex;
 
+
+
 	void init(Rect panelRect, int saveSlot) {
 		*this = {};
 
@@ -712,6 +714,22 @@ struct Gui {
 
 		return color;
 	}
+
+	// bool drag(Rect region, Vec2* dragDelta, Vec4 color = vec4(0,0,0,0)) {
+	// 	// incrementId();
+
+	// 	bool mouseOver = getMouseOver(input.mousePos, region, true);
+	// 	bool active = setActive(mouseOver, 1);
+
+	// 	if(active) {
+	// 		*dragDelta = mouseDelta;
+	// 	}
+
+	// 	if(color != vec4(0,0,0,0)) drawRect(region, color);
+
+	// 	post();
+	// 	return active;
+	// }
 
 	bool drag(Rect region, Vec2* dragDelta, Vec4 color = vec4(0,0,0,0)) {
 		// incrementId();

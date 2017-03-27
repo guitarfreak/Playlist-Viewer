@@ -25,6 +25,9 @@
 
 #define GL_NUM_EXTENSIONS                 0x821D
 
+#define GL_READ_FRAMEBUFFER               0x8CA8
+#define GL_DRAW_FRAMEBUFFER               0x8CA9
+
 #define GL_CLAMP_TO_EDGE                  0x812F
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT     0x84FE
 #define GL_TEXTURE_WRAP_R                 0x8072

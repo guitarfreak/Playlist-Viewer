@@ -9,6 +9,10 @@
 	- math round up 
 	- round mod down
     - Just make sure to copy over math.cpp.
+
+	- Change draggin in gui to match the winapi method.
+    - Clamp window to monitor.
+	- Add gradient.
 */
 
 
@@ -193,6 +197,15 @@ struct AppData {
 	float nearPlane;
 	float farPlane;
 
+	// Window.
+
+	bool resizeMode;
+	bool dragMode;
+	int dragOffsetX, dragOffsetY;
+	int resizeOffsetX, resizeOffsetY;
+
+	bool noFrameUpdate;
+
 	// App.
 
 	YoutubeVideo videos[1000];
@@ -345,6 +358,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 		loadShaders();
 
 		//
+		// Setup Textures.
+		//
+
+		for(int i = 0; i < TEXTURE_SIZE; i++) {
+			Texture tex;
+			uchar buffer [] = {255,255,255,255 ,255,255,255,255 ,255,255,255,255, 255,255,255,255};
+			loadTexture(&tex, buffer, 2,2, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+
+			addTexture(tex);
+		}
+
+		//
 		// Setup Meshs.
 		//
 
@@ -394,15 +419,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 				FrameBuffer* fb = getFrameBuffer(i);
 				initFrameBuffer(fb);
 			}
-
-			attachToFrameBuffer(FRAMEBUFFER_3dMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0, ad->msaaSamples);
-			attachToFrameBuffer(FRAMEBUFFER_3dMsaa, FRAMEBUFFER_SLOT_DEPTH_STENCIL, GL_DEPTH_STENCIL, 0, 0, ad->msaaSamples);
-
-			attachToFrameBuffer(FRAMEBUFFER_3dNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
-			attachToFrameBuffer(FRAMEBUFFER_3dNoMsaa, FRAMEBUFFER_SLOT_DEPTH_STENCIL, GL_DEPTH24_STENCIL8, 0, 0);
-
-			attachToFrameBuffer(FRAMEBUFFER_Reflection, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
-			attachToFrameBuffer(FRAMEBUFFER_Reflection, FRAMEBUFFER_SLOT_DEPTH_STENCIL, GL_DEPTH24_STENCIL8, 0, 0);
 
 			attachToFrameBuffer(FRAMEBUFFER_2d, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
 
@@ -467,6 +483,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->frameCount++;
 	}
 
+	if(input->keysPressed[KEYCODE_R]) ReleaseCapture();
+
 	// Handle recording.
 	{
 		if(ds->recordingInput) {
@@ -516,6 +534,60 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
 
+
+	if(input->mouseButtonPressed[1]) {
+		POINT p;
+		GetCursorPos(&p);
+		ScreenToClient(windowHandle, &p);
+		ad->dragOffsetX = p.x + 1; // Border size.
+		ad->dragOffsetY = p.y + 1;
+
+		RECT r;
+		GetWindowRect(windowHandle, &r);
+		ad->resizeOffsetX = (r.right - r.left) - p.x;
+		ad->resizeOffsetY = (r.bottom - r.top) - p.y;
+
+		if(input->keysDown[KEYCODE_CTRL]) {
+			ad->resizeMode = true;
+		} else {
+			ad->dragMode = true;
+		}
+	} 
+
+	if(input->mouseButtonReleased[1]) {
+		ad->resizeMode = false;
+		ad->dragMode = false;
+	}
+
+	if(ad->resizeMode) {
+		POINT ps;
+		GetCursorPos(&ps);
+		ScreenToClient(windowHandle, &ps);
+
+		RECT r;
+		GetWindowRect(windowHandle, &r);
+
+		int newWidth = clampMin(ps.x + ad->resizeOffsetX, 300);
+		int newHeight = clampMin(ps.y + ad->resizeOffsetY, 300);
+		MoveWindow(windowHandle, r.left, r.top, newWidth, newHeight, true);
+	}
+
+	if(ad->dragMode) {
+		POINT p;
+		GetCursorPos(&p);
+
+		RECT r;
+		GetWindowRect(windowHandle, &r);
+
+		MoveWindow(windowHandle, p.x - ad->dragOffsetX, p.y - ad->dragOffsetY, r.right-r.left, r.bottom-r.top, true);
+	}
+
+	if(input->keysPressed[KEYCODE_F12]) {
+		ad->noFrameUpdate = !ad->noFrameUpdate;
+	} 
+
+	if(ad->noFrameUpdate) goto endOfMainLabel;
+
 	if(windowSizeChanged(windowHandle, ws)) {
 		if(!windowIsMinimized(windowHandle)) {
 			updateResolution(windowHandle, ws);
@@ -537,9 +609,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec2i s = ad->cur3dBufferRes;
 		Vec2 reflectionRes = vec2(s);
 
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_3dMsaa, s.w, s.h);
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_3dNoMsaa, s.w, s.h);
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_Reflection, reflectionRes.w, reflectionRes.h);
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2d, ws->currentRes.w, ws->currentRes.h);
 
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, ws->currentRes.w, ws->currentRes.h);
@@ -582,29 +651,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Clear all the framebuffers and window backbuffer.
 	{
-
-		// for(int i = 0; i < arrayCount(gs->frameBuffers); i++) {
-		// 	FrameBuffer* fb = getFrameBuffer(i);
-		// 	bindFrameBuffer(i);
-
-		// 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-		// }
-
 		glClearColor(0,0,0,1);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glClear(GL_COLOR_BUFFER_BIT);
-
-		bindFrameBuffer(FRAMEBUFFER_3dMsaa);
-		glClearColor(1,1,1,1);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-		bindFrameBuffer(FRAMEBUFFER_3dNoMsaa);
-		glClearColor(1,1,1,1);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-		bindFrameBuffer(FRAMEBUFFER_Reflection);
-		glClearColor(1,1,1,1);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		bindFrameBuffer(FRAMEBUFFER_2d);
 		glClearColor(0,0,0,0);
@@ -650,8 +699,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 	TIMER_BLOCK_END(openglInit);
 
 
-	// @AppLoop.
 
+
+
+
+
+	// @AppLoop.
 
 	if(input->keysPressed[KEYCODE_RETURN]) { 
 
@@ -759,26 +812,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		globalCommandList = &ad->commandList2d;
-		Vec2i res = ws->currentRes;
-		Rect screenRect = rect(0, -res.h, res.w, 0);
 
 		int fontSize = 20;
 		Font* font = getFont(FONT_CALIBRI, fontSize);
 
-		float g = 0.1f;
-		dcRect(screenRect, vec4(g,g,g,1));
+		Vec2i res = ws->currentRes;
+		Rect screenRect = rect(0, -res.h, res.w, 0);
 
-		// Rect rChart = rectExpand(screenRect, -vec2(100,100));
 		Rect rChart = screenRect;
 		Rect rGraph = rChart;
-		rGraph.min += vec2(80,font->height*3);
+		rGraph.min += vec2(80,font->height*2);
 		Rect rLeftText = rect(rChart.left,rGraph.bottom,rGraph.left,rChart.top);
 		Rect rBottomText = rect(rGraph.left,rChart.bottom,rChart.right,rGraph.bottom);
 
-		float w = 0.3f;
+		rLeftText.min.y -= 7;
+		rBottomText.min.x -= 5;
+
+		float g = 0.15f;
+		dcRect(screenRect, vec4(0.4f,g,g,1));
+		float w = 0.10f;
 		dcRect(rGraph, vec4(w,w,w,1));
-		dcRect(rLeftText, vec4(1,0.5f,0,0.02f));
-		dcRect(rBottomText, vec4(1,0.5f,0,0.02f));
 
 		if(init) {
 			Vec2 camMin = vec2(0,0);
@@ -902,11 +955,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 
-		Rect miniMap = rGraph;
-		float miniMapSize = 0.1f;
-		miniMap.min = rGraph.max - (rectGetDim(rGraph)*miniMapSize);
-		dcRect(miniMap, vec4(1,1,1,0.05f));
-		dcRect(graphCamMiniMap(cam, miniMap), vec4(0,0,1,0.1f));
+		// Rect miniMap = rGraph;
+		// float miniMapSize = 0.1f;
+		// miniMap.min = rGraph.max - (rectGetDim(rGraph)*miniMapSize);
+		// dcRect(miniMap, vec4(1,1,1,0.05f));
+		// dcRect(graphCamMiniMap(cam, miniMap), vec4(0,0,1,0.1f));
 
 		YoutubeVideo* vids = ad->videos;
 
@@ -930,6 +983,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	endOfMainLabel:
 
+	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
+
 	// Render.
 	{
 		TIMER_BLOCK_NAMED("Render");
@@ -937,46 +992,40 @@ extern "C" APPMAINFUNCTION(appMain) {
 		bindShader(SHADER_QUAD);
 		glDisable(GL_DEPTH_TEST);
 		ortho(rect(0, -ws->currentRes.h, ws->currentRes.w, 0));
-		blitFrameBuffers(FRAMEBUFFER_3dMsaa, FRAMEBUFFER_3dNoMsaa, ad->cur3dBufferRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
 
 		bindFrameBuffer(FRAMEBUFFER_2d);
 		glViewport(0,0, ws->currentRes.x, ws->currentRes.y);
-		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1), rect(0,1,1,0), 
-		         getFrameBuffer(FRAMEBUFFER_3dNoMsaa)->colorSlot[0]->id);
-		// executeCommandList(&ad->commandList2d);
+
+		if(!ad->noFrameUpdate) {
+			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+			glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+
+			bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
+			executeCommandList(&ad->commandList2d);
+
+			double timeStamp = timerInit();
+				executeCommandList(&ds->commandListDebug, false, reload);
+			static double tempTime = 0;
+			tempTime += ds->dt;
+			if(tempTime >= 1) {
+				ds->debugRenderTime = timerUpdate(timeStamp);
+				tempTime = 0;
+			}
+
+			blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
 
-		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+			glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+			glBlendEquation(GL_FUNC_ADD);
 
-		bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
-		executeCommandList(&ad->commandList2d);
+			bindFrameBuffer(FRAMEBUFFER_2d);
+			drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1,1,ds->guiAlpha), rect(0,1,1,0), 
+			         getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
 
-		double timeStamp = timerInit();
-			executeCommandList(&ds->commandListDebug, false, reload);
-		static double tempTime = 0;
-		tempTime += ds->dt;
-		if(tempTime >= 1) {
-			ds->debugRenderTime = timerUpdate(timeStamp);
-			tempTime = 0;
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glBlendEquation(GL_FUNC_ADD);
+
 		}
-
-		// drawTextLineCulled("sdfWT34t3w4tSEr", getFont(FONT_CALIBRI, 30), vec2(200,-200), 20, vec4(1,0,1,1));
-
-		blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-
-		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-		glBlendEquation(GL_FUNC_ADD);
-
-		bindFrameBuffer(FRAMEBUFFER_2d);
-		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1,1,ds->guiAlpha), rect(0,1,1,0), 
-		         getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
-
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glBlendEquation(GL_FUNC_ADD);
-
 
 
 		#if USE_SRGB 
@@ -990,10 +1039,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		#if USE_SRGB
 			glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
+
 	}
-
-
-
 
 
 
@@ -1010,7 +1057,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
+	// debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
 	// debugUpdatePlayback(ds, appMemory);
 
@@ -2098,7 +2145,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			timer = 0;
 		}
 
-		dcText(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+		// dcText(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		// dcText(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		// dcText(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 
