@@ -3141,11 +3141,11 @@ void graphCamSetBoundaries(GraphCam* cam, double xMin, double xMax, double yMin,
 	cam->yMax = yMax;	
 }
 
-void graphCamInit(GraphCam* cam, Vec2 pos, Vec2 dim, double xMin, double xMax, double yMin, double yMax) {
-	cam->x = pos.x;
-	cam->y = pos.y;
-	cam->w = dim.w;
-	cam->h = dim.h;
+void graphCamInit(GraphCam* cam, double x, double y, double w, double h, double xMin, double xMax, double yMin, double yMax) {
+	cam->x = x;
+	cam->y = y;
+	cam->w = w;
+	cam->h = h;
 	graphCamSetBoundaries(cam, xMin, xMax, yMin, yMax);
 }
 
@@ -3165,16 +3165,12 @@ void graphCamUpdateSides(GraphCam* cam) {
 	cam->top = graphCamTop(cam);
 }
 
-void graphCamSizeClamp(GraphCam* cam, double xMin, double xMax, double yMin, double yMax) {
+void graphCamSizeClamp(GraphCam* cam, double wMin, double hMin, double wMax = -1, double hMax = -1) {
+	if(wMax == -1) wMax = cam->xMax - cam->xMin;
+	if(hMax == -1) hMax = cam->yMax - cam->yMin;
 
-	clampDouble(&cam->w, xMin, xMax);
-	clampDouble(&cam->h, yMin, yMax);
-	
-	graphCamUpdateSides(cam);
-}
-
-void graphCamSizeClamp(GraphCam* cam) {
-	graphCamSizeClamp(cam, cam->xMin, cam->xMax, cam->yMin, cam->yMax);
+	clampDouble(&cam->w, wMin, wMax);
+	clampDouble(&cam->h, hMin, hMax);
 }
 
 void graphCamScaleToPos(GraphCam* cam, int xAmount, double xScale, int yAmount, double yScale, Vec2 pos) {

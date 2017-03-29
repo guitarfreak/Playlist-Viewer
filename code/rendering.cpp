@@ -45,7 +45,7 @@ char* fillString(char* text, ...) {
 			if(text[ti+2] == '6') {
 				// 64 bit signed integer.
 
-				assert(text[ti+3] == '4');
+				myAssert(text[ti+3] == '4');
 
 				i64 v = va_arg(vl, i64);
 				intToStr(valueBuffer, v);
@@ -259,7 +259,7 @@ struct Draw_Command_State {
 	Draw_Command_##structType* command = (Draw_Command_##structType*)list; \
 	drawList->count++; \
 	drawList->bytes += sizeof(Draw_Command_##structType) + sizeof(int); \
-	assert(sizeof(Draw_Command_##structType) + drawList->bytes < drawList->maxBytes);
+	myAssert(sizeof(Draw_Command_##structType) + drawList->bytes < drawList->maxBytes);
 
 
 void dcCube(Vec3 trans, Vec3 scale, Vec4 color, float degrees = 0, Vec3 rot = vec3(0,0,0), DrawCommandList* drawList = 0) {
@@ -1247,7 +1247,7 @@ int textMouseToIndex(char* text, Font* font, Vec2 startPos, Vec2 mousePos, Vec2i
 }
 
 char* textSelectionToString(char* text, int index1, int index2) {
-	assert(index1 >= 0 && index2 >= 0);
+	myAssert(index1 >= 0 && index2 >= 0);
 
 	int range = abs(index1 - index2);
 	char* str = getTStringDebug(range + 1); // We assume text selection will only be used for debug things.
@@ -1554,7 +1554,7 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 				dcGetStructAndIncrement(Scissor);
 				Rect r = dc.rect;
 				Vec2 dim = rectGetDim(r);
-				assert(dim.w >= 0 && dim.h >= 0);
+				myAssert(dim.w >= 0 && dim.h >= 0);
 				glScissor(r.min.x, r.min.y, dim.x, dim.y);
 			} break;
 

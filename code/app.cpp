@@ -19,8 +19,8 @@
 	- Multiple charts stacked.
 	- Mouse hover, show specific data.
 	- Averages and statistics.
+	- Debug gui stuff should disable app input when needed. (Mouse dragging, for example.)
 */
-
 
 // External.
 
@@ -77,7 +77,7 @@ char* stringGetBetween(char* buffer, char* leftToken, char* rightToken, int* adv
 	int leftPos = strFindRight(buffer, leftToken);
 	if(leftPos != -1) {
 		int rightPos = strFind(buffer + leftPos, rightToken);
-		int size = rightPos - leftPos;
+		int size = rightPos;
 		string = getTString(size+1); 
 		strClear(string);
 		strCpy(string, buffer + leftPos, rightPos);
@@ -89,9 +89,57 @@ char* stringGetBetween(char* buffer, char* leftToken, char* rightToken, int* adv
 	return string;
 }
 
+struct Date {
+	int year, month, day, hours, minutes, seconds;
+	i64 num;
+};
+
+i64 dateToInt(int year, int month, int day, int hour, int minute, int second) {
+	i64 result = (i64)(year*(i64)31556926);
+	result += (i64)(month*2629744);
+	result += (i64)(day*86400);
+	result += (i64)(hour*3600);
+	result += (i64)(minute*60);
+	result += (i64)(second);
+
+	return result;
+}
+
+void intToDate(i64 date, int* year, int* month, int* day, int* hour, int* minute, int* second) {
+	(*year) = date/((i64)31556926); date %= 31556926;
+	(*month) = date/((i64)2629744); date %= 2629744;
+	(*day) = date/86400; date %= 86400;
+	(*hour) = date/3600; date %= 3600;
+	(*minute) = date/60; date %= 60;
+	(*second) = date;
+}
+
+void intToDate(i64 date, Date* d) {
+	intToDate(date, &d->year, &d->month, &d->day, &d->hours, &d->minutes, &d->seconds);
+}
+
+Date stringToDate(char* s) {
+	Date date;
+	char* buffer = s;
+	char* d = getTString(10); 
+
+	strCpy(d, buffer, 4); buffer += 5; date.year = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.month = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.day = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.hours = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.minutes = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.seconds = strToInt(d);
+
+	date.num = dateToInt(date.year, date.month, date.day, date.hours, date.minutes, date.seconds);
+
+	return date;
+}
+
+// #pragma pack(push,1)
 struct YoutubeVideo {
 	char id[12];
-	char date[25];
+	char dateString[25];
+	Date date;
 
 	int viewCount;
 	int likeCount;
@@ -99,12 +147,16 @@ struct YoutubeVideo {
 	int favoriteCount;
 	int commentCount;
 };
+// #pragma pack(pop)
 
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
 char* apiKey = "AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw";
 char* youtubePlaylistUrl = "https://www.googleapis.com/youtube/v3/playlistItems";
 char* youtubeApiVideos = "https://www.googleapis.com/youtube/v3/videos";
 int maxDownloadCount = 40;
+
+char* moinmoinPlaylist = "PLsksxTH4pR3KZe3wbmAP2Tgn6rfhbDlBH";
+char* moinmoinFile = "MoinMoin.playlist";
 
 void executeSystemCommandIntoBuffer(char* command, char* buffer) {
 	char* tempFile = "messageContent.txt";
@@ -213,14 +265,7 @@ struct AppData {
 	YoutubeVideo videos[1000];
 	int videoCount;
 	GraphCam cam;
-
-	double dates[1000];
-	
 };
-
-// AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw
-// https://www.googleapis.com/youtube/v3/videos?key=AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw&part=id&id=ROCKETBEANSTV
-
 
 
 
@@ -245,16 +290,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ExtendibleBucketMemory* dMemory = &appMemory->extendibleBucketMemories[appMemory->extendibleBucketMemoryCount++];
 		initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(512), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
 
-		MemoryArray* tMemoryDebug = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-		initMemoryArray(tMemoryDebug, megaBytes(30), baseAddress + gigaBytes(33));
+		MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+		initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
 
 
 
 		MemoryArray* pDebugMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
 		initMemoryArray(pDebugMemory, megaBytes(50), 0);
 
-		MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-		initMemoryArray(tMemory, megaBytes(30), 0);
+		MemoryArray* tMemoryDebug = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+		initMemoryArray(tMemoryDebug, megaBytes(30), 0);
 
 		ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
 		initExtendibleMemoryArray(debugMemory, megaBytes(512), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
@@ -522,7 +567,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-	if(input->mouseButtonPressed[0]) {
+	if(input->mouseButtonPressed[1]) {
 		POINT p;
 		GetCursorPos(&p);
 		ScreenToClient(windowHandle, &p);
@@ -541,7 +586,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	} 
 
-	if(input->mouseButtonReleased[0]) {
+	if(input->mouseButtonReleased[1]) {
 		ad->resizeMode = false;
 		ad->dragMode = false;
 	}
@@ -708,40 +753,45 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// @AppLoop.
 
-	if(input->keysPressed[KEYCODE_RETURN]) { 
+	// if(input->keysPressed[KEYCODE_RETURN]) { 
+	if(false) { 
 
-		YoutubeVideo* vids = ad->videos;
-		ad->videoCount = 0;
+		char* playlist = moinmoinPlaylist;
+		char* playlistFile = moinmoinFile;
+		// int count = 50;
+		int count = getYoutubePlaylistSize(moinmoinPlaylist);
+		YoutubeVideo* vids = getTArray(YoutubeVideo, count);
 
-		int count = 100;
-		ad->videoCount = count;
-
+		char* pageToken = 0;
+		char* idBuffer = (char*)getTMemory(megaBytes(3)); 
+		char* statBuffer = (char*)getTMemory(megaBytes(3)); 
 		for(int i = 0; i < count; i += maxDownloadCount) {
 
 			int dCount = maxDownloadCount;
 			if(i + dCount >= count) {
-				dCount = i+dCount - count;
+				dCount = count%maxDownloadCount;
 			}
 
-			char* idBuffer = (char*)getTMemory(megaBytes(3)); 
-			char* pageToken = downloadYoutubePlaylistVideoIds("PLsksxTH4pR3KZe3wbmAP2Tgn6rfhbDlBH", idBuffer, dCount);
-			char* statBuffer = (char*)getTMemory(megaBytes(3)); 
+			strClear(idBuffer);
+			strClear(statBuffer);
+			pageToken = downloadYoutubePlaylistVideoIds(playlist, idBuffer, dCount, pageToken);
 			downloadYoutubeVideoStatistics(idBuffer, statBuffer);
-
 
 			{
 				int index = i;
 				int advance = 0;
 				for(;;) {
+					int reverseIndex = count-1 - index;
+
 					char* s = stringGetBetween(idBuffer, "\"videoId\": \"", "\"", &advance);
 					if(strLen(s) == 0) break;
 
-					strCpy(vids[index].id, s);
+					strCpy(vids[reverseIndex].id, s);
 					idBuffer += advance;
 
 					s = stringGetBetween(idBuffer, "\"videoPublishedAt\": \"", "\"", &advance);
 
-					strCpy(vids[index].date, s);
+					strCpy(vids[reverseIndex].dateString, s);
 					idBuffer += advance;
 					index++;
 				}
@@ -751,46 +801,64 @@ extern "C" APPMAINFUNCTION(appMain) {
 				int index = i;
 				int advance = 0;
 				for(;;) {
+					int reverseIndex = count-1 - index;
+
 					char* s = stringGetBetween(statBuffer, "\"viewCount\": \"", "\"", &advance); statBuffer += advance;
 					if(strLen(s) == 0) break;
 
-					vids[index].viewCount = strToInt(s);
+					vids[reverseIndex].viewCount = strToInt(s);
 					s = stringGetBetween(statBuffer, "\"likeCount\": \"", "\"", &advance); statBuffer += advance;
-					vids[index].likeCount = strToInt(s);
+					vids[reverseIndex].likeCount = strToInt(s);
 					s = stringGetBetween(statBuffer, "\"dislikeCount\": \"", "\"", &advance); statBuffer += advance;
-					vids[index].dislikeCount = strToInt(s);
+					vids[reverseIndex].dislikeCount = strToInt(s);
 					s = stringGetBetween(statBuffer, "\"favoriteCount\": \"", "\"", &advance); statBuffer += advance;
-					vids[index].favoriteCount = strToInt(s);
+					vids[reverseIndex].favoriteCount = strToInt(s);
 					s = stringGetBetween(statBuffer, "\"commentCount\": \"", "\"", &advance); statBuffer += advance;
-					vids[index].commentCount = strToInt(s);
+					vids[reverseIndex].commentCount = strToInt(s);
 					index++;
 				}
 			}
 		}
 
-	}
+		for(int i = 0; i < count; i++) {
+			vids[i].date = stringToDate(vids[i].dateString);
+		}
 
-
-
-	// if(input->keysPressed[KEYCODE_S]) {
-	if(false) {
-		FILE* file = fopen("videos.sav", "wb");
-
-		fwrite(&ad->videoCount, sizeof(int), 1, file);
-		fwrite(ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
+		// Save to file.
+		FILE* file = fopen(playlistFile, "wb");
+		fwrite(&count, sizeof(int), 1, file);
+		fwrite(vids, count*sizeof(YoutubeVideo), 1, file);
 		fclose(file);
 	}
 
-	if(input->keysPressed[KEYCODE_L] || init) {
-	// if(init) {
-		FILE* file = fopen("videos.sav", "rb");
+	// if(input->keysPressed[KEYCODE_S]) {
+	// if(false) {
+	// 	FILE* file = fopen("MoinMoin.playlist", "wb");
+	// 	fwrite(&ad->videoCount, sizeof(int), 1, file);
+	// 	fwrite(ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
+	// 	fclose(file);
+	// }
 
+	// if(input->keysPressed[KEYCODE_L]) {
+	// if(input->keysPressed[KEYCODE_L] || init) {
+	if(init) {
+	// if(false) {
+		FILE* file = fopen(moinmoinFile, "rb");
 		fread(&ad->videoCount, sizeof(int), 1, file);
 		fread(&ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
 		fclose(file);
 
-		ad->cam.xMax = ad->videoCount;
-		ad->cam.w = ad->videoCount;
+		// double camMinX = ad->dates[0].num;
+		// double camMaxX = ad->dates[ad->videoCount-1].num;
+		// double camMinY = 0;
+		// double camMaxY = 100000;
+
+		// double w = camMaxX - camMinX;
+		// double h = camMaxY - camMinY;
+		// double x = camMinX + w/2;
+		// double y = camMinY + h/2;
+
+		// graphCamInit(&ad->cam, x, y, w, h, camMinX, camMaxX, camMinY, camMaxY);
 	}
 
 	{
@@ -843,12 +911,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 		if(init) {
-			Vec2 camMin = vec2(0,0);
-			Vec2 camMax = vec2(ad->videoCount,100000);
 
-			Vec2 camDim = camMax;
-			Vec2 camPos = vec2(camDim.w/2, camDim.h/2);
-			graphCamInit(&ad->cam, camPos, camDim, camMin.x, camMax.x, camMin.y, camMax.y);
+			double camMinX = ad->videos[0].date.num;
+			double camMaxX = ad->videos[ad->videoCount-1].date.num;
+			double camMinY = 0;
+			double camMaxY = 100000;
+
+			double w = camMaxX - camMinX;
+			double h = camMaxY - camMinY;
+			double x = camMinX + w/2;
+			double y = camMinY + h/2;
+
+			graphCamInit(&ad->cam, x, y, w, h, camMinX, camMaxX, camMinY, camMaxY);
 		}
 
 		GraphCam* cam = &ad->cam;
@@ -864,9 +938,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 					graphCamScaleToPos(cam, -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
 			}
 
-			graphCamSizeClamp(cam);
+			graphCamSizeClamp(cam, 60*60*24, 1000);
 
-			if(input->mouseButtonDown[1] && input->mouseDelta != vec2(0,0)) {
+			if(input->mouseButtonDown[0] && input->mouseDelta != vec2(0,0)) {
 				graphCamTrans(cam, -input->mouseDelta.x, input->mouseDelta.y);
 			}
 
@@ -890,8 +964,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			dcState(STATE_LINEWIDTH, 2);
 			dcEnable(STATE_SCISSOR);
-			// dcScissor(scissorRectScreenSpace(scaleRect, res.h));
-			dcScissor(scissorRectScreenSpace(screenRect, res.h));
+			dcScissor(scissorRectScreenSpace(scaleRect, res.h));
 
 			float splitSize = splitSizePixels * (cam->h / rectGetH(cam->viewPort));
 			float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
@@ -905,7 +978,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 				dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
 				dcText(fillString("%i",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
 
+				// Horizontal line.
+				dcDisable(STATE_SCISSOR);
 				dcLine2d(vec2(scaleRect.right, y), vec2(rGraph.right, y), horiLinesColor); 
+				dcEnable(STATE_SCISSOR);
 
 				// Semi markers.
 				// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
@@ -923,6 +999,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		// Draw bottom text.
+		// if(false)
 		{
 			Rect scaleRect = rBottomText;
 
@@ -932,37 +1009,66 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Vec4 semiColor = vec4(g,g,g,1);
 			Vec4 horiLinesColor = vec4(1,1,1,0.03f);
 
-			float markLength = 10;
-			float fontMargin = 4;
+			float markLength = font->height-3;
+			float fontMargin = 0;
 			float div = 10;
-			float splitSizePixels = 100;
+			float splitSizePixels = 200;
 
 			dcState(STATE_LINEWIDTH, 2);
 			dcEnable(STATE_SCISSOR);
-			// dcScissor(scissorRectScreenSpace(scaleRect, res.h));
-			dcScissor(scissorRectScreenSpace(screenRect, res.h));
+			dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+			// dcScissor(scissorRectScreenSpace(screenRect, res.h));
 
-			float splitSize = splitSizePixels * (cam->w / rectGetW(cam->viewPort));
-			float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-			// float subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
+			double splitSize = splitSizePixels * (cam->w / rectGetW(cam->viewPort));
+			double stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
+			// double subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
 			int i = 0;
-			float p = roundModDown(cam->left, stepSize);
+			double p = roundModDown(cam->left, stepSize);
 			while(p < cam->right + stepSize) {
 
 				// Base markers.
-				float x = graphCamMapX(cam, p);
-				dcLine2dOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
-				dcText(fillString("%i",(int)p), font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+				{
+					float x = graphCamMapX(cam, p);
+					dcLine2dOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
 
-				dcLine2d(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
+					Date d;
+					intToDate(p, &d);
+					char* dateString = fillString("%i..%i..%i", d.day, d.month, d.year);
+					dcText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+				}
+				
+				// Vertical lines.
+				{
+					dcDisable(STATE_SCISSOR);
+					float x = graphCamMapX(cam, p);
+					dcLine2d(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
+					dcEnable(STATE_SCISSOR);
+				}
 
 				// Semi markers.
-				// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
-				int d = 4;
-				for(int i = 1; i < d; i++) {
-					float x = graphCamMapX(cam, p+i*(stepSize/d));
-					dcLine2dOff(vec2(x, scaleRect.top), vec2(0, -markLength*0.5f), semiColor); 
-					dcText(fillString("%i",(int)(stepSize/d)), font, vec2(x, scaleRect.top - markLength*0.5f - fontMargin), semiColor, vec2i(0,1));
+				{
+					// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
+					int d = 4;
+					for(int i = 0; i < d; i++) {
+						float x = graphCamMapX(cam, p+i*(stepSize/d) + (stepSize/d)/2);
+
+						Date date;
+						intToDate(stepSize/d, &date);
+						char* dateString;
+						if(date.day != 0) dateString = fillString("%id", date.day);
+						else if(date.hours != 0) dateString = fillString("%ih", date.hours);
+						else if(date.minutes != 0) dateString = fillString("%imin", date.minutes);
+						else if(date.seconds != 0) dateString = fillString("%isec", date.seconds);
+						else dateString = fillString("0");
+
+						dcText(dateString, font, vec2(x, scaleRect.top), semiColor, vec2i(0,1));
+
+						if(i == 0) continue;
+						{
+							float x = graphCamMapX(cam, p+i*(stepSize/d));
+							dcLine2dOff(vec2(x, scaleRect.top), vec2(0, -markLength*0.5f), semiColor); 
+						}
+					}
 				}
 
 				p += stepSize;
@@ -971,7 +1077,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			dcDisable(STATE_SCISSOR);
 		}
 
-
 		// Rect miniMap = rGraph;
 		// float miniMapSize = 0.1f;
 		// miniMap.min = rGraph.max - (rectGetDim(rGraph)*miniMapSize);
@@ -979,19 +1084,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// dcRect(graphCamMiniMap(cam, miniMap), vec4(0,0,1,0.1f));
 
 		YoutubeVideo* vids = ad->videos;
+		int vidCount = ad->videoCount;
 
 		dcState(STATE_LINEWIDTH, 1);
 		dcEnable(STATE_SCISSOR);
 		dcScissor(scissorRectScreenSpace(rGraph, res.h));
 
-		int vl = graphCamMapXReverse(cam, cam->viewPort.left);
-		int vr = graphCamMapXReverse(cam, cam->viewPort.right) + 2;
-		for(int i = vl; i < vr-1; i++) {
-			dcLine2d(graphCamMap(cam, i, vids[i].viewCount), graphCamMap(cam, i+1, vids[i+1].viewCount), vec4(0,0.7f,1,1));
-			dcLine2d(graphCamMap(cam, i, vids[i].likeCount), graphCamMap(cam, i+1, vids[i+1].likeCount), vec4(0.3f,0.7f,1,1));
-			dcLine2d(graphCamMap(cam, i, vids[i].dislikeCount), graphCamMap(cam, i+1, vids[i+1].dislikeCount), vec4(0.7f,0.3f,1,1));
-			dcLine2d(graphCamMap(cam, i, vids[i].favoriteCount), graphCamMap(cam, i+1, vids[i+1].favoriteCount), vec4(1,1,1,1));
-			dcLine2d(graphCamMap(cam, i, vids[i].commentCount), graphCamMap(cam, i+1, vids[i+1].commentCount), vec4(1,0.3f,0.8f,1));
+		for(int i = 0; i < vidCount-1; i++) {
+			if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+
+			float x = graphCamMapX(cam, vids[i].date.num);
+			float x2 = graphCamMapX(cam, vids[i+1].date.num);
+
+			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec2(x2, graphCamMapY(cam, vids[i+1].viewCount)), vec4(0,0.7f,1,1));
+			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].likeCount)), vec4(0.3f,0.7f,1,1));
+			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].dislikeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].dislikeCount)), vec4(0.7f,0.3f,1,1));
+			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].favoriteCount)), vec2(x2, graphCamMapY(cam, vids[i+1].favoriteCount)), vec4(1,1,1,1));
+			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
 		}
 		dcDisable(STATE_SCISSOR);
 
@@ -1154,7 +1263,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				gui->label(fillString("Video %i:", i), 0);
 
 				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("Id: %s", video->id), 0);
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("Date: %s", video->date), 0);
+				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("Date: %s", video->dateString), 0);
 				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("ViewCount: %i", video->viewCount), 0);
 				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("likeCount: %i", video->likeCount), 0);
 				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("DislikeCount: %i", video->dislikeCount), 0);
