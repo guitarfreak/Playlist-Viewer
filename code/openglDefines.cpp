@@ -162,6 +162,10 @@ wglGetSwapIntervalEXTFunction* wglGetSwapIntervalEXT;
 typedef int wglSwapIntervalEXTFunction(int);
 wglSwapIntervalEXTFunction* wglSwapIntervalEXT;
 
+typedef const char* wglGetExtensionsStringEXTFunction(void);
+wglGetExtensionsStringEXTFunction* wglGetExtensionsStringEXT;
+
+
 
 
 void loadFunctions() {
@@ -170,6 +174,7 @@ void loadFunctions() {
 
 	wglGetSwapIntervalEXT = (wglGetSwapIntervalEXTFunction*)wglGetProcAddress("wglGetSwapIntervalEXT");
 	wglSwapIntervalEXT = (wglSwapIntervalEXTFunction*)wglGetProcAddress("wglSwapIntervalEXT");
+	wglGetExtensionsStringEXT = (wglGetExtensionsStringEXTFunction*)wglGetProcAddress("wglGetExtensionsStringEXT");
 #undef GLOP
 }
 
@@ -179,3 +184,5 @@ void printGlExtensions() {
 		printf("%s\n", s);
 	}
 }
+
+

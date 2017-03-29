@@ -156,6 +156,7 @@ enum DrawListCommand {
 	Draw_Command_Quad_Type,
 	Draw_Command_Rect_Type,
 	Draw_Command_RoundedRect_Type,
+	Draw_Command_Primitive2d_Type,
 	Draw_Command_Text_Type,
 	Draw_Command_Scissor_Type,
 };
@@ -211,6 +212,12 @@ struct Draw_Command_RoundedRect {
 
 	float steps;
 	float size;
+};
+
+struct Draw_Command_Primitive2d {
+	Vec2 verts[4];
+	Vec4 colors[4];
+	int size;
 };
 
 struct Font;
@@ -325,6 +332,46 @@ void dcRoundedRect(Rect r, Vec4 color, float size, float steps = 0, DrawCommandL
 	command->color = color;
 	command->steps = steps;
 	command->size = size;
+}
+
+void dcPrimitive2d(Vec2 p0, Vec4 c0, DrawCommandList* drawList = 0) {
+	PUSH_DRAW_COMMAND(Primitive2d, Primitive2d);
+	command->verts[0] = p0;
+	command->colors[0] = c0;
+	command->size = 1;
+}
+
+void dcPrimitive2d(Vec2 p0, Vec2 p1, Vec4 c0, Vec4 c1, DrawCommandList* drawList = 0) {
+	PUSH_DRAW_COMMAND(Primitive2d, Primitive2d);
+	command->verts[0] = p0;
+	command->verts[1] = p1;
+	command->colors[0] = c0;
+	command->colors[1] = c1;
+	command->size = 2;
+}
+
+void dcPrimitive2d(Vec2 p0, Vec2 p1, Vec2 p2, Vec4 c0, Vec4 c1, Vec4 c2, DrawCommandList* drawList = 0) {
+	PUSH_DRAW_COMMAND(Primitive2d, Primitive2d);
+	command->verts[0] = p0;
+	command->verts[1] = p1;
+	command->verts[2] = p2;
+	command->colors[0] = c0;
+	command->colors[1] = c1;
+	command->colors[2] = c2;
+	command->size = 3;
+}
+
+void dcPrimitive2d(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3, DrawCommandList* drawList = 0) {
+	PUSH_DRAW_COMMAND(Primitive2d, Primitive2d);
+	command->verts[0] = p0;
+	command->verts[1] = p1;
+	command->verts[2] = p2;
+	command->verts[3] = p3;
+	command->colors[0] = c0;
+	command->colors[1] = c1;
+	command->colors[2] = c2;
+	command->colors[3] = c3;
+	command->size = 4;
 }
 
 void dcText(char* text, Font* font, Vec2 pos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0, int shadow = 0, Vec4 shadowColor = vec4(0,0,0,1), DrawCommandList* drawList = 0) {
@@ -1454,6 +1501,34 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 
 					pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_VERTS, verts, dc.steps+1);
 					glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, dc.steps+1, 1, 0);
+				}
+
+			} break;
+
+			case Draw_Command_Primitive2d_Type: {
+				dcGetStructAndIncrement(Primitive2d);
+
+				if(dc.size > 2) {
+					pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_PRIMITIVE_MODE, 1);
+					pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_COLOR_MODE, 1);
+
+					uint tex[1] = {getTexture(TEXTURE_WHITE)->id};
+					glBindTextures(0,1,tex);
+					
+					pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_VERTS, dc.verts, dc.size);
+
+					Vec4 c[4] = {colorSRGB(dc.colors[0]), colorSRGB(dc.colors[1]), colorSRGB(dc.colors[2]), colorSRGB(dc.colors[3])};
+					pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_COLORS, c, dc.size);
+					// pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_COLORS, dc.colors, dc.size);
+					// pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_COLOR, vec4(1,1,1,1).e);
+
+					if(dc.size == 4) {
+						glDrawArraysInstancedBaseInstance(GL_QUADS, 0, dc.size, 1, 0);
+					} else {
+						glDrawArraysInstancedBaseInstance(GL_TRIANGLES, 0, dc.size, 1, 0);
+					}
+
+					pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_COLOR_MODE, 0);
 				}
 
 			} break;

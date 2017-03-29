@@ -290,6 +290,8 @@ enum QuadUniforms {
 	
 	QUAD_UNIFORM_PRIMITIVE_MODE,
 	QUAD_UNIFORM_VERTS,
+	QUAD_UNIFORM_COLORS,
+	QUAD_UNIFORM_COLOR_MODE,
 
 	QUAD_UNIFORM_SIZE,
 };
@@ -303,6 +305,9 @@ ShaderUniformType quadShaderUniformType[] = {
 
 	{UNIFORM_TYPE_INT, "primitiveMode"},
 	{UNIFORM_TYPE_VEC2, "verts"},
+
+	{UNIFORM_TYPE_VEC4, "colors"},
+	{UNIFORM_TYPE_INT, "colorMode"},
 };
 
 const char* vertexShaderQuad = GLSL (
@@ -328,6 +333,9 @@ const char* vertexShaderQuad = GLSL (
 
 	uniform bool primitiveMode = false;
 	uniform vec2 verts[32];
+	
+	uniform vec4 colors[32];
+	uniform bool colorMode = false;
 
 	out gl_PerVertex { vec4 gl_Position; };
 	smooth out vec3 uv;
@@ -337,7 +345,12 @@ const char* vertexShaderQuad = GLSL (
 
 		if(primitiveMode) {
 			uv = vec3(0,0,-1);
-			Color = setColor;
+
+			if(!colorMode) {
+				Color = setColor;
+			} else {
+				Color = colors[gl_VertexID];
+			}
 
 			vec2 model = verts[gl_VertexID];
 			vec2 view = model/(camera.zw*0.5f) - camera.xy/(camera.zw*0.5f);

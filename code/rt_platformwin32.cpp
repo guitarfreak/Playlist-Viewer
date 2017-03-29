@@ -230,8 +230,6 @@ void systemDataInit(SystemData* sd, HINSTANCE instance) {
 	sd->instance = instance;
 }
 
-// int globalMouseX, globalMouseY;
-
 LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch(message) {
         case WM_DESTROY: {
@@ -254,6 +252,12 @@ LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LP
     return 1;
 }
 
+struct MonitorData {
+	Rect fullRect;
+	Rect workRect;
+	HMONITOR handle;
+};
+
 struct WindowSettings {
 	Vec2i res;
 	Vec2i fullRes;
@@ -261,12 +265,32 @@ struct WindowSettings {
 	uint style;
 	WINDOWPLACEMENT g_wpPrev;
 
+	MonitorData monitors[3];
+	int monitorCount;
+
 	Vec2i currentRes;
 	float aspectRatio;
 };
 
-void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, Vec2i res, bool resizable, bool maximizable, bool visible) {
+BOOL CALLBACK monitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor, LPARAM dwData) {
+
+	MONITORINFO mi = { sizeof(MONITORINFO) };
+	GetMonitorInfo(hMonitor, &mi);
+
+	WindowSettings* ws = (WindowSettings*)(dwData);
+	MonitorData* md = ws->monitors + ws->monitorCount;
+	md->fullRect = rect(mi.rcMonitor.left, mi.rcMonitor.bottom, mi.rcMonitor.right, mi.rcMonitor.top);
+	md->workRect = rect(mi.rcWork.left, mi.rcWork.bottom, mi.rcWork.right, mi.rcWork.top);
+	md->handle = hMonitor;
+	ws->monitorCount++;
+
+	return true;
+}
+
+void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, Vec2i res, bool resizable, bool maximizable, bool visible, int monitor = 0) {
 	systemData->windowsData = wData;
+
+	EnumDisplayMonitors(0, 0, monitorEnumProc, ((LPARAM)ws));
 
 	ws->currentRes = res;
 	ws->fullscreen = false;
@@ -274,38 +298,42 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	ws->fullRes.y = GetSystemMetrics(SM_CYSCREEN);
 	ws->aspectRatio = (float)res.w / (float)res.h;
 
+	// ws->style = WS_OVERLAPPED;
 	// ws->style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 	// if(resizable) ws->style |= WS_THICKFRAME;
 	// if(maximizable) ws->style |= WS_MAXIMIZEBOX;
 	// if(visible) ws->style |= WS_VISIBLE;
 
-	// ws->style = 0;
-	// ws->style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
-	
 	// ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
-	ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
-	// ws->style = WS_POPUP| WS_SYSMENU;
-
+	// ws->style = WS_POPUP | WS_BORDER;
+	// ws->style = WS_POPUP | WS_VISIBLE | WS_CAPTION;
+	ws->style = WS_POPUP;
 
 	RECT cr = {0, 0, res.w, res.h};
 	AdjustWindowRectEx(&cr, ws->style, 0, 0);
 
 	int ww = cr.right - cr.left;
 	int wh = cr.bottom - cr.top;
-	int wx = ws->fullRes.x/2 - ww/2;
-	int wy = ws->fullRes.y/2 - wh/2;
+	// int wx = ws->fullRes.x/2 - ww/2;
+	// int wy = ws->fullRes.y/2 - wh/2;
+	int wx, wy;
+	{
+		MonitorData* md = ws->monitors + monitor;
+		wx = rectGetCen(md->workRect).x - res.w/2;
+		wy = rectGetCen(md->workRect).y - res.h/2;
+	}
 	ws->res = vec2i(ww, wh);
-
-
 
     WNDCLASS windowClass = {};
     windowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
+    // windowClass.style = CS_HREDRAW|CS_VREDRAW;
     // windowClass.style = CS_OWNDC;
     windowClass.lpfnWndProc = mainWindowCallBack;
     windowClass.hInstance = systemData->instance;
     windowClass.lpszClassName = "App";
     windowClass.hCursor = LoadCursor(0, IDC_ARROW);
     // windowClass.hbrBackground = CreateSolidBrush(RGB(30,30,30));
+    // windowClass.hbrBackground = (HBRUSH)CreateSolidBrush(0x00000000);
 
     if(!RegisterClass(&windowClass)) {
         DWORD errorCode = GetLastError();
@@ -320,13 +348,20 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 
 	SetFocus(systemData->windowHandle);
 
+	// DWM_BLURBEHIND bb = {0};
+	// HRGN hRgn = CreateRectRgn(0, 0, -1, -1);
+	// bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
+	// bb.hRgnBlur = hRgn;
+	// bb.fEnable = TRUE;
+	// DwmEnableBlurBehindWindow(systemData->windowHandle, &bb);
+
     PIXELFORMATDESCRIPTOR pixelFormatDescriptor =
     {
         +    sizeof(PIXELFORMATDESCRIPTOR),
         1,
-        PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,    //Flags
+        /*PFD_SUPPORT_COMPOSITION |*/ PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,    //Flags
         PFD_TYPE_RGBA,            //The kind of framebuffer. RGBA or palette.
-        24,                        //Colordepth of the framebuffer.
+        32,                        //Colordepth of the framebuffer.
         0, 0, 0, 0, 0, 0,
         0, //8
         0,
@@ -375,7 +410,7 @@ void showWindow(HWND windowHandle) {
 }
 
 void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
-	WaitMessage();
+	// WaitMessage();
 
 	input->anyKey = false;
 

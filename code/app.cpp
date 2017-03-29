@@ -10,9 +10,15 @@
 	- round mod down
     - Just make sure to copy over math.cpp.
 
+	* Add gradient.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
-	- Add gradient.
+	- Dithering.
+	- Date timeline.
+	- Abstract timeline.
+	- Multiple charts stacked.
+	- Mouse hover, show specific data.
+	- Averages and statistics.
 */
 
 
@@ -166,8 +172,6 @@ void downloadYoutubeVideoStatistics(char* idBuffer, char* buffer) {
 
 
 
-
-
 struct AppData {
 	// General.
 
@@ -204,13 +208,14 @@ struct AppData {
 	int dragOffsetX, dragOffsetY;
 	int resizeOffsetX, resizeOffsetY;
 
-	bool noFrameUpdate;
-
 	// App.
 
 	YoutubeVideo videos[1000];
 	int videoCount;
 	GraphCam cam;
+
+	double dates[1000];
+	
 };
 
 // AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw
@@ -342,14 +347,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 		getPMemory(sizeof(AppData));
 		*ad = {};
 		
-		initSystem(systemData, ws, windowsData, vec2i(1920, 1080), true, true, true);
+		initSystem(systemData, ws, windowsData, vec2i(1920*0.75f, 1080*0.75f), true, true, true, 1);
 		windowHandle = systemData->windowHandle;
 
 		loadFunctions();
+
+		const char* extensions = wglGetExtensionsStringEXT();
+
 		wglSwapIntervalEXT(1);
+		int fps = wglGetSwapIntervalEXT();
 
 		initInput(&ad->input);
-
 
 		//
 		// Setup shaders and uniforms.
@@ -483,8 +491,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->frameCount++;
 	}
 
-	if(input->keysPressed[KEYCODE_R]) ReleaseCapture();
-
 	// Handle recording.
 	{
 		if(ds->recordingInput) {
@@ -514,33 +520,14 @@ extern "C" APPMAINFUNCTION(appMain) {
     	*isRunning = false;
     }
 
-	if(input->keysPressed[KEYCODE_F1]) {
-		int mode;
-		if(ws->fullscreen) mode = WINDOW_MODE_WINDOWED;
-		else mode = WINDOW_MODE_FULLBORDERLESS;
-		setWindowMode(windowHandle, ws, mode);
-	}
-
-	if(input->keysPressed[KEYCODE_F2]) {
-		static bool switchMonitor = false;
-
-		setWindowMode(windowHandle, ws, WINDOW_MODE_WINDOWED);
-
-		if(!switchMonitor) setWindowProperties(windowHandle, 1, 1, 1920, 0);
-		else setWindowProperties(windowHandle, 1920, 1080, -1920, 0);
-		switchMonitor = !switchMonitor;
-
-		setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
-	}
 
 
-
-	if(input->mouseButtonPressed[1]) {
+	if(input->mouseButtonPressed[0]) {
 		POINT p;
 		GetCursorPos(&p);
 		ScreenToClient(windowHandle, &p);
-		ad->dragOffsetX = p.x + 1; // Border size.
-		ad->dragOffsetY = p.y + 1;
+		ad->dragOffsetX = p.x; // Border size.
+		ad->dragOffsetY = p.y;
 
 		RECT r;
 		GetWindowRect(windowHandle, &r);
@@ -554,10 +541,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	} 
 
-	if(input->mouseButtonReleased[1]) {
+	if(input->mouseButtonReleased[0]) {
 		ad->resizeMode = false;
 		ad->dragMode = false;
 	}
+
+	bool updateWindow = false;
+	int updateWindowX = 0;
+	int updateWindowY = 0;
+	int updateWidth = 0;
+	int updateHeight = 0;
 
 	if(ad->resizeMode) {
 		POINT ps;
@@ -569,7 +562,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		int newWidth = clampMin(ps.x + ad->resizeOffsetX, 300);
 		int newHeight = clampMin(ps.y + ad->resizeOffsetY, 300);
-		MoveWindow(windowHandle, r.left, r.top, newWidth, newHeight, true);
+
+		updateWindow = true;
+
+		updateWindowX = r.left;
+		updateWindowY = r.top;
+		updateWidth = newWidth;
+		updateHeight = newHeight;
+		
+		ws->currentRes.w = newWidth;
+		ws->currentRes.h = newHeight;
+		ws->aspectRatio = ws->currentRes.x / (float)ws->currentRes.y;
+
+		ad->updateFrameBuffers = true;
 	}
 
 	if(ad->dragMode) {
@@ -582,16 +587,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 		MoveWindow(windowHandle, p.x - ad->dragOffsetX, p.y - ad->dragOffsetY, r.right-r.left, r.bottom-r.top, true);
 	}
 
-	if(input->keysPressed[KEYCODE_F12]) {
-		ad->noFrameUpdate = !ad->noFrameUpdate;
-	} 
-
-	if(ad->noFrameUpdate) goto endOfMainLabel;
-
-	if(windowSizeChanged(windowHandle, ws)) {
-		if(!windowIsMinimized(windowHandle)) {
-			updateResolution(windowHandle, ws);
-			ad->updateFrameBuffers = true;
+	if(!updateWindow) {
+		if(windowSizeChanged(windowHandle, ws)) {
+			if(!windowIsMinimized(windowHandle)) {
+				updateResolution(windowHandle, ws);
+				ad->updateFrameBuffers = true;
+			}
 		}
 	}
 
@@ -610,7 +611,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec2 reflectionRes = vec2(s);
 
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2d, ws->currentRes.w, ws->currentRes.h);
-
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, ws->currentRes.w, ws->currentRes.h);
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, ws->currentRes.w, ws->currentRes.h);
 	}
@@ -651,9 +651,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Clear all the framebuffers and window backbuffer.
 	{
-		glClearColor(0,0,0,1);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glClear(GL_COLOR_BUFFER_BIT);
+		glClearColor(0,0,0,0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		bindFrameBuffer(FRAMEBUFFER_2d);
 		glClearColor(0,0,0,0);
@@ -670,6 +670,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Setup opengl.
 	{
+		// glEnable(GL_DITHER);
+
 		// glDepthRange(-1.0,1.0);
 		glFrontFace(GL_CW);
 		glEnable(GL_DEPTH_TEST);
@@ -693,7 +695,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
 
-		glViewport(0,0, ad->cur3dBufferRes.x, ad->cur3dBufferRes.y);
+		// glViewport(0,0, ad->cur3dBufferRes.x, ad->cur3dBufferRes.y);
 	}
 
 	TIMER_BLOCK_END(openglInit);
@@ -769,6 +771,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
 
+
 	// if(input->keysPressed[KEYCODE_S]) {
 	if(false) {
 		FILE* file = fopen("videos.sav", "wb");
@@ -789,7 +792,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->cam.xMax = ad->videoCount;
 		ad->cam.w = ad->videoCount;
 	}
-
 
 	{
 		YoutubeVideo videodMaximums = {};
@@ -830,8 +832,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		float g = 0.15f;
 		dcRect(screenRect, vec4(0.4f,g,g,1));
-		float w = 0.10f;
-		dcRect(rGraph, vec4(w,w,w,1));
+		// float w = 0.10f;
+		// dcRect(rGraph, vec4(w,w,w,1));
+
+		Vec4 graphColor2 = vec4(0.1f, 0.1f, 0.2f, 1);
+		Vec4 graphColor1 = vec4(0.2f, 0.1f, 0.4f, 1);
+
+		dcPrimitive2d(rGraph.min, rectGetUL(rGraph), rGraph.max, rectGetDR(rGraph), 
+		              graphColor1, graphColor2, graphColor2, graphColor1);
+
 
 		if(init) {
 			Vec2 camMin = vec2(0,0);
@@ -857,7 +866,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			graphCamSizeClamp(cam);
 
-			if(input->mouseButtonDown[0] && input->mouseDelta != vec2(0,0)) {
+			if(input->mouseButtonDown[1] && input->mouseDelta != vec2(0,0)) {
 				graphCamTrans(cam, -input->mouseDelta.x, input->mouseDelta.y);
 			}
 
@@ -866,14 +875,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Draw left text.
 		{
-			// dcLine2d(vec2(rLeftText.right - 4,rLeftText.bottom), vec2(rLeftText.right - 4,rLeftText.bottom + h), vec4(1,0,0,1));
-
 			Rect scaleRect = rLeftText;
 
 			float g = 0.9f;
 			Vec4 mainColor = vec4(g,g,g,1);
 			g = 0.6f;
 			Vec4 semiColor = vec4(g,g,g,1);
+			Vec4 horiLinesColor = vec4(1,1,1,0.03f);
+
 			float markLength = 10;
 			float fontMargin = 4;
 			float div = 10;
@@ -881,7 +890,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			dcState(STATE_LINEWIDTH, 2);
 			dcEnable(STATE_SCISSOR);
-			dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+			// dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+			dcScissor(scissorRectScreenSpace(screenRect, res.h));
 
 			float splitSize = splitSizePixels * (cam->h / rectGetH(cam->viewPort));
 			float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
@@ -894,6 +904,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				float y = graphCamMapY(cam, p);
 				dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
 				dcText(fillString("%i",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+
+				dcLine2d(vec2(scaleRect.right, y), vec2(rGraph.right, y), horiLinesColor); 
 
 				// Semi markers.
 				// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
@@ -918,6 +930,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Vec4 mainColor = vec4(g,g,g,1);
 			g = 0.6f;
 			Vec4 semiColor = vec4(g,g,g,1);
+			Vec4 horiLinesColor = vec4(1,1,1,0.03f);
+
 			float markLength = 10;
 			float fontMargin = 4;
 			float div = 10;
@@ -925,7 +939,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			dcState(STATE_LINEWIDTH, 2);
 			dcEnable(STATE_SCISSOR);
-			dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+			// dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+			dcScissor(scissorRectScreenSpace(screenRect, res.h));
 
 			float splitSize = splitSizePixels * (cam->w / rectGetW(cam->viewPort));
 			float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
@@ -938,6 +953,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				float x = graphCamMapX(cam, p);
 				dcLine2dOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
 				dcText(fillString("%i",(int)p), font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+
+				dcLine2d(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
 
 				// Semi markers.
 				// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
@@ -977,8 +994,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 			dcLine2d(graphCamMap(cam, i, vids[i].commentCount), graphCamMap(cam, i+1, vids[i+1].commentCount), vec4(1,0.3f,0.8f,1));
 		}
 		dcDisable(STATE_SCISSOR);
-	}
 
+		// Border.
+		float w = 0.8f;
+		Vec4 borderColor = vec4(w,w,w,1);
+		dcLine2d(vec2(screenRect.left+1, screenRect.bottom), vec2(screenRect.left+1, screenRect.top), borderColor);
+		dcLine2d(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
+		dcLine2d(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
+		dcLine2d(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
+	}
 
 
 	endOfMainLabel:
@@ -991,41 +1015,39 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		bindShader(SHADER_QUAD);
 		glDisable(GL_DEPTH_TEST);
-		ortho(rect(0, -ws->currentRes.h, ws->currentRes.w, 0));
 
-		bindFrameBuffer(FRAMEBUFFER_2d);
+		ortho(rect(0, -ws->currentRes.h, ws->currentRes.w, 0));
 		glViewport(0,0, ws->currentRes.x, ws->currentRes.y);
 
-		if(!ad->noFrameUpdate) {
-			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-			glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+		bindFrameBuffer(FRAMEBUFFER_2d);
 
-			bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
-			executeCommandList(&ad->commandList2d);
+		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 
-			double timeStamp = timerInit();
-				executeCommandList(&ds->commandListDebug, false, reload);
-			static double tempTime = 0;
-			tempTime += ds->dt;
-			if(tempTime >= 1) {
-				ds->debugRenderTime = timerUpdate(timeStamp);
-				tempTime = 0;
-			}
+		bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
+		executeCommandList(&ad->commandList2d);
 
-			blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-
-			glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-			glBlendEquation(GL_FUNC_ADD);
-
-			bindFrameBuffer(FRAMEBUFFER_2d);
-			drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1,1,ds->guiAlpha), rect(0,1,1,0), 
-			         getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
-
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glBlendEquation(GL_FUNC_ADD);
-
+		double timeStamp = timerInit();
+			executeCommandList(&ds->commandListDebug, false, reload);
+		static double tempTime = 0;
+		tempTime += ds->dt;
+		if(tempTime >= 1) {
+			ds->debugRenderTime = timerUpdate(timeStamp);
+			tempTime = 0;
 		}
+
+		blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+
+		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+		glBlendEquation(GL_FUNC_ADD);
+
+		bindFrameBuffer(FRAMEBUFFER_2d);
+		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1,1,ds->guiAlpha), rect(0,1,1,0), 
+		         getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
+
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glBlendEquation(GL_FUNC_ADD);
 
 
 		#if USE_SRGB 
@@ -1039,15 +1061,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 		#if USE_SRGB
 			glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
-
 	}
-
-
-
 
 	// Swap window background buffer.
 	{
 		TIMER_BLOCK_NAMED("Swap");
+		if(updateWindow) MoveWindow(windowHandle, updateWindowX, updateWindowY, updateWidth, updateHeight, true);
 		swapBuffers(&ad->systemData);
 		glFinish();
 
@@ -2148,7 +2167,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		// dcText(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		// dcText(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		// dcText(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
-
 
 		for(int i = 0; i < ds->infoStackCount; i++) {
 			dcText(fillString("%s", ds->infoStack[i]), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
