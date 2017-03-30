@@ -501,6 +501,17 @@ void loadTextureFromFile(Texture* texture, char* path, int mipLevels, int intern
 	stbi_image_free(stbData);
 }
 
+void loadTextureFromMemory(Texture* texture, char* buffer, int length, int mipLevels, int internalFormat, int channelType, int channelFormat, bool reload = false) {
+	int x,y,n;
+	unsigned char* stbData = stbi_load_from_memory((uchar*)buffer, length, &x, &y, &n, 0);
+
+	if(mipLevels == -1) mipLevels = getMaximumMipmapsFromSize(min(x,y));
+	
+	loadTexture(texture, stbData, x, y, mipLevels, internalFormat, channelType, channelFormat, reload);
+
+	stbi_image_free(stbData);
+}
+
 void createTexture(Texture* texture, bool isRenderBuffer = false) {	
 	if(!isRenderBuffer) glCreateTextures(GL_TEXTURE_2D, 1, &texture->id);
 	else glCreateRenderbuffers(1, &texture->id);
@@ -770,8 +781,10 @@ Font* getFont(int fontId, int height) {
 		font.id = fontId;
 		font.height = height;
 		font.baseOffset = 0.8f;
-		font.glyphStart = 32;
-		font.glyphCount = 95;
+		// font.glyphStart = 32;
+		// font.glyphCount = 95;
+		font.glyphStart = 0;
+		font.glyphCount = 256;
 		font.cData = (stbtt_bakedchar*)getPMemory(sizeof(stbtt_bakedchar)*font.glyphCount);
 		stbtt_BakeFontBitmap((unsigned char*)fileBuffer, 0, font.height, fontBitmapBuffer, size.w, size.h, font.glyphStart, font.glyphCount, font.cData);
 		for(int i = 0; i < size.w*size.h; i++) {
@@ -938,7 +951,7 @@ enum TextStatus {
 	TEXTSTATUS_SIZE, 
 };
 
-void getTextQuad(char c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
+void getTextQuad(uchar c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	stbtt_aligned_quad q;
 	stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
 
@@ -949,7 +962,7 @@ void getTextQuad(char c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	*uv = rect(q.s0, q.t0, q.s1, q.t1);
 }
 
-float getCharAdvance(char c, Font* font) {
+float getCharAdvance(uchar c, Font* font) {
 	float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
 	return result;
 }
@@ -1004,12 +1017,12 @@ int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPo
 	Vec2 oldPos = tsi->pos;
 
 	int i = tsi->index;
-	char t = text[i];
+	uchar t = text[i];
 
 	bool wrapped = false;
 
 	if(wrapWidth != 0 && i == tsi->wrapIndex) {
-		char c = text[i];
+		uchar c = text[i];
 		float wordWidth = 0;
 		if(c == '\n') wordWidth = getCharAdvance(c, font);
 

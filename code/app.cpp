@@ -10,19 +10,22 @@
 	- round mod down
     - Just make sure to copy over math.cpp.
 	- Vec4 (float color, float alpha)
+	- Draw text functions use uchar now.
 
 	* Add gradient.
+	* Fix curser selection to go to nearest.
+	* Multiple charts stacked.
+	* Click on point and open chrome to youtube video.
+	* Scale jpg with size.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
 	- Dithering.
 	- Date timeline.
 	- Abstract timeline.
-	- Multiple charts stacked.
 	- Mouse hover, show specific data.
 	- Averages and statistics.
 	- Debug gui stuff should disable app input when needed. (Mouse dragging, for example.)
 
-	- Click on point and open chrome to youtube video.
 	- Zoom stages for bottom timeline.
 	- Combine 2 graphs again and do h scroll with side bars.
 	- Unicode for comments.
@@ -42,6 +45,21 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
+
+#include "external/curl/curl.h"
+
+typedef CURLcode curl_global_initFunction(long flags);
+typedef CURL *curl_easy_initFunction(void);
+typedef CURLcode curl_easy_setoptFunction(CURL *curl, CURLoption option, ...);
+typedef CURLcode curl_easy_performFunction(CURL *curl);
+typedef void curl_easy_cleanupFunction(CURL *curl);
+
+curl_global_initFunction* curl_global_initX;
+curl_easy_initFunction* curl_easy_initX;
+curl_easy_setoptFunction* curl_easy_setoptX;
+curl_easy_performFunction* curl_easy_performX;
+curl_easy_cleanupFunction* curl_easy_cleanupX;
+
 
 
 struct ThreadQueue;
@@ -78,8 +96,37 @@ Timer* globalTimer;
 
 #include "debug.cpp"
 
+void loadCurlFunctions(HMODULE dll) {
+	curl_global_initX = (curl_global_initFunction*)GetProcAddress(dll, "curl_global_init");
+	curl_easy_initX = (curl_easy_initFunction*)GetProcAddress(dll, "curl_easy_init");
+	curl_easy_setoptX = (curl_easy_setoptFunction*)GetProcAddress(dll, "curl_easy_setopt");
+	curl_easy_performX = (curl_easy_performFunction*)GetProcAddress(dll, "curl_easy_perform");
+	curl_easy_cleanupX = (curl_easy_cleanupFunction*)GetProcAddress(dll, "curl_easy_cleanup");
+}
 
+struct CurlData {
+	char* buffer;
+	int size;
+};
 
+size_t curlWrite(void *buffer, size_t size, size_t nmemb, void *userp) {
+	CurlData* cd = (CurlData*)userp;
+	memCpy(cd->buffer + cd->size, buffer, nmemb);
+	cd->size += nmemb;
+
+	return nmemb;
+}
+
+int curlRequest(CURL* curlHandle, char* request, char* buffer) {
+	CurlData cd = {buffer, 0};
+	curl_easy_setoptX(curlHandle, CURLOPT_WRITEDATA, &cd);
+	curl_easy_setoptX(curlHandle, CURLOPT_URL, request);
+
+	int success = curl_easy_performX(curlHandle);
+	myAssert(success == 0);
+
+	return cd.size;
+}
 
 char* stringGetBetween(char* buffer, char* leftToken, char* rightToken, int* advance = 0) {
 	char* string;
@@ -172,15 +219,7 @@ int maxDownloadCount = 40;
 char* moinmoinPlaylist = "PLsksxTH4pR3KZe3wbmAP2Tgn6rfhbDlBH";
 char* moinmoinFile = "MoinMoin.playlist";
 
-void executeSystemCommandIntoBuffer(char* command, char* buffer) {
-	char* c = fillString("%s > %s", command, tempFile);
-	system(c);
-	int size = readFileToBuffer(buffer, tempFile);
-	int stop = 234;
-}
-
-int getYoutubePlaylistSize(char* playlistId) {
-
+int getYoutubePlaylistSize(CURL* curlHandle, char* playlistId) {
 	char* request = getTString(1000); strClear(request);
 	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylistItems, apiKey));
 	strAppend(request, "&maxResults=1");
@@ -188,8 +227,7 @@ int getYoutubePlaylistSize(char* playlistId) {
 	strAppend(request, "&part=contentDetails");
 
 	char* message = getTString(1000);
-	char* command = fillString("%s \"%s\"", curlPath, request);
-	executeSystemCommandIntoBuffer(command, message);
+	curlRequest(curlHandle, request, message);
 
 	char* sizeString = stringGetBetween(message, "\"totalResults\": ", ",");
 	int playlistSize = strLen(sizeString) > 0 ? strToInt(sizeString) : 0;
@@ -197,7 +235,7 @@ int getYoutubePlaylistSize(char* playlistId) {
 	return playlistSize;
 }
 
-char* downloadYoutubePlaylistVideoIds(char* playlistId, char* buffer, int count, char* pageToken = 0) {
+char* downloadYoutubePlaylistVideoIds(CURL* curlHandle, char* playlistId, char* buffer, int count, char* pageToken = 0) {
 	char* request = getTString(1000); strClear(request);
 	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylistItems, apiKey));
 	strAppend(request, fillString("&maxResults=%i", count));
@@ -205,15 +243,13 @@ char* downloadYoutubePlaylistVideoIds(char* playlistId, char* buffer, int count,
 	strAppend(request, "&part=contentDetails");
 	if(pageToken) strAppend(request, fillString("&pageToken=%s", pageToken));
 
-	strClear(buffer);
-	char* command = fillString("%s \"%s\"", curlPath, request);
-	executeSystemCommandIntoBuffer(command, buffer);
+	curlRequest(curlHandle, request, buffer);
 
 	char* nextPageToken = stringGetBetween(buffer, "\"nextPageToken\": \"", "\"");
 	return nextPageToken;
 }
 
-void downloadYoutubeVideoStatistics(char* idBuffer, char* buffer) {
+void downloadYoutubeVideoStatistics(CURL* curlHandle, char* idBuffer, char* buffer) {
 	char* request = getTString(kiloBytes(20)); strClear(request);
 	strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
 	strAppend(request, "&part=statistics");
@@ -228,9 +264,116 @@ void downloadYoutubeVideoStatistics(char* idBuffer, char* buffer) {
 		idBuffer += advance;
 	}
 
-	strClear(buffer);
-	char* command = fillString("%s \"%s\"", curlPath, request);
-	executeSystemCommandIntoBuffer(command, buffer);
+	curlRequest(curlHandle, request, buffer);
+}
+
+struct VideoSnippet {
+	bool selectedLoaded;
+	char* selectedTitle;
+	char* selectedTopComments[10];
+	int selectedCommentLikeCount[10];
+	int selectedCommentReplyCount[10];
+	int selectedCommentCount;
+	char* thumbnail;
+	int thumbnailWidth;	
+	int thumbnailHeight;	
+	Texture thumbnailTexture;
+};
+
+void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo* vid, char* buffer) {
+
+	// Get title.
+	{
+		char* request = getTString(kiloBytes(20)); strClear(request);
+		strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
+		strAppend(request, fillString("&id=%s", vid->id));
+
+		strAppend(request, "&part=snippet");
+		strAppend(request, "&textFormat=plainText");
+		// strAppend(request, "&maxResults=5");
+
+		curlRequest(curlHandle, request, buffer);
+
+		int advance;
+		char* title = stringGetBetween(buffer, "\"title\": \"", "\",", &advance); buffer += advance;
+		snippet->selectedTitle = getPString(strLen(title) + 1);
+		strCpy(snippet->selectedTitle, title);
+
+
+		// Thumbnail.
+		// default, medium, high, standard, maxres.
+		int pos = strFind(buffer, "\"medium\":"); buffer += pos;
+		char* thumbnailUrl = stringGetBetween(buffer, "\"url\": \"", "\",", &advance); buffer += advance;
+		snippet->thumbnail = getPString(strLen(thumbnailUrl) + 1);
+		strCpy(snippet->thumbnail, thumbnailUrl);
+
+		char* content = stringGetBetween(buffer, "\"width\": ", ",", &advance); buffer += advance;
+		snippet->thumbnailWidth = strToInt(content);
+
+		content = stringGetBetween(buffer, "\"height\": ", ",", &advance); buffer += advance;
+		snippet->thumbnailHeight = strToInt(content);	
+	}
+
+	// Download thumbnail and upload texture.
+	{
+		int size = curlRequest(curlHandle, snippet->thumbnail, buffer);
+		if(snippet->thumbnailTexture.id != -1) deleteTexture(&snippet->thumbnailTexture);
+		loadTextureFromMemory(&snippet->thumbnailTexture, buffer, size, -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
+	}
+
+	// Get comments.
+	{
+		int commentCount = 10;
+		snippet->selectedCommentCount = 0;
+
+		char* request = getTString(kiloBytes(20)); strClear(request);
+		strAppend(request, fillString("%s?key=%s", youtubeApiCommentThread, apiKey));
+		strAppend(request, fillString("&videoId=%s", vid->id));
+
+		strAppend(request, "&maxResults=%i", commentCount);
+		strAppend(request, "&part=snippet");
+		strAppend(request, "&order=relevance");
+		strAppend(request, "&textFormat=plainText");
+
+		int size = curlRequest(curlHandle, request, buffer);
+
+		char* content;
+		int advance;
+		for(int i = 0; i < commentCount; i++) {
+			content = stringGetBetween(buffer, "\"textOriginal\": \"", "\",", &advance); buffer += advance; // textDisplay
+			int slen = strLen(content);
+			char* s = getPString(slen + 1);
+			strCpy(s, content);
+
+			// Replace \n with real new lines.
+			char* temp = s;
+			int index = 0;
+			for(;;) {
+				int pos = strFind(temp, "\\n");
+				if(index+pos > slen) break;
+				if(pos == -1) break;
+				temp[pos] = '\n';
+				strErase(temp, pos+1, 1);
+				index += pos+1;
+				temp += pos+1;
+			}
+			// int l = strLen(s);
+			// for(int i = 0; i < l; i++) {
+			// 	if(s[i] == 'ö') s[i] = 'o';
+			// 	else if(s[i] == 'ä') s[i] = 'a';
+			// 	else if(s[i] == 'ü') s[i] = 'u';
+			// }
+			snippet->selectedTopComments[snippet->selectedCommentCount] = s;
+
+			content = stringGetBetween(buffer, "\"likeCount\": ", ",", &advance); buffer += advance;
+			snippet->selectedCommentLikeCount[snippet->selectedCommentCount] = strToInt(content);
+
+			content = stringGetBetween(buffer, "\"totalReplyCount\": ", ",", &advance); buffer += advance;
+			snippet->selectedCommentReplyCount[snippet->selectedCommentCount] = strToInt(content);
+
+			snippet->selectedCommentCount++;
+		}
+	}
 }
 
 
@@ -273,22 +416,16 @@ struct AppData {
 
 	// App.
 
+	CURL* curlHandle;
+	HMODULE curlDll;
+
 	YoutubeVideo videos[1000];
 	int videoCount;
 	GraphCam cam, camLikes;
 	int heightMoveMode;
 
 	int selectedVideo;
-	bool selectedLoaded;
-	char* selectedTitle;
-	char* selectedTopComments[10];
-	int selectedCommentLikeCount[10];
-	int selectedCommentReplyCount[10];
-	int selectedCommentCount;
-	char* thumbnail;
-	int thumbnailWidth;	
-	int thumbnailHeight;	
-	Texture thumbnailTexture;
+	VideoSnippet videoSnippet;
 };
 
 
@@ -428,6 +565,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		initInput(&ad->input);
 
+		// Init curl.
+
+		ad->curlDll = LoadLibraryA("libcurl.dll");
+		loadCurlFunctions(ad->curlDll);
+
 		//
 		// Setup shaders and uniforms.
 		//
@@ -511,6 +653,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->updateFrameBuffers = true;
 		}
 
+		//
+
+		curl_global_initX(CURL_GLOBAL_ALL);
+		ad->curlHandle = curl_easy_initX();
+		curl_easy_setoptX(ad->curlHandle, CURLOPT_WRITEFUNCTION, curlWrite);
+		// curl_easy_setoptX(curlHandle, CURLOPT_WRITEDATA, &internal_struct);
+
+		ad->videoSnippet.thumbnailTexture.id = -1;
 	}
 
 	// @AppStart.
@@ -524,6 +674,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(HOTRELOAD_SHADERS) {
 			loadShaders();
 		}
+
+		loadCurlFunctions(ad->curlDll);
+		curl_easy_setoptX(ad->curlHandle, CURLOPT_WRITEFUNCTION, curlWrite);
 	}
 
 	TIMER_BLOCK_END(reload);
@@ -708,7 +861,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		int bufSize = 1000;
 		char* messageLog = getTString(bufSize);
-
 		memSet(messageLog, 0, bufSize);
 
 		uint fetchedLogs = 1;
@@ -778,18 +930,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-
-
-
 	// @AppLoop.
 
-	// if(input->keysPressed[KEYCODE_RETURN]) { 
-	if(false) { 
+	if(input->keysPressed[KEYCODE_T]) { 
+	// if(false) { 
 
 		char* playlist = moinmoinPlaylist;
 		char* playlistFile = moinmoinFile;
 		// int count = 50;
-		int count = getYoutubePlaylistSize(moinmoinPlaylist);
+		int count = getYoutubePlaylistSize(ad->curlHandle, moinmoinPlaylist);
+		// int count = 50;
 		YoutubeVideo* vids = getTArray(YoutubeVideo, count);
 
 		char* pageToken = 0;
@@ -804,8 +954,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			strClear(idBuffer);
 			strClear(statBuffer);
-			pageToken = downloadYoutubePlaylistVideoIds(playlist, idBuffer, dCount, pageToken);
-			downloadYoutubeVideoStatistics(idBuffer, statBuffer);
+			pageToken = downloadYoutubePlaylistVideoIds(ad->curlHandle, playlist, idBuffer, dCount, pageToken);
+			downloadYoutubeVideoStatistics(ad->curlHandle, idBuffer, statBuffer);
 
 			{
 				int index = i;
@@ -861,74 +1011,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		fclose(file);
 	}
 
-	// if(input->keysPressed[KEYCODE_RETURN]) {
-	// 	// shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[0].id), false);
-
-	// 	char* request = getTString(kiloBytes(20)); strClear(request);
-	// 	strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
-	// 	strAppend(request, fillString("&id=%s", ad->videos[0].id));
-
-	// 	strAppend(request, "&part=snippet");
-	// 	strAppend(request, "&textFormat=plainText");
-	// 	// strAppend(request, "&maxResults=5");
-
-	// 	char* buffer = (char*)getTMemory(megaBytes(1)); 
-	// 	strClear(buffer);
-	// 	char* command = fillString("%s \"%s\"", curlPath, request);
-	// 	executeSystemCommandIntoBuffer(command, buffer);
-
- //    // "title": "#MoinMoin mit Etienne | 26.01.2015",
-	// }
-
-	/*
-	Video content:
-	contentDetails: 2
-	    "duration": "PT40M40S",
-	snippet: 2
-	    "title": 
-	    "description": 
-	    "thumbnails": 
-
-	Comment threads: videoId
-	id: 0
-	   "id": 
-	snippet: 2
-		{
-		 "kind": "youtube#commentThread",
-		 "etag": "\"uQc-MPTsstrHkQcRXL3IWLmeNsM/MBbNvrsBzY7-av-XMbTzzbff2NE\"",
-		 "id": "z12rstopwt34x5b1m23iv5jojxmtwhyid04",
-		 "snippet": {
-		  "videoId": "r9EXi04PKok",
-		  "topLevelComment": {
-		   "kind": "youtube#comment",
-		   "etag": "\"uQc-MPTsstrHkQcRXL3IWLmeNsM/LVqjnzdlHf1-wICDVpqskIoOyew\"",
-		   "id": "z12rstopwt34x5b1m23iv5jojxmtwhyid04",
-		   "snippet": {
-		    "authorDisplayName": "RecaGameTV",
-		    "authorProfileImageUrl": "https://yt3.ggpht.com/-V1AvMui7D1g/AAAAAAAAAAI/AAAAAAAAAAA/tybF590DxQ0/s28-c-k-no-mo-rj-c0xffffff/photo.jpg",
-		    "authorChannelUrl": "http://www.youtube.com/channel/UCTT3BgQbdaARs0_YTyaXR1g",
-		    "authorChannelId": {
-		     "value": "UCTT3BgQbdaARs0_YTyaXR1g"
-		    },
-		    "videoId": "r9EXi04PKok",
-		    "textDisplay": "Ist das Edes neues Stand Up Programm ? :-D ",
-		    "textOriginal": "Ist das Edes neues Stand Up Programm ? :-D ",
-		    "canRate": false,
-		    "viewerRating": "none",
-		    "likeCount": 22,
-		    "publishedAt": "2015-01-27T01:05:31.000Z",
-		    "updatedAt": "2015-01-27T01:05:31.000Z"
-		   }
-		  },
-		  "canReply": false,
-		  "totalReplyCount": 0,
-		  "isPublic": true
-		 }
-		},
-
-	*/
-
-
 	// if(input->keysPressed[KEYCODE_S]) {
 	// if(false) {
 	// 	FILE* file = fopen("MoinMoin.playlist", "wb");
@@ -974,14 +1056,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec2i res = ws->currentRes;
 		float zoomSpeed = 1.2f;
 
+
 		Rect screenRect = rect(0, -res.h, res.w, 0);
-		Rect rChart = screenRect;
+		float sidePanelWidth = rectGetW(screenRect)*0.25f;
+
+		// Rect rChart = screenRect;
+		Rect rChart = ad->selectedVideo!=-1 ? rect(screenRect.min, screenRect.max - vec2(sidePanelWidth,0)) : screenRect;
 		Rect rGraph = rChart;
 		rGraph.min += vec2(80,font->height*2);
 		Rect rLeftText = rect(rChart.left,rGraph.bottom,rGraph.left,rChart.top);
 		Rect rBottomText = rect(rGraph.left,rChart.bottom,rChart.right,rGraph.bottom);
-		// rLeftText.min.y -= 7;
-		// rBottomText.min.x -= 5;
+		Rect infoRect = rect(screenRect.min + vec2(rectGetW(screenRect)-sidePanelWidth, 0), screenRect.max);
 
 		float graphHeight = rectGetH(rGraph);
 		rGraph.min.y += graphHeight/2;
@@ -1217,117 +1302,33 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		{
 			GraphCam* cam = &ad->cam;
-			for(int i = 0; i < vidCount-1; i++) {
-				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+			for(int i = 0; i < vidCount; i++) {
+				bool lastElement = i < vidCount-1;
+
+				if(lastElement)
+					if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+
 				float x = graphCamMapX(cam, vids[i].date.num) + 1;
-				float x2 = graphCamMapX(cam, vids[i+1].date.num) + 1;
+				float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.num) + 1 : x + 1000000;
 
-				if(input->mousePos.x >= x && input->mousePos.x < x2) {
-					dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
+				if(input->mousePos.x < x + (x2-x)/2) {
+					if(input->mousePos.x >= ad->camLikes.viewPort.left)
+						dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
 
-					addDebugInfo(fillString("%i", i));
+					Font* font = getFont(FONT_CALIBRI, 20);
+					Vec4 c = vec4(1.0f,0.5f,0,1);
+					Vec2 p = rChart.max - vec2(5);
+					dcText(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1));
+					dcText(fillString("%i", i), font, p - vec2(0,font->height), c, vec2i(1,1));
 
 					if(input->mouseButtonPressed[2]) {
-						// shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", vids[i].id));
-						// shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", vids[i].id), false);
-
-						// Get title.
-						{
-							// shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[0].id), false);
-
-							char* request = getTString(kiloBytes(20)); strClear(request);
-							strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
-							strAppend(request, fillString("&id=%s", vids[i].id));
-
-							strAppend(request, "&part=snippet");
-							strAppend(request, "&textFormat=plainText");
-							// strAppend(request, "&maxResults=5");
-
-							char* buffer = (char*)getTMemory(megaBytes(1)); 
-							strClear(buffer);
-							char* command = fillString("%s \"%s\"", curlPath, request);
-							executeSystemCommandIntoBuffer(command, buffer);
-
-							int advance;
-							char* title = stringGetBetween(buffer, "\"title\": \"", "\",", &advance); buffer += advance;
-							ad->selectedTitle = getPString(strLen(title) + 1);
-							strCpy(ad->selectedTitle, title);
-
-
-							// Thumbnail.
-							// default, medium, high, standard, maxres.
-							int pos = strFind(buffer, "\"medium\":"); buffer += pos;
-							char* thumbnailUrl = stringGetBetween(buffer, "\"url\": \"", "\",", &advance); buffer += advance;
-							ad->thumbnail = getPString(strLen(thumbnailUrl) + 1);
-							strCpy(ad->thumbnail, thumbnailUrl);
-
-							char* content = stringGetBetween(buffer, "\"width\": ", ",", &advance); buffer += advance;
-							ad->thumbnailWidth = strToInt(content);
-
-							content = stringGetBetween(buffer, "\"height\": ", ",", &advance); buffer += advance;
-							ad->thumbnailHeight = strToInt(content);	
-						}
-
-						// Download thumbnail and upload texture.
-						{
-							system(fillString("%s \"%s\" > thumbnail.jpg", curlPath, ad->thumbnail));
-							if(ad->selectedVideo != -1) deleteTexture(&ad->thumbnailTexture);
-							loadTextureFromFile(&ad->thumbnailTexture, "thumbnail.jpg", -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
-						}
-
-						// Get comments.
-						{
-							int commentCount = 10;
-							ad->selectedCommentCount = 0;
-
-							char* request = getTString(kiloBytes(20)); strClear(request);
-							strAppend(request, fillString("%s?key=%s", youtubeApiCommentThread, apiKey));
-							strAppend(request, fillString("&videoId=%s", vids[i].id));
-
-							strAppend(request, "&maxResults=%i", commentCount);
-							strAppend(request, "&part=snippet");
-							strAppend(request, "&order=relevance");
-							strAppend(request, "&textFormat=plainText");
-
-							char* buffer = (char*)getTMemory(megaBytes(1)); 
-							strClear(buffer);
-							char* command = fillString("%s \"%s\"", curlPath, request);
-							executeSystemCommandIntoBuffer(command, buffer);
-
-							char* content;
-							int advance;
-							for(int i = 0; i < commentCount; i++) {
-								content = stringGetBetween(buffer, "\"textOriginal\": \"", "\",", &advance); buffer += advance; // textDisplay
-								int slen = strLen(content);
-								char* s = getPString(slen + 1);
-								strCpy(s, content);
-
-								// Replace \n with real new lines.
-								char* temp = s;
-								int index = 0;
-								for(;;) {
-									int pos = strFind(temp, "\\n");
-									if(index+pos > slen) break;
-									if(pos == -1) break;
-									temp[pos] = '\n';
-									strErase(temp, pos+1, 1);
-									index += pos+1;
-									temp += pos+1;
-								}
-								ad->selectedTopComments[ad->selectedCommentCount] = s;
-
-								content = stringGetBetween(buffer, "\"likeCount\": ", ",", &advance); buffer += advance;
-								ad->selectedCommentLikeCount[ad->selectedCommentCount] = strToInt(content);
-
-								content = stringGetBetween(buffer, "\"totalReplyCount\": ", ",", &advance); buffer += advance;
-								ad->selectedCommentReplyCount[ad->selectedCommentCount] = strToInt(content);
-
-								ad->selectedCommentCount++;
-							}
-						}
-
+						ad->videoSnippet.selectedLoaded = false;
 						ad->selectedVideo = i;
-						ad->selectedLoaded = true;
+
+						char* buffer = (char*)getTMemory(megaBytes(1)); 
+						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo, buffer);
+
+						ad->videoSnippet.selectedLoaded = true;
 					}
 
 					break;
@@ -1381,35 +1382,33 @@ extern "C" APPMAINFUNCTION(appMain) {
 		dcText("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
 
 		if(ad->selectedVideo != -1) {
-			Rect infoRect = rChart;
-			// infoRect.min.x = infoRect.right - 400;
-			infoRect.min.x = infoRect.right - rectGetW(rChart)/3;
 			// infoRect = rectExpand(infoRect, -vec2(20,20));
 			dcRect(infoRect, vec4(0,0.9f));
 
 			float border = 20;
 			infoRect = rectExpand(infoRect, -vec2(border,border));
 			Font* font = getFont(FONT_CALIBRI, 20);
+			Font* font2 = getFont(FONT_SOURCESANS_PRO, 20);
 			float xMid = rectGetCen(infoRect).x;
 			float width = rectGetW(infoRect);
 			float yPos = infoRect.top;
-
-
 
 			dcEnable(STATE_SCISSOR);
 			dcScissor(scissorRectScreenSpace(infoRect, res.h));
 
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
+			VideoSnippet* sn = &ad->videoSnippet;
 
 			dcText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
 			yPos -= font->height;
 
-			dcRect(rectCenDim(xMid, yPos - ad->thumbnailHeight/2, ad->thumbnailWidth, ad->thumbnailHeight), rect(0,0,1,1), vec4(1,1), ad->thumbnailTexture.id);
-			yPos -= ad->thumbnailHeight;
+			// dcRect(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
+			Rect imageRect = rect(infoRect.left, yPos - rectGetW(infoRect)*(sn->thumbnailHeight/(float)sn->thumbnailWidth), infoRect.right, yPos);
+			dcRect(imageRect, rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
+			yPos -= rectGetH(imageRect);
 
-
-			dcText(ad->selectedTitle, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
-			yPos -= getTextHeight(ad->selectedTitle, font, vec2(xMid, yPos), width);
+			dcText(sn->selectedTitle, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
+			yPos -= getTextHeight(sn->selectedTitle, font, vec2(xMid, yPos), width);
 			yPos -= font->height;
 
 			char* date = fillString("Date: %i..%i..%i", sv->date.day, sv->date.month, sv->date.year);
@@ -1426,12 +1425,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 			dcText("Comments", font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
 			yPos -= font->height;
 
-			for(int i = 0; i < ad->selectedCommentCount; i++) {
-				dcText(ad->selectedTopComments[i], font, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
-				yPos -= getTextHeight(ad->selectedTopComments[i], font, vec2(xMid, yPos), width);
-				dcText(fillString("Likes: %i, Replies: %i", ad->selectedCommentLikeCount[i], ad->selectedCommentReplyCount[i]), font, vec2(infoRect.right, yPos), vec4(0.7f,1), vec2i(1,1), width);
-				yPos -= font->height;
-				yPos -= font->height*0.5f;
+			for(int i = 0; i < sn->selectedCommentCount; i++) {
+				dcText(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
+				// drawText(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
+				yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), width);
+				dcText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(infoRect.right, yPos), vec4(0.7f,1), vec2i(1,1), width);
+				yPos -= font2->height;
+				// yPos -= font2->height*0.5f;
 			}
 
 			dcDisable(STATE_SCISSOR);
