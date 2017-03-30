@@ -2046,12 +2046,12 @@ inline Vec4 vec4(float a[4]) {
 	return vec;
 }
 
-inline Vec4 vec4(float a) {
+inline Vec4 vec4(float color, float alpha) {
 	Vec4 vec;
-	vec.x = a;
-	vec.y = a;
-	vec.z = a;
-	vec.w = a;
+	vec.r = color;
+	vec.g = color;
+	vec.b = color;
+	vec.a = alpha;
 	return vec;
 }
 
@@ -3147,6 +3147,12 @@ void graphCamInit(GraphCam* cam, double x, double y, double w, double h, double 
 	cam->w = w;
 	cam->h = h;
 	graphCamSetBoundaries(cam, xMin, xMax, yMin, yMax);
+}
+
+void graphCamInit(GraphCam* cam, double xMin, double xMax, double yMin, double yMax) {
+	double w = xMax - xMin;
+	double h = yMax - yMin;
+	graphCamInit(cam, xMin+w/2, yMin+h/2, w, h, xMin, xMax, yMin, yMax);
 }
 
 void graphCamSetViewPort(GraphCam* cam, Rect viewPort) {

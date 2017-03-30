@@ -758,13 +758,15 @@ bool windowIsMinimized(HWND windowHandle) {
 	return IsIconic(windowHandle);
 }
 
-void shellExecuteNoWindow(char* command) {
+void shellExecuteNoWindow(char* command, bool wait = true) {
 	STARTUPINFO si = {};
 	PROCESS_INFORMATION pi = {};
 	si.cb = sizeof(si);
 
 	if (CreateProcess(NULL, command, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-	    WaitForSingleObject(pi.hProcess, INFINITE);
+		if(wait) {
+		    WaitForSingleObject(pi.hProcess, INFINITE);
+		}
 	    CloseHandle(pi.hProcess);
 	    CloseHandle(pi.hThread);
 	}

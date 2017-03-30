@@ -9,6 +9,7 @@
 	- math round up 
 	- round mod down
     - Just make sure to copy over math.cpp.
+	- Vec4 (float color, float alpha)
 
 	* Add gradient.
 	- Change draggin in gui to match the winapi method.
@@ -20,6 +21,8 @@
 	- Mouse hover, show specific data.
 	- Averages and statistics.
 	- Debug gui stuff should disable app input when needed. (Mouse dragging, for example.)
+
+	- Click on point and open chrome to youtube video.
 */
 
 // External.
@@ -264,7 +267,8 @@ struct AppData {
 
 	YoutubeVideo videos[1000];
 	int videoCount;
-	GraphCam cam;
+	GraphCam cam, camLikes;
+	int heightMoveMode;
 };
 
 
@@ -847,18 +851,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		fread(&ad->videoCount, sizeof(int), 1, file);
 		fread(&ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
 		fclose(file);
-
-		// double camMinX = ad->dates[0].num;
-		// double camMaxX = ad->dates[ad->videoCount-1].num;
-		// double camMinY = 0;
-		// double camMaxY = 100000;
-
-		// double w = camMaxX - camMinX;
-		// double h = camMaxY - camMinY;
-		// double x = camMinX + w/2;
-		// double y = camMinY + h/2;
-
-		// graphCamInit(&ad->cam, x, y, w, h, camMinX, camMaxX, camMinY, camMaxY);
 	}
 
 	{
@@ -885,130 +877,178 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		int fontSize = 20;
 		Font* font = getFont(FONT_CALIBRI, fontSize);
-
 		Vec2i res = ws->currentRes;
-		Rect screenRect = rect(0, -res.h, res.w, 0);
+		float zoomSpeed = 1.2f;
 
+		Rect screenRect = rect(0, -res.h, res.w, 0);
 		Rect rChart = screenRect;
 		Rect rGraph = rChart;
 		rGraph.min += vec2(80,font->height*2);
 		Rect rLeftText = rect(rChart.left,rGraph.bottom,rGraph.left,rChart.top);
 		Rect rBottomText = rect(rGraph.left,rChart.bottom,rChart.right,rGraph.bottom);
+		// rLeftText.min.y -= 7;
+		// rBottomText.min.x -= 5;
 
-		rLeftText.min.y -= 7;
-		rBottomText.min.x -= 5;
+		float graphHeight = rectGetH(rGraph);
+		rGraph.min.y += graphHeight/2;
+		rLeftText.min.y += graphHeight/2;
+
+		Rect rGraph2 = rect(rectGetUL(rBottomText), rectGetDR(rGraph));
+		Rect rLeftText2 = rect(rChart.left, rBottomText.top, rGraph2.left, rLeftText.bottom);
 
 		float g = 0.15f;
 		dcRect(screenRect, vec4(0.4f,g,g,1));
-		// float w = 0.10f;
-		// dcRect(rGraph, vec4(w,w,w,1));
-
 		Vec4 graphColor2 = vec4(0.1f, 0.1f, 0.2f, 1);
 		Vec4 graphColor1 = vec4(0.2f, 0.1f, 0.4f, 1);
-
 		dcPrimitive2d(rGraph.min, rectGetUL(rGraph), rGraph.max, rectGetDR(rGraph), 
 		              graphColor1, graphColor2, graphColor2, graphColor1);
 
+		dcPrimitive2d(rGraph2.min, rectGetUL(rGraph2), rGraph2.max, rectGetDR(rGraph2), 
+		              graphColor1, graphColor2, graphColor2, graphColor1);
+
+		// dcRect(rGraph2, vec4(0,1,0,1));
+		// dcRect(rLeftText2, vec4(0,1,1,1));
 
 		if(init) {
-
-			double camMinX = ad->videos[0].date.num;
-			double camMaxX = ad->videos[ad->videoCount-1].date.num;
-			double camMinY = 0;
-			double camMaxY = 100000;
-
-			double w = camMaxX - camMinX;
-			double h = camMaxY - camMinY;
-			double x = camMinX + w/2;
-			double y = camMinY + h/2;
-
-			graphCamInit(&ad->cam, x, y, w, h, camMinX, camMaxX, camMinY, camMaxY);
+			graphCamInit(&ad->cam, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, 100000);
+			graphCamInit(&ad->camLikes, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, 5000);
 		}
 
-		GraphCam* cam = &ad->cam;
 		{
-			graphCamSetViewPort(cam, rGraph);
+			GraphCam* cam = &ad->cam;
+			GraphCam* camLikes = &ad->camLikes;
 
-			float zoomSpeed = 1.2f;
+			graphCamSetViewPort(cam, rGraph);
+			graphCamSetViewPort(camLikes, rGraph2);
 
 			if(input->mouseWheel != 0) {
-				if(input->keysDown[KEYCODE_SHIFT]) 
-					graphCamScaleToPos(cam, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
-				else 
+				if(input->keysDown[KEYCODE_SHIFT]) {
+					if(pointInRect(input->mousePosNegative, cam->viewPort))
+						graphCamScaleToPos(cam, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
+					if(pointInRect(input->mousePosNegative, camLikes->viewPort))
+						graphCamScaleToPos(camLikes, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
+					
+				} else {
 					graphCamScaleToPos(cam, -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
+					graphCamScaleToPos(camLikes, -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
+				}
 			}
 
 			graphCamSizeClamp(cam, 60*60*24, 1000);
+			graphCamSizeClamp(camLikes, 60*60*24, 100);
 
-			if(input->mouseButtonDown[0] && input->mouseDelta != vec2(0,0)) {
-				graphCamTrans(cam, -input->mouseDelta.x, input->mouseDelta.y);
+			if(input->mouseButtonPressed[0]) {
+				if(pointInRect(input->mousePosNegative, cam->viewPort)) ad->heightMoveMode = 0;
+				else if(pointInRect(input->mousePosNegative, camLikes->viewPort)) ad->heightMoveMode = 1;
+			}
+
+			if(input->mouseButtonReleased[0]) {
+				ad->heightMoveMode = -1;
+			}
+
+			if(input->mouseDelta != vec2(0,0)) {
+				if(ad->heightMoveMode == 0) {
+					graphCamTrans(cam, 0, input->mouseDelta.y);
+				} else if(ad->heightMoveMode == 1) {
+					graphCamTrans(camLikes, 0, input->mouseDelta.y);
+				}
+
+				if(input->mouseButtonDown[0]) {
+					graphCamTrans(cam, -input->mouseDelta.x, 0);
+					graphCamTrans(camLikes, -input->mouseDelta.x, 0);
+				}
 			}
 
 			graphCamPosClamp(cam);
+			graphCamPosClamp(camLikes);
 		}
+
+		GraphCam* cam = &ad->cam;
 
 		// Draw left text.
 		{
-			Rect scaleRect = rLeftText;
-
-			float g = 0.9f;
-			Vec4 mainColor = vec4(g,g,g,1);
-			g = 0.6f;
-			Vec4 semiColor = vec4(g,g,g,1);
-			Vec4 horiLinesColor = vec4(1,1,1,0.03f);
-
+			Vec4 mainColor = vec4(0.9f,1);
+			Vec4 semiColor = vec4(0.6f,1);
+			Vec4 horiLinesColor = vec4(1,0.03f);
 			float markLength = 10;
 			float fontMargin = 4;
 			float div = 10;
+			int subDiv = 4;
 			float splitSizePixels = font->height*3;
 
 			dcState(STATE_LINEWIDTH, 2);
 			dcEnable(STATE_SCISSOR);
-			dcScissor(scissorRectScreenSpace(scaleRect, res.h));
 
-			float splitSize = splitSizePixels * (cam->h / rectGetH(cam->viewPort));
-			float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-			// float subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
-			int i = 0;
-			float p = roundModDown(cam->bottom, stepSize);
-			while(p < cam->top + stepSize) {
+			{
+				GraphCam* cam = &ad->cam;
+				Rect scaleRect = rLeftText;
+				float splitSize = splitSizePixels * (cam->h / rectGetH(cam->viewPort));
+				float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
+				// float subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
+				int i = 0;
+				float p = roundModDown(cam->bottom, stepSize);
+				while(p < cam->top + stepSize) {
+					float y = graphCamMapY(cam, p);
 
-				// Base markers.
-				float y = graphCamMapY(cam, p);
-				dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
-				dcText(fillString("%i",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+					// Horizontal line.
+					dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
+					dcLine2d(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
+					dcScissor(scissorRectScreenSpace(scaleRect, res.h));
 
-				// Horizontal line.
-				dcDisable(STATE_SCISSOR);
-				dcLine2d(vec2(scaleRect.right, y), vec2(rGraph.right, y), horiLinesColor); 
-				dcEnable(STATE_SCISSOR);
+					// Base markers.
+					dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
+					dcText(fillString("%i",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
 
-				// Semi markers.
-				// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
-				int d = 4;
-				for(int i = 1; i < d; i++) {
-					float y = graphCamMapY(cam, p+i*(stepSize/d));
-					dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
-					dcText(fillString("%i",(int)(stepSize/d)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+					// Semi markers.
+					for(int i = 1; i < subDiv; i++) {
+						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
+						dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
+						dcText(fillString("%i",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+					}
+
+					p += stepSize;
 				}
+			}
 
-				p += stepSize;
+			{
+				GraphCam* cam = &ad->camLikes;
+				Rect scaleRect = rLeftText2;
+				float splitSize = splitSizePixels * (cam->h / rectGetH(cam->viewPort));
+				float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
+				// float subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
+				int i = 0;
+				float p = roundModDown(cam->bottom, stepSize);
+				while(p < cam->top + stepSize) {
+					float y = graphCamMapY(cam, p);
+
+					// Horizontal line.
+					dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
+					dcLine2d(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
+					dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+
+					// Base markers.
+					dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
+					dcText(fillString("%i",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+
+					// Semi markers.
+					for(int i = 1; i < subDiv; i++) {
+						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
+						dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
+						dcText(fillString("%i",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+					}
+
+					p += stepSize;
+				}
 			}
 
 			dcDisable(STATE_SCISSOR);
 		}
 
 		// Draw bottom text.
-		// if(false)
 		{
-			Rect scaleRect = rBottomText;
-
-			float g = 0.9f;
-			Vec4 mainColor = vec4(g,g,g,1);
-			g = 0.6f;
-			Vec4 semiColor = vec4(g,g,g,1);
+			Vec4 mainColor = vec4(0.9f,1);
+			Vec4 semiColor = vec4(0.6f,1);
 			Vec4 horiLinesColor = vec4(1,1,1,0.03f);
-
 			float markLength = font->height-3;
 			float fontMargin = 0;
 			float div = 10;
@@ -1016,15 +1056,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			dcState(STATE_LINEWIDTH, 2);
 			dcEnable(STATE_SCISSOR);
-			dcScissor(scissorRectScreenSpace(scaleRect, res.h));
-			// dcScissor(scissorRectScreenSpace(screenRect, res.h));
 
+			Rect scaleRect = rBottomText;
 			double splitSize = splitSizePixels * (cam->w / rectGetW(cam->viewPort));
 			double stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
 			// double subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
 			int i = 0;
 			double p = roundModDown(cam->left, stepSize);
 			while(p < cam->right + stepSize) {
+				dcScissor(scissorRectScreenSpace(rect(rGraph2.min, rGraph.max), res.h));
+
+				// Vertical lines.
+				{
+					float x = graphCamMapX(cam, p);
+					dcLine2d(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
+				}
+
+				dcScissor(scissorRectScreenSpace(scaleRect, res.h));
 
 				// Base markers.
 				{
@@ -1035,14 +1083,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 					intToDate(p, &d);
 					char* dateString = fillString("%i..%i..%i", d.day, d.month, d.year);
 					dcText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
-				}
-				
-				// Vertical lines.
-				{
-					dcDisable(STATE_SCISSOR);
-					float x = graphCamMapX(cam, p);
-					dcLine2d(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
-					dcEnable(STATE_SCISSOR);
 				}
 
 				// Semi markers.
@@ -1077,32 +1117,66 @@ extern "C" APPMAINFUNCTION(appMain) {
 			dcDisable(STATE_SCISSOR);
 		}
 
-		// Rect miniMap = rGraph;
-		// float miniMapSize = 0.1f;
-		// miniMap.min = rGraph.max - (rectGetDim(rGraph)*miniMapSize);
-		// dcRect(miniMap, vec4(1,1,1,0.05f));
-		// dcRect(graphCamMiniMap(cam, miniMap), vec4(0,0,1,0.1f));
-
 		YoutubeVideo* vids = ad->videos;
 		int vidCount = ad->videoCount;
 
-		dcState(STATE_LINEWIDTH, 1);
-		dcEnable(STATE_SCISSOR);
-		dcScissor(scissorRectScreenSpace(rGraph, res.h));
+		{
+			GraphCam* cam = &ad->cam;
+			for(int i = 0; i < vidCount-1; i++) {
+				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+				float x = graphCamMapX(cam, vids[i].date.num) + 1;
+				float x2 = graphCamMapX(cam, vids[i+1].date.num) + 1;
 
-		for(int i = 0; i < vidCount-1; i++) {
-			if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
-
-			float x = graphCamMapX(cam, vids[i].date.num);
-			float x2 = graphCamMapX(cam, vids[i+1].date.num);
-
-			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec2(x2, graphCamMapY(cam, vids[i+1].viewCount)), vec4(0,0.7f,1,1));
-			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].likeCount)), vec4(0.3f,0.7f,1,1));
-			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].dislikeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].dislikeCount)), vec4(0.7f,0.3f,1,1));
-			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].favoriteCount)), vec2(x2, graphCamMapY(cam, vids[i+1].favoriteCount)), vec4(1,1,1,1));
-			dcLine2d(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
+				if(input->mousePos.x >= x && input->mousePos.x < x2) {
+					dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
+					if(input->mouseButtonPressed[2]) {
+						// shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", vids[i].id));
+						shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", vids[i].id), false);
+					}
+				}
+			}
 		}
+
+		dcState(STATE_LINEWIDTH, 2);
+		dcEnable(STATE_SCISSOR);
+
+		for(int graphIndex = 0; graphIndex < 2; graphIndex++) {
+			GraphCam* cam;
+			if(graphIndex == 0) cam = &ad->cam;
+			else cam = &ad->camLikes;
+
+			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
+
+			for(int i = 0; i < vidCount-1; i++) {
+				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+
+				float x = graphCamMapX(cam, vids[i].date.num) + 1;
+				float x2 = graphCamMapX(cam, vids[i+1].date.num) + 1;
+
+				if(graphIndex == 0) {
+					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec2(x2, graphCamMapY(cam, vids[i+1].viewCount)), vec4(0,0.7f,1,1));
+				} else if(graphIndex == 1) {
+					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].likeCount)), vec4(0.0f,0.7f,1,1));
+					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].dislikeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].dislikeCount)), vec4(0.7f,0.3f,1,1));
+
+					double div1 = (double)vids[i].likeCount/(vids[i].likeCount + vids[i].dislikeCount);
+					double div2 = (double)vids[i+1].likeCount/(vids[i+1].likeCount + vids[i+1].dislikeCount);
+					dcLine2d(vec2(x, mapRangeDouble(div1,0,1,cam->viewPort.bottom,cam->viewPort.top)), vec2(x2, mapRangeDouble(div2,0,1,cam->viewPort.bottom,cam->viewPort.top)), vec4(0.9f,0.5f,1,1));
+				}
+
+				// dcLine2d(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
+				// dcLine2d(vec2(x, graphCamMapY(cam, vids[i].favoriteCount)), vec2(x2, graphCamMapY(cam, vids[i+1].favoriteCount)), vec4(1,1,1,1));
+				// dcLine2d(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
+			}
+		}
+
 		dcDisable(STATE_SCISSOR);
+
+		Font* titleFont = getFont(FONT_CALIBRI, 30);
+		Vec2 tp0 = vec2(rectGetCen(rGraph).x, rGraph.top - 10);
+		Vec2 tp1 = vec2(rectGetCen(rGraph2).x, rGraph2.top - 10);
+		dcText("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(0,1), 0, 2, vec4(0,0,0,1));
+		dcText("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(0,1), 0, 2, vec4(0,0,0,1));
 
 		// Border.
 		float w = 0.8f;
@@ -1111,6 +1185,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 		dcLine2d(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
 		dcLine2d(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
 		dcLine2d(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
+
+		// if(input->mouseButtonPressed[2]) {
+		// 	shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[0].id));
+		// 	shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[1].id));
+		// 	shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[2].id));
+		// }
 	}
 
 
@@ -1164,7 +1244,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		#endif 
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1), rect(0,1,1,0), 
+		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1), rect(0,1,1,0), 
 		         getFrameBuffer(FRAMEBUFFER_2d)->colorSlot[0]->id);
 
 		#if USE_SRGB
