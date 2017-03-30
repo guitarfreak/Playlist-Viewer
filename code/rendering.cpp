@@ -490,49 +490,16 @@ void loadTexture(Texture* texture, unsigned char* buffer, int w, int h, int mipL
 	glGenerateTextureMipmap(texture->id);
 }
 
-// void loadTextureFromFile(Texture* texture, char* path, int mipLevels, int internalFormat, int channelType, int channelFormat, bool reload = false) {
-// 	int x,y,n;
-// 	unsigned char* stbData = stbi_load(path, &x, &y, &n, 0);
+void loadTextureFromFile(Texture* texture, char* path, int mipLevels, int internalFormat, int channelType, int channelFormat, bool reload = false) {
+	int x,y,n;
+	unsigned char* stbData = stbi_load(path, &x, &y, &n, 0);
 
-// 	if(mipLevels == -1) mipLevels = getMaximumMipmapsFromSize(min(x,y));
+	if(mipLevels == -1) mipLevels = getMaximumMipmapsFromSize(min(x,y));
 	
-// 	loadTexture(texture, stbData, x, y, mipLevels, internalFormat, channelType, channelFormat, reload);
+	loadTexture(texture, stbData, x, y, mipLevels, internalFormat, channelType, channelFormat, reload);
 
-// 	stbi_image_free(stbData);
-// }
-
-// void loadCubeMapFromFile(Texture* texture, char* filePath, int mipLevels, int internalFormat, int channelType, int channelFormat, bool reload = false) {
-// 	int texWidth, texHeight, n;
-// 	uint* stbData = (uint*)stbi_load(filePath, &texWidth, &texHeight, &n, 4);
-
-// 	int skySize = texWidth/(float)4;
-
-// 	if(!reload) {
-// 		texture->dim = vec2i(skySize, skySize);
-// 		texture->channels = 4;
-// 		texture->levels = 6;
-
-// 		glCreateTextures(GL_TEXTURE_CUBE_MAP_ARRAY, CUBEMAP_SIZE, &texture->id);
-// 		glTextureStorage3D(texture->id, mipLevels, internalFormat, skySize, skySize, 6);
-// 	}
-
-// 	uint* skyTex = getTArray(uint, skySize*skySize);
-// 	Vec2i texOffsets[] = {{2,1}, {0,1}, {1,0}, {1,2}, {1,1}, {3,1}};
-// 	for(int i = 0; i < 6; i++) {
-// 		Vec2i offset = texOffsets[i] * skySize;
-
-// 		for(int x = 0; x < skySize; x++) {
-// 			for(int y = 0; y < skySize; y++) {
-// 				skyTex[y*skySize + x] = stbData[(offset.y+y)*texWidth + (offset.x+x)];
-// 			}
-// 		}
-
-// 		glTextureSubImage3D(texture->id, 0, 0, 0, i, skySize, skySize, 1, channelType, channelFormat, skyTex);
-// 	}
-// 	// glGenerateTextureMipmap(ad->cubemapTextureId);
-
-// 	stbi_image_free(stbData);
-// }
+	stbi_image_free(stbData);
+}
 
 void createTexture(Texture* texture, bool isRenderBuffer = false) {	
 	if(!isRenderBuffer) glCreateTextures(GL_TEXTURE_2D, 1, &texture->id);
@@ -544,6 +511,10 @@ void recreateTexture(Texture* t) {
 	glCreateTextures(GL_TEXTURE_2D, 1, &t->id);
 
 	glTextureStorage2D(t->id, 1, t->internalFormat, t->dim.w, t->dim.h);
+}
+
+void deleteTexture(Texture* t) {
+	glDeleteTextures(1, &t->id);
 }
 
 //

@@ -23,6 +23,9 @@
 	- Debug gui stuff should disable app input when needed. (Mouse dragging, for example.)
 
 	- Click on point and open chrome to youtube video.
+	- Zoom stages for bottom timeline.
+	- Combine 2 graphs again and do h scroll with side bars.
+	- Unicode for comments.
 */
 
 // External.
@@ -32,6 +35,10 @@
 #include <windows.h>
 #include <gl\gl.h>
 // #include "external\glext.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_JPEG
+#include "external\stb_image.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
@@ -152,21 +159,22 @@ struct YoutubeVideo {
 };
 // #pragma pack(pop)
 
+char* tempFile = "messageContent.txt";
+
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
 char* apiKey = "AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw";
-char* youtubePlaylistUrl = "https://www.googleapis.com/youtube/v3/playlistItems";
+char* youtubeApiPlaylistItems = "https://www.googleapis.com/youtube/v3/playlistItems";
 char* youtubeApiVideos = "https://www.googleapis.com/youtube/v3/videos";
+char* youtubeApiCommentThread = "https://www.googleapis.com/youtube/v3/commentThreads";
+
 int maxDownloadCount = 40;
 
 char* moinmoinPlaylist = "PLsksxTH4pR3KZe3wbmAP2Tgn6rfhbDlBH";
 char* moinmoinFile = "MoinMoin.playlist";
 
 void executeSystemCommandIntoBuffer(char* command, char* buffer) {
-	char* tempFile = "messageContent.txt";
 	char* c = fillString("%s > %s", command, tempFile);
-
 	system(c);
-
 	int size = readFileToBuffer(buffer, tempFile);
 	int stop = 234;
 }
@@ -174,7 +182,7 @@ void executeSystemCommandIntoBuffer(char* command, char* buffer) {
 int getYoutubePlaylistSize(char* playlistId) {
 
 	char* request = getTString(1000); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubePlaylistUrl, apiKey));
+	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylistItems, apiKey));
 	strAppend(request, "&maxResults=1");
 	strAppend(request, fillString("&playlistId=%s", playlistId));
 	strAppend(request, "&part=contentDetails");
@@ -191,7 +199,7 @@ int getYoutubePlaylistSize(char* playlistId) {
 
 char* downloadYoutubePlaylistVideoIds(char* playlistId, char* buffer, int count, char* pageToken = 0) {
 	char* request = getTString(1000); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubePlaylistUrl, apiKey));
+	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylistItems, apiKey));
 	strAppend(request, fillString("&maxResults=%i", count));
 	strAppend(request, fillString("&playlistId=%s", playlistId));
 	strAppend(request, "&part=contentDetails");
@@ -269,6 +277,18 @@ struct AppData {
 	int videoCount;
 	GraphCam cam, camLikes;
 	int heightMoveMode;
+
+	int selectedVideo;
+	bool selectedLoaded;
+	char* selectedTitle;
+	char* selectedTopComments[10];
+	int selectedCommentLikeCount[10];
+	int selectedCommentReplyCount[10];
+	int selectedCommentCount;
+	char* thumbnail;
+	int thumbnailWidth;	
+	int thumbnailHeight;	
+	Texture thumbnailTexture;
 };
 
 
@@ -425,6 +445,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			addTexture(tex);
 		}
+
+		// for(int i = 0; i < TEXTURE_SIZE; i++) {
+		// 	Texture tex;
+		// 	loadTextureFromFile(&tex, texturePaths[i], -1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+		// 	addTexture(tex);
+		// }
 
 		//
 		// Setup Meshs.
@@ -819,7 +845,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					vids[reverseIndex].favoriteCount = strToInt(s);
 					s = stringGetBetween(statBuffer, "\"commentCount\": \"", "\"", &advance); statBuffer += advance;
 					vids[reverseIndex].commentCount = strToInt(s);
-					index++;
+					index++;	
 				}
 			}
 		}
@@ -834,6 +860,74 @@ extern "C" APPMAINFUNCTION(appMain) {
 		fwrite(vids, count*sizeof(YoutubeVideo), 1, file);
 		fclose(file);
 	}
+
+	// if(input->keysPressed[KEYCODE_RETURN]) {
+	// 	// shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[0].id), false);
+
+	// 	char* request = getTString(kiloBytes(20)); strClear(request);
+	// 	strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
+	// 	strAppend(request, fillString("&id=%s", ad->videos[0].id));
+
+	// 	strAppend(request, "&part=snippet");
+	// 	strAppend(request, "&textFormat=plainText");
+	// 	// strAppend(request, "&maxResults=5");
+
+	// 	char* buffer = (char*)getTMemory(megaBytes(1)); 
+	// 	strClear(buffer);
+	// 	char* command = fillString("%s \"%s\"", curlPath, request);
+	// 	executeSystemCommandIntoBuffer(command, buffer);
+
+ //    // "title": "#MoinMoin mit Etienne | 26.01.2015",
+	// }
+
+	/*
+	Video content:
+	contentDetails: 2
+	    "duration": "PT40M40S",
+	snippet: 2
+	    "title": 
+	    "description": 
+	    "thumbnails": 
+
+	Comment threads: videoId
+	id: 0
+	   "id": 
+	snippet: 2
+		{
+		 "kind": "youtube#commentThread",
+		 "etag": "\"uQc-MPTsstrHkQcRXL3IWLmeNsM/MBbNvrsBzY7-av-XMbTzzbff2NE\"",
+		 "id": "z12rstopwt34x5b1m23iv5jojxmtwhyid04",
+		 "snippet": {
+		  "videoId": "r9EXi04PKok",
+		  "topLevelComment": {
+		   "kind": "youtube#comment",
+		   "etag": "\"uQc-MPTsstrHkQcRXL3IWLmeNsM/LVqjnzdlHf1-wICDVpqskIoOyew\"",
+		   "id": "z12rstopwt34x5b1m23iv5jojxmtwhyid04",
+		   "snippet": {
+		    "authorDisplayName": "RecaGameTV",
+		    "authorProfileImageUrl": "https://yt3.ggpht.com/-V1AvMui7D1g/AAAAAAAAAAI/AAAAAAAAAAA/tybF590DxQ0/s28-c-k-no-mo-rj-c0xffffff/photo.jpg",
+		    "authorChannelUrl": "http://www.youtube.com/channel/UCTT3BgQbdaARs0_YTyaXR1g",
+		    "authorChannelId": {
+		     "value": "UCTT3BgQbdaARs0_YTyaXR1g"
+		    },
+		    "videoId": "r9EXi04PKok",
+		    "textDisplay": "Ist das Edes neues Stand Up Programm ? :-D ",
+		    "textOriginal": "Ist das Edes neues Stand Up Programm ? :-D ",
+		    "canRate": false,
+		    "viewerRating": "none",
+		    "likeCount": 22,
+		    "publishedAt": "2015-01-27T01:05:31.000Z",
+		    "updatedAt": "2015-01-27T01:05:31.000Z"
+		   }
+		  },
+		  "canReply": false,
+		  "totalReplyCount": 0,
+		  "isPublic": true
+		 }
+		},
+
+	*/
+
 
 	// if(input->keysPressed[KEYCODE_S]) {
 	// if(false) {
@@ -912,6 +1006,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(init) {
 			graphCamInit(&ad->cam, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, 100000);
 			graphCamInit(&ad->camLikes, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, 5000);
+			ad->selectedVideo = -1;
 		}
 
 		{
@@ -1129,10 +1224,113 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				if(input->mousePos.x >= x && input->mousePos.x < x2) {
 					dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
+
+					addDebugInfo(fillString("%i", i));
+
 					if(input->mouseButtonPressed[2]) {
 						// shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", vids[i].id));
-						shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", vids[i].id), false);
+						// shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", vids[i].id), false);
+
+						// Get title.
+						{
+							// shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[0].id), false);
+
+							char* request = getTString(kiloBytes(20)); strClear(request);
+							strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
+							strAppend(request, fillString("&id=%s", vids[i].id));
+
+							strAppend(request, "&part=snippet");
+							strAppend(request, "&textFormat=plainText");
+							// strAppend(request, "&maxResults=5");
+
+							char* buffer = (char*)getTMemory(megaBytes(1)); 
+							strClear(buffer);
+							char* command = fillString("%s \"%s\"", curlPath, request);
+							executeSystemCommandIntoBuffer(command, buffer);
+
+							int advance;
+							char* title = stringGetBetween(buffer, "\"title\": \"", "\",", &advance); buffer += advance;
+							ad->selectedTitle = getPString(strLen(title) + 1);
+							strCpy(ad->selectedTitle, title);
+
+
+							// Thumbnail.
+							// default, medium, high, standard, maxres.
+							int pos = strFind(buffer, "\"medium\":"); buffer += pos;
+							char* thumbnailUrl = stringGetBetween(buffer, "\"url\": \"", "\",", &advance); buffer += advance;
+							ad->thumbnail = getPString(strLen(thumbnailUrl) + 1);
+							strCpy(ad->thumbnail, thumbnailUrl);
+
+							char* content = stringGetBetween(buffer, "\"width\": ", ",", &advance); buffer += advance;
+							ad->thumbnailWidth = strToInt(content);
+
+							content = stringGetBetween(buffer, "\"height\": ", ",", &advance); buffer += advance;
+							ad->thumbnailHeight = strToInt(content);	
+						}
+
+						// Download thumbnail and upload texture.
+						{
+							system(fillString("%s \"%s\" > thumbnail.jpg", curlPath, ad->thumbnail));
+							if(ad->selectedVideo != -1) deleteTexture(&ad->thumbnailTexture);
+							loadTextureFromFile(&ad->thumbnailTexture, "thumbnail.jpg", -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
+						}
+
+						// Get comments.
+						{
+							int commentCount = 10;
+							ad->selectedCommentCount = 0;
+
+							char* request = getTString(kiloBytes(20)); strClear(request);
+							strAppend(request, fillString("%s?key=%s", youtubeApiCommentThread, apiKey));
+							strAppend(request, fillString("&videoId=%s", vids[i].id));
+
+							strAppend(request, "&maxResults=%i", commentCount);
+							strAppend(request, "&part=snippet");
+							strAppend(request, "&order=relevance");
+							strAppend(request, "&textFormat=plainText");
+
+							char* buffer = (char*)getTMemory(megaBytes(1)); 
+							strClear(buffer);
+							char* command = fillString("%s \"%s\"", curlPath, request);
+							executeSystemCommandIntoBuffer(command, buffer);
+
+							char* content;
+							int advance;
+							for(int i = 0; i < commentCount; i++) {
+								content = stringGetBetween(buffer, "\"textOriginal\": \"", "\",", &advance); buffer += advance; // textDisplay
+								int slen = strLen(content);
+								char* s = getPString(slen + 1);
+								strCpy(s, content);
+
+								// Replace \n with real new lines.
+								char* temp = s;
+								int index = 0;
+								for(;;) {
+									int pos = strFind(temp, "\\n");
+									if(index+pos > slen) break;
+									if(pos == -1) break;
+									temp[pos] = '\n';
+									strErase(temp, pos+1, 1);
+									index += pos+1;
+									temp += pos+1;
+								}
+								ad->selectedTopComments[ad->selectedCommentCount] = s;
+
+								content = stringGetBetween(buffer, "\"likeCount\": ", ",", &advance); buffer += advance;
+								ad->selectedCommentLikeCount[ad->selectedCommentCount] = strToInt(content);
+
+								content = stringGetBetween(buffer, "\"totalReplyCount\": ", ",", &advance); buffer += advance;
+								ad->selectedCommentReplyCount[ad->selectedCommentCount] = strToInt(content);
+
+								ad->selectedCommentCount++;
+							}
+						}
+
+						ad->selectedVideo = i;
+						ad->selectedLoaded = true;
 					}
+
+					break;
 				}
 			}
 		}
@@ -1173,10 +1371,75 @@ extern "C" APPMAINFUNCTION(appMain) {
 		dcDisable(STATE_SCISSOR);
 
 		Font* titleFont = getFont(FONT_CALIBRI, 30);
-		Vec2 tp0 = vec2(rectGetCen(rGraph).x, rGraph.top - 10);
-		Vec2 tp1 = vec2(rectGetCen(rGraph2).x, rGraph2.top - 10);
-		dcText("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(0,1), 0, 2, vec4(0,0,0,1));
-		dcText("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(0,1), 0, 2, vec4(0,0,0,1));
+		// Vec2 tp0 = vec2(rectGetCen(rGraph).x, rGraph.top - 10);
+		// Vec2 tp1 = vec2(rectGetCen(rGraph2).x, rGraph2.top - 10);
+
+		Vec2 tp0 = rectGetUL(rGraph) + vec2(10,-10);
+		Vec2 tp1 = rectGetUL(rGraph2) + vec2(10,-10);;
+
+		dcText("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
+		dcText("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
+
+		if(ad->selectedVideo != -1) {
+			Rect infoRect = rChart;
+			// infoRect.min.x = infoRect.right - 400;
+			infoRect.min.x = infoRect.right - rectGetW(rChart)/3;
+			// infoRect = rectExpand(infoRect, -vec2(20,20));
+			dcRect(infoRect, vec4(0,0.9f));
+
+			float border = 20;
+			infoRect = rectExpand(infoRect, -vec2(border,border));
+			Font* font = getFont(FONT_CALIBRI, 20);
+			float xMid = rectGetCen(infoRect).x;
+			float width = rectGetW(infoRect);
+			float yPos = infoRect.top;
+
+
+
+			dcEnable(STATE_SCISSOR);
+			dcScissor(scissorRectScreenSpace(infoRect, res.h));
+
+			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
+
+			dcText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			yPos -= font->height;
+
+			dcRect(rectCenDim(xMid, yPos - ad->thumbnailHeight/2, ad->thumbnailWidth, ad->thumbnailHeight), rect(0,0,1,1), vec4(1,1), ad->thumbnailTexture.id);
+			yPos -= ad->thumbnailHeight;
+
+
+			dcText(ad->selectedTitle, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
+			yPos -= getTextHeight(ad->selectedTitle, font, vec2(xMid, yPos), width);
+			yPos -= font->height;
+
+			char* date = fillString("Date: %i..%i..%i", sv->date.day, sv->date.month, sv->date.year);
+			char* time = fillString("Time: %i:%i:%i.", sv->date.hours, sv->date.minutes, sv->date.seconds);
+			char* views = fillString("Views: %i", sv->viewCount);
+			char* likes = fillString("Likes/Dislikes: %i | %i -> %f", sv->likeCount, sv->dislikeCount, sv->likeCount / (float)(sv->likeCount+sv->dislikeCount));
+			char* comments = fillString("Comments: %i", sv->commentCount);
+			char* favorites = fillString("Favorites: %i", sv->favoriteCount);
+			char* s = fillString("%s, %s\n%s\n%s\n%s\n%s", date, time, views, likes, comments, favorites);
+			dcText(s, font, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1));
+			yPos -= getTextHeight(s, font);
+			yPos -= font->height;
+
+			dcText("Comments", font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			yPos -= font->height;
+
+			for(int i = 0; i < ad->selectedCommentCount; i++) {
+				dcText(ad->selectedTopComments[i], font, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
+				yPos -= getTextHeight(ad->selectedTopComments[i], font, vec2(xMid, yPos), width);
+				dcText(fillString("Likes: %i, Replies: %i", ad->selectedCommentLikeCount[i], ad->selectedCommentReplyCount[i]), font, vec2(infoRect.right, yPos), vec4(0.7f,1), vec2i(1,1), width);
+				yPos -= font->height;
+				yPos -= font->height*0.5f;
+			}
+
+			dcDisable(STATE_SCISSOR);
+
+			if(input->keysPressed[KEYCODE_RETURN]) {
+				shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+			}
+		}
 
 		// Border.
 		float w = 0.8f;
@@ -1185,12 +1448,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		dcLine2d(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
 		dcLine2d(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
 		dcLine2d(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
-
-		// if(input->mouseButtonPressed[2]) {
-		// 	shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[0].id));
-		// 	shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[1].id));
-		// 	shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[2].id));
-		// }
 	}
 
 
