@@ -244,6 +244,13 @@ LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LP
             PostMessage(window, message, wParam, lParam);
         } break;
 
+        case WM_KILLFOCUS: {
+        	DWORD id = GetThreadId(GetCurrentThread());
+            PostThreadMessage(id, message, wParam, lParam);
+
+            return DefWindowProc(window, message, wParam, lParam);
+        } break;
+
         default: {
             return DefWindowProc(window, message, wParam, lParam);
         } break;
@@ -426,6 +433,8 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
     input->mouseDeltaX = 0;
     input->mouseDeltaY = 0;
 
+    bool killedFocus = false;
+
     MSG message;
     while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
         switch(message.message) {
@@ -522,11 +531,21 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
                 *isRunning = false;
             } break;
 
+            case WM_KILLFOCUS: {
+            	killedFocus = true;
+            }
+
             default: {
                 TranslateMessage(&message); 
                 DispatchMessage(&message); 
             } break;
         }
+    }
+
+    if(killedFocus) {
+    	for(int i = 0; i < KEYCODE_COUNT; i++) {
+    		input->keysDown[i] = false;
+    	}
     }
 
     POINT point;    
@@ -553,11 +572,17 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 //     return (char*)clipBoardData;
 // }
 
-const char* getClipboard() {
+char* getClipboard() {
     BOOL result = OpenClipboard(0);
-    HANDLE clipBoardData = GetClipboardData(CF_TEXT);
+    HANDLE clipboardHandle = GetClipboardData(CF_TEXT);
+    // char* data = GlobalLock(clipboardHandle);
+    char* data = (char*)clipboardHandle;
 
-    return (char*)clipBoardData;
+    return data;
+}
+
+void closeClipboard() {
+    CloseClipboard();
 }
 
 // MetaPlatformFunction();

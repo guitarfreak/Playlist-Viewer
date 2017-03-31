@@ -6,6 +6,7 @@ struct GuiInput {
 	bool escape, enter, space, backSpace, del, home, end;
 	bool left, right, up, down;
 	bool shift, ctrl;
+	bool x, c, v;
 	char* charList;
 	int charListSize;
 };
@@ -986,6 +987,38 @@ struct Gui {
 				textBoxIndex++;
 			}
 
+			// Insert clipboard.
+			if(input.ctrl && input.v) {
+				char* clipboard = (char*)getClipboard();
+
+				if(selectionAnchor != -1) {
+					int index = min(selectionAnchor, textBoxIndex);
+					int size = max(selectionAnchor, textBoxIndex) - index;
+					strErase(textBoxText, index, size);
+					textBoxTextSize -= size;
+					textBoxIndex = index;
+					selectionAnchor = -1;
+				}
+
+				int size = strLen(clipboard);
+
+				strInsert(textBoxText, textBoxIndex, clipboard, size);
+				textBoxTextSize += size;
+				textBoxIndex += size;
+
+				closeClipboard();
+			}
+
+			if(input.ctrl && input.c) {
+				if(selectionAnchor != -1) {
+					int index = min(selectionAnchor, textBoxIndex);
+					int size = max(selectionAnchor, textBoxIndex) - index;
+					char* s = getTString(size+1);
+					strCpy(s, textBoxText+index, size);
+					setClipboard(s);
+				}
+			}
+
 			if(selectionAnchor != -1) {
 				if(input.backSpace || input.del) {
 					// code duplication
@@ -1753,6 +1786,7 @@ struct Console {
 						cursorIndex += clipboardSize;
 						markerIndex = cursorIndex;
 					}
+					closeClipboard();
 				}
 
 				// Add input characters to input buffer.
@@ -2443,6 +2477,7 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 			cursorIndex += clipboardSize;
 			markerIndex = cursorIndex;
 		}
+		closeClipboard();
 	}
 
 	// Add input characters to input buffer.

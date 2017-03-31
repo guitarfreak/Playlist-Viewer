@@ -11,12 +11,21 @@
     - Just make sure to copy over math.cpp.
 	- Vec4 (float color, float alpha)
 	- Draw text functions use uchar now.
+	- On WM_KILLFOCUS release all the keys.
+	- Gui textbox clipboard.
+	- Fixed getClipboard, added closeClipboard.
+
+
 
 	* Add gradient.
 	* Fix curser selection to go to nearest.
 	* Multiple charts stacked.
 	* Click on point and open chrome to youtube video.
 	* Scale jpg with size.
+	* Save title in video struct and maybe duration as well.
+	* Clipboard messed up when app is running.
+	* Sort playlist by date after download.
+	* Cant copy in chrome when switching from app.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
 	- Dithering.
@@ -29,6 +38,14 @@
 	- Zoom stages for bottom timeline.
 	- Combine 2 graphs again and do h scroll with side bars.
 	- Unicode for comments.
+	- Make middle mouse button on right panel open firefox with video.
+	- Get playlists from channel.
+	- Bottom Zoom glitchy.
+	  - Viewport left and right of cam to big probably. Should add offset so cam goes from 0 to viewport width.
+	- 101 not enough space for title, found on with 102. (Including zero byte.)
+	  - They probably mean 100 characters of unicode, not ascii.
+	- Download playlists fron channel.
+	- Draw command dots.
 */
 
 // External.
@@ -46,7 +63,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
 
-#include "external/curl/curl.h"
+#include "external\curl\curl.h"
 
 typedef CURLcode curl_global_initFunction(long flags);
 typedef CURL *curl_easy_initFunction(void);
@@ -113,6 +130,7 @@ size_t curlWrite(void *buffer, size_t size, size_t nmemb, void *userp) {
 	CurlData* cd = (CurlData*)userp;
 	memCpy(cd->buffer + cd->size, buffer, nmemb);
 	cd->size += nmemb;
+	cd->buffer[cd->size] = '\0';
 
 	return nmemb;
 }
@@ -195,6 +213,8 @@ Date stringToDate(char* s) {
 // #pragma pack(push,1)
 struct YoutubeVideo {
 	char id[12];
+	char title[101];
+	char thumbnail[51];
 	char dateString[25];
 	Date date;
 
@@ -211,6 +231,7 @@ char* tempFile = "messageContent.txt";
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
 char* apiKey = "AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw";
 char* youtubeApiPlaylistItems = "https://www.googleapis.com/youtube/v3/playlistItems";
+char* youtubeApiPlaylist = "https://www.googleapis.com/youtube/v3/playlists";
 char* youtubeApiVideos = "https://www.googleapis.com/youtube/v3/videos";
 char* youtubeApiCommentThread = "https://www.googleapis.com/youtube/v3/commentThreads";
 
@@ -218,6 +239,14 @@ int maxDownloadCount = 40;
 
 char* moinmoinPlaylist = "PLsksxTH4pR3KZe3wbmAP2Tgn6rfhbDlBH";
 char* moinmoinFile = "MoinMoin.playlist";
+
+char* tempPlaylistFile = "temp.playlist";
+
+// PLZ6-wZZqtEoGeqACJ1oK9H739inthE7X_
+// PLsksxTH4pR3IGid8awp3UMNIPj1HoKWBS
+// UUQvTDmHza8erxZqDkjQ4bQQ
+// PLsksxTH4pR3KLj8__o-le4FlJtUbA9oHC
+
 
 int getYoutubePlaylistSize(CURL* curlHandle, char* playlistId) {
 	char* request = getTString(1000); strClear(request);
@@ -249,74 +278,21 @@ char* downloadYoutubePlaylistVideoIds(CURL* curlHandle, char* playlistId, char* 
 	return nextPageToken;
 }
 
-void downloadYoutubeVideoStatistics(CURL* curlHandle, char* idBuffer, char* buffer) {
-	char* request = getTString(kiloBytes(20)); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
-	strAppend(request, "&part=statistics");
-	strAppend(request, "&id=");
-
-	for(;;) {
-		int advance = 0;
-		char* youtubeIdString = stringGetBetween(idBuffer, "\"videoId\": \"", "\"", &advance);
-		if(strLen(youtubeIdString) == 0) break;
-
-		strAppend(request, fillString("%s,", youtubeIdString));
-		idBuffer += advance;
-	}
-
-	curlRequest(curlHandle, request, buffer);
-}
-
 struct VideoSnippet {
 	bool selectedLoaded;
-	char* selectedTitle;
 	char* selectedTopComments[10];
 	int selectedCommentLikeCount[10];
 	int selectedCommentReplyCount[10];
 	int selectedCommentCount;
-	char* thumbnail;
-	int thumbnailWidth;	
-	int thumbnailHeight;	
 	Texture thumbnailTexture;
 };
 
-void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo* vid, char* buffer) {
-
-	// Get title.
-	{
-		char* request = getTString(kiloBytes(20)); strClear(request);
-		strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
-		strAppend(request, fillString("&id=%s", vid->id));
-
-		strAppend(request, "&part=snippet");
-		strAppend(request, "&textFormat=plainText");
-		// strAppend(request, "&maxResults=5");
-
-		curlRequest(curlHandle, request, buffer);
-
-		int advance;
-		char* title = stringGetBetween(buffer, "\"title\": \"", "\",", &advance); buffer += advance;
-		snippet->selectedTitle = getPString(strLen(title) + 1);
-		strCpy(snippet->selectedTitle, title);
-
-
-		// Thumbnail.
-		// default, medium, high, standard, maxres.
-		int pos = strFind(buffer, "\"medium\":"); buffer += pos;
-		char* thumbnailUrl = stringGetBetween(buffer, "\"url\": \"", "\",", &advance); buffer += advance;
-		snippet->thumbnail = getPString(strLen(thumbnailUrl) + 1);
-		strCpy(snippet->thumbnail, thumbnailUrl);
-
-		char* content = stringGetBetween(buffer, "\"width\": ", ",", &advance); buffer += advance;
-		snippet->thumbnailWidth = strToInt(content);
-
-		content = stringGetBetween(buffer, "\"height\": ", ",", &advance); buffer += advance;
-		snippet->thumbnailHeight = strToInt(content);	
-	}
+void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo* vid) {
+	char* buffer = (char*)getTMemory(megaBytes(1)); 
 
 	// Download thumbnail and upload texture.
 	{
-		int size = curlRequest(curlHandle, snippet->thumbnail, buffer);
+		int size = curlRequest(curlHandle, vid->thumbnail, buffer);
 		if(snippet->thumbnailTexture.id != -1) deleteTexture(&snippet->thumbnailTexture);
 		loadTextureFromMemory(&snippet->thumbnailTexture, buffer, size, -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
 	}
@@ -378,6 +354,7 @@ void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo*
 
 
 
+
 struct AppData {
 	// General.
 
@@ -426,6 +403,14 @@ struct AppData {
 
 	int selectedVideo;
 	VideoSnippet videoSnippet;
+
+	char* urlString;
+	char* urlFile;
+	int urlVideoCount;
+
+	bool startDownload;
+	bool startLoadFile;
+	bool startSaveFile;
 };
 
 
@@ -661,6 +646,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// curl_easy_setoptX(curlHandle, CURLOPT_WRITEDATA, &internal_struct);
 
 		ad->videoSnippet.thumbnailTexture.id = -1;
+
+		ad->urlString = (char*)getPMemory(100); strClear(ad->urlString);
+		strCpy(ad->urlString, moinmoinPlaylist);
+
+		ad->urlFile = (char*)getPMemory(100); strClear(ad->urlFile);
+		strCpy(ad->urlFile, tempPlaylistFile);
+
+		ad->selectedVideo = -1;
 	}
 
 	// @AppStart.
@@ -932,72 +925,128 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// @AppLoop.
 
-	if(input->keysPressed[KEYCODE_T]) { 
-	// if(false) { 
+	if(ad->startDownload) { 
+	// if(init) { 
+		ad->startDownload = false;
 
-		char* playlist = moinmoinPlaylist;
-		char* playlistFile = moinmoinFile;
-		// int count = 50;
-		int count = getYoutubePlaylistSize(ad->curlHandle, moinmoinPlaylist);
-		// int count = 50;
+		char* playlist = ad->urlString;
+		char* playlistFile = ad->urlFile;
+		int count = ad->urlVideoCount;
+
+		// maxDownloadCount = 40;
+		// playlist = "ULhcJGOokZyFk";
+		// playlistFile = "temp.playlist";
+		// count = 50;
+
 		YoutubeVideo* vids = getTArray(YoutubeVideo, count);
 
 		char* pageToken = 0;
-		char* idBuffer = (char*)getTMemory(megaBytes(3)); 
-		char* statBuffer = (char*)getTMemory(megaBytes(3)); 
+		char* buffer = (char*)getTMemory(megaBytes(3)); 
 		for(int i = 0; i < count; i += maxDownloadCount) {
 
 			int dCount = maxDownloadCount;
-			if(i + dCount >= count) {
-				dCount = count%maxDownloadCount;
+			if(i + dCount > count) {
+				dCount = count - i;
 			}
 
-			strClear(idBuffer);
-			strClear(statBuffer);
-			pageToken = downloadYoutubePlaylistVideoIds(ad->curlHandle, playlist, idBuffer, dCount, pageToken);
-			downloadYoutubeVideoStatistics(ad->curlHandle, idBuffer, statBuffer);
+			pageToken = downloadYoutubePlaylistVideoIds(ad->curlHandle, playlist, buffer, dCount, pageToken);
 
+			// Get Video ids.
 			{
 				int index = i;
 				int advance = 0;
 				for(;;) {
 					int reverseIndex = count-1 - index;
 
-					char* s = stringGetBetween(idBuffer, "\"videoId\": \"", "\"", &advance);
+					char* s = stringGetBetween(buffer, "\"videoId\": \"", "\"", &advance);
 					if(strLen(s) == 0) break;
 
 					strCpy(vids[reverseIndex].id, s);
-					idBuffer += advance;
+					buffer += advance;
 
-					s = stringGetBetween(idBuffer, "\"videoPublishedAt\": \"", "\"", &advance);
+					s = stringGetBetween(buffer, "\"videoPublishedAt\": \"", "\"", &advance);
 
 					strCpy(vids[reverseIndex].dateString, s);
-					idBuffer += advance;
+					buffer += advance;
 					index++;
 				}
 			}
 			
+			// Get Statistics.
 			{
+				char* request = getTString(kiloBytes(20)); strClear(request);
+				strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
+				strAppend(request, "&part=statistics");
+				strAppend(request, "&id=");
+
+				for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
+					int reverseIndex = count-1 - videoIndex;
+					strAppend(request, fillString("%s,", vids[reverseIndex].id));
+				}
+
+				curlRequest(ad->curlHandle, request, buffer);
+
 				int index = i;
 				int advance = 0;
 				for(;;) {
 					int reverseIndex = count-1 - index;
 
-					char* s = stringGetBetween(statBuffer, "\"viewCount\": \"", "\"", &advance); statBuffer += advance;
+					char* s = stringGetBetween(buffer, "\"viewCount\": \"", "\"", &advance); buffer += advance;
 					if(strLen(s) == 0) break;
 
 					vids[reverseIndex].viewCount = strToInt(s);
-					s = stringGetBetween(statBuffer, "\"likeCount\": \"", "\"", &advance); statBuffer += advance;
+					s = stringGetBetween(buffer, "\"likeCount\": \"", "\"", &advance); buffer += advance;
 					vids[reverseIndex].likeCount = strToInt(s);
-					s = stringGetBetween(statBuffer, "\"dislikeCount\": \"", "\"", &advance); statBuffer += advance;
+					s = stringGetBetween(buffer, "\"dislikeCount\": \"", "\"", &advance); buffer += advance;
 					vids[reverseIndex].dislikeCount = strToInt(s);
-					s = stringGetBetween(statBuffer, "\"favoriteCount\": \"", "\"", &advance); statBuffer += advance;
+					s = stringGetBetween(buffer, "\"favoriteCount\": \"", "\"", &advance); buffer += advance;
 					vids[reverseIndex].favoriteCount = strToInt(s);
-					s = stringGetBetween(statBuffer, "\"commentCount\": \"", "\"", &advance); statBuffer += advance;
+					s = stringGetBetween(buffer, "\"commentCount\": \"", "\"", &advance); buffer += advance;
 					vids[reverseIndex].commentCount = strToInt(s);
 					index++;	
 				}
 			}
+
+			// Get title.
+			{
+				char* request = getTString(kiloBytes(20)); strClear(request);
+				strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
+				strAppend(request, "&part=snippet");
+				strAppend(request, "&id=");
+
+				for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
+					int reverseIndex = count-1 - videoIndex;
+					strAppend(request, fillString("%s,", vids[reverseIndex].id));
+				}
+
+				curlRequest(ad->curlHandle, request, buffer);
+
+				int index = i;
+				int advance = 0;
+				for(;;) {
+					int reverseIndex = count-1 - index;
+
+					char* s = stringGetBetween(buffer, "\"title\": \"", "\"", &advance); buffer += advance;
+					if(strLen(s) == 0) break;
+
+					// Title
+					strCpy(vids[reverseIndex].title, s);
+
+					// Thumbnail.
+					// default, medium, high, standard, maxres.
+					int pos = strFind(buffer, "\"medium\":"); buffer += pos;
+					s = stringGetBetween(buffer, "\"url\": \"", "\",", &advance); buffer += advance;
+					strCpy(vids[reverseIndex].thumbnail, s);
+
+					// Skip the second "title" from localization data.
+					char* throwAway = stringGetBetween(buffer, "\"title\": \"", "\"", &advance); buffer += advance;
+
+					index++;
+				}
+
+
+			}
+			
 		}
 
 		for(int i = 0; i < count; i++) {
@@ -1011,44 +1060,70 @@ extern "C" APPMAINFUNCTION(appMain) {
 		fclose(file);
 	}
 
-	// if(input->keysPressed[KEYCODE_S]) {
-	// if(false) {
-	// 	FILE* file = fopen("MoinMoin.playlist", "wb");
-	// 	fwrite(&ad->videoCount, sizeof(int), 1, file);
-	// 	fwrite(ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
-	// 	fclose(file);
-	// }
-
-	// if(input->keysPressed[KEYCODE_L]) {
-	// if(input->keysPressed[KEYCODE_L] || init) {
-	if(init) {
-	// if(false) {
-		FILE* file = fopen(moinmoinFile, "rb");
-		fread(&ad->videoCount, sizeof(int), 1, file);
-		fread(&ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
+	if(ad->startSaveFile) {
+		// Save to file.
+		FILE* file = fopen(ad->urlFile, "wb");
+		fwrite(&ad->videoCount, sizeof(int), 1, file);
+		fwrite(ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
 		fclose(file);
 	}
 
-	{
-		YoutubeVideo videodMaximums = {};
-		{
-			videodMaximums.viewCount = INT_MIN;
-			videodMaximums.likeCount = INT_MIN;
-			videodMaximums.dislikeCount = INT_MIN;
-			videodMaximums.favoriteCount = INT_MIN;
-			videodMaximums.commentCount = INT_MIN;
+	if(init || ad->startLoadFile) {
+	// if(ad->startLoadFile) {
+		ad->startLoadFile = false;
+		char* filePath = init?tempPlaylistFile:ad->urlFile;
 
-			for(int i = 0; i < ad->videoCount; i++) {
-				YoutubeVideo* video = ad->videos + i;
+		FILE* file = fopen(filePath, "rb");
+		if(file) {
+			fread(&ad->videoCount, sizeof(int), 1, file);
+			fread(&ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
+			fclose(file);
 
-				videodMaximums.viewCount = max(videodMaximums.viewCount, video->viewCount);
-				videodMaximums.likeCount = max(videodMaximums.likeCount, video->likeCount);
-				videodMaximums.dislikeCount = max(videodMaximums.dislikeCount, video->dislikeCount);
-				videodMaximums.favoriteCount = max(videodMaximums.favoriteCount, video->favoriteCount);
-				videodMaximums.commentCount = max(videodMaximums.commentCount, video->commentCount);
+			// Sort videos.
+			// if(false)
+			{
+				int size = ad->videoCount;
+				for(int off = 0; off < size-1; off++) {
+					bool sw = false;
+
+					for(int i = 0; i < size-1 - off; i++) {
+						if(ad->videos[i+1].date.num < ad->videos[i].date.num) {
+							// swap(&off, &size);
+							swapGeneric(YoutubeVideo, ad->videos[i+1], ad->videos[i]);
+							sw = true;
+						}
+					}
+
+					if(!sw) break;
+				}
 			}
-		}
 
+			Statistic statViews, statLikes, statDates;
+			{
+				beginStatistic(&statViews);
+				beginStatistic(&statLikes);
+				beginStatistic(&statDates);
+
+				for(int i = 0; i < ad->videoCount; i++) {
+					YoutubeVideo* video = ad->videos + i;
+
+					updateStatistic(&statViews, video->viewCount);
+					updateStatistic(&statLikes, video->likeCount);
+					updateStatistic(&statDates, video->date.num);
+				}
+			}
+
+			graphCamInit(&ad->cam,      statDates.min, statDates.max, 0, statViews.max*1.5f);
+			graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.5f);
+
+			// graphCamInit(&ad->cam, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, videodMaximums.viewCount*1.5f);
+			// graphCamInit(&ad->camLikes, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, videodMaximums.likeCount*1.5f);
+			ad->selectedVideo = -1;
+
+		} 
+	}
+
+	{
 		globalCommandList = &ad->commandList2d;
 
 		int fontSize = 20;
@@ -1063,7 +1138,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// Rect rChart = screenRect;
 		Rect rChart = ad->selectedVideo!=-1 ? rect(screenRect.min, screenRect.max - vec2(sidePanelWidth,0)) : screenRect;
 		Rect rGraph = rChart;
-		rGraph.min += vec2(80,font->height*2);
+		rGraph.min += vec2(100,font->height*2);
 		Rect rLeftText = rect(rChart.left,rGraph.bottom,rGraph.left,rChart.top);
 		Rect rBottomText = rect(rGraph.left,rChart.bottom,rChart.right,rGraph.bottom);
 		Rect infoRect = rect(screenRect.min + vec2(rectGetW(screenRect)-sidePanelWidth, 0), screenRect.max);
@@ -1088,12 +1163,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// dcRect(rGraph2, vec4(0,1,0,1));
 		// dcRect(rLeftText2, vec4(0,1,1,1));
 
-		if(init) {
-			graphCamInit(&ad->cam, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, 100000);
-			graphCamInit(&ad->camLikes, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, 5000);
-			ad->selectedVideo = -1;
-		}
-
 		{
 			GraphCam* cam = &ad->cam;
 			GraphCam* camLikes = &ad->camLikes;
@@ -1114,8 +1183,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 
-			graphCamSizeClamp(cam, 60*60*24, 1000);
-			graphCamSizeClamp(camLikes, 60*60*24, 100);
+			graphCamSizeClamp(cam, 60*60*4, 1000);
+			graphCamSizeClamp(camLikes, 60*60*4, 100);
 
 			if(input->mouseButtonPressed[0]) {
 				if(pointInRect(input->mousePosNegative, cam->viewPort)) ad->heightMoveMode = 0;
@@ -1177,13 +1246,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					// Base markers.
 					dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
-					dcText(fillString("%i",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+					dcText(fillString("%i.",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
 
 					// Semi markers.
 					for(int i = 1; i < subDiv; i++) {
 						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
 						dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
-						dcText(fillString("%i",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+						dcText(fillString("%i.",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
 					}
 
 					p += stepSize;
@@ -1208,13 +1277,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					// Base markers.
 					dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
-					dcText(fillString("%i",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+					dcText(fillString("%i.",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
 
 					// Semi markers.
 					for(int i = 1; i < subDiv; i++) {
 						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
 						dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
-						dcText(fillString("%i",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+						dcText(fillString("%i.",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
 					}
 
 					p += stepSize;
@@ -1248,7 +1317,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				// Vertical lines.
 				{
-					float x = graphCamMapX(cam, p);
+					double x = graphCamMapX(cam, p);
 					dcLine2d(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
 				}
 
@@ -1256,7 +1325,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				// Base markers.
 				{
-					float x = graphCamMapX(cam, p);
+					double x = graphCamMapX(cam, p);
 					dcLine2dOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
 
 					Date d;
@@ -1270,7 +1339,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
 					int d = 4;
 					for(int i = 0; i < d; i++) {
-						float x = graphCamMapX(cam, p+i*(stepSize/d) + (stepSize/d)/2);
+						double x = graphCamMapX(cam, p+i*(stepSize/d) + (stepSize/d)/2);
 
 						Date date;
 						intToDate(stepSize/d, &date);
@@ -1285,7 +1354,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 						if(i == 0) continue;
 						{
-							float x = graphCamMapX(cam, p+i*(stepSize/d));
+							double x = graphCamMapX(cam, p+i*(stepSize/d));
 							dcLine2dOff(vec2(x, scaleRect.top), vec2(0, -markLength*0.5f), semiColor); 
 						}
 					}
@@ -1300,6 +1369,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		YoutubeVideo* vids = ad->videos;
 		int vidCount = ad->videoCount;
 
+		// Mouse hover.
 		{
 			GraphCam* cam = &ad->cam;
 			for(int i = 0; i < vidCount; i++) {
@@ -1318,17 +1388,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 					Font* font = getFont(FONT_CALIBRI, 20);
 					Vec4 c = vec4(1.0f,0.5f,0,1);
 					Vec2 p = rChart.max - vec2(5);
-					dcText(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1));
-					dcText(fillString("%i", i), font, p - vec2(0,font->height), c, vec2i(1,1));
+					dcText(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1)); p.y -= font->height;
+					dcText(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1)); p.y -= font->height;
+					dcText(fillString("%i", i), font, p, c, vec2i(1,1)); p.y -= font->height;
 
 					if(input->mouseButtonPressed[2]) {
-						ad->videoSnippet.selectedLoaded = false;
-						ad->selectedVideo = i;
-
-						char* buffer = (char*)getTMemory(megaBytes(1)); 
-						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo, buffer);
-
-						ad->videoSnippet.selectedLoaded = true;
+						if(i != ad->selectedVideo) {
+							ad->selectedVideo = i;
+							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+						}
 					}
 
 					break;
@@ -1375,13 +1443,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// Vec2 tp0 = vec2(rectGetCen(rGraph).x, rGraph.top - 10);
 		// Vec2 tp1 = vec2(rectGetCen(rGraph2).x, rGraph2.top - 10);
 
-		Vec2 tp0 = rectGetUL(rGraph) + vec2(10,-10);
-		Vec2 tp1 = rectGetUL(rGraph2) + vec2(10,-10);;
+		Vec2 tp0 = rectGetUL(rGraph) + vec2(20,-10);
+		Vec2 tp1 = rectGetUL(rGraph2) + vec2(20,-10);;
 
 		dcText("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
 		dcText("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
 
 		if(ad->selectedVideo != -1) {
+			// Graph selection line.
+			{
+				float x = graphCamMapX(cam, ad->videos[ad->selectedVideo].date.num) + 1;
+				dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.1f));
+			}
+
 			// infoRect = rectExpand(infoRect, -vec2(20,20));
 			dcRect(infoRect, vec4(0,0.9f));
 
@@ -1403,17 +1477,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 			yPos -= font->height;
 
 			// dcRect(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
-			Rect imageRect = rect(infoRect.left, yPos - rectGetW(infoRect)*(sn->thumbnailHeight/(float)sn->thumbnailWidth), infoRect.right, yPos);
+			Rect imageRect = rect(infoRect.left, yPos - rectGetW(infoRect)*(sn->thumbnailTexture.dim.h/(float)sn->thumbnailTexture.dim.w), infoRect.right, yPos);
 			dcRect(imageRect, rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
 			yPos -= rectGetH(imageRect);
 
-			dcText(sn->selectedTitle, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
-			yPos -= getTextHeight(sn->selectedTitle, font, vec2(xMid, yPos), width);
+			dcText(sv->title, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
+			yPos -= getTextHeight(sv->title, font, vec2(xMid, yPos), width);
 			yPos -= font->height;
 
 			char* date = fillString("Date: %i..%i..%i", sv->date.day, sv->date.month, sv->date.year);
 			char* time = fillString("Time: %i:%i:%i.", sv->date.hours, sv->date.minutes, sv->date.seconds);
-			char* views = fillString("Views: %i", sv->viewCount);
+			char* views = fillString("Views: %i.", sv->viewCount);
 			char* likes = fillString("Likes/Dislikes: %i | %i -> %f", sv->likeCount, sv->dislikeCount, sv->likeCount / (float)(sv->likeCount+sv->dislikeCount));
 			char* comments = fillString("Comments: %i", sv->commentCount);
 			char* favorites = fillString("Favorites: %i", sv->favoriteCount);
@@ -1435,10 +1509,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			dcDisable(STATE_SCISSOR);
-
-			if(input->keysPressed[KEYCODE_RETURN]) {
-				shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
-			}
 		}
 
 		// Border.
@@ -1557,7 +1627,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 	ds->gInput = { input->mousePos, input->mouseWheel, input->mouseButtonPressed[0], input->mouseButtonDown[0], 
 					input->keysPressed[KEYCODE_ESCAPE], input->keysPressed[KEYCODE_RETURN], input->keysPressed[KEYCODE_SPACE], input->keysPressed[KEYCODE_BACKSPACE], input->keysPressed[KEYCODE_DEL], input->keysPressed[KEYCODE_HOME], input->keysPressed[KEYCODE_END], 
 					input->keysPressed[KEYCODE_LEFT], input->keysPressed[KEYCODE_RIGHT], input->keysPressed[KEYCODE_UP], input->keysPressed[KEYCODE_DOWN], 
-					input->keysDown[KEYCODE_SHIFT], input->keysDown[KEYCODE_CTRL], input->inputCharacters, input->inputCharacterCount};
+					input->keysDown[KEYCODE_SHIFT], input->keysDown[KEYCODE_CTRL], 
+					input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
+					input->inputCharacters, input->inputCharacterCount};
 
 	if(input->keysPressed[KEYCODE_F6]) ds->showMenu = !ds->showMenu;
 	if(input->keysPressed[KEYCODE_F7]) ds->showStats = !ds->showStats;
@@ -1578,7 +1650,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		}
 	}
 
-
 	if(ds->showMenu) {
 		int fontSize = 20;
 
@@ -1587,34 +1658,89 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		Gui* gui = ds->gui;
 		gui->start(ds->gInput, getFont(FONT_CALIBRI, fontSize), ws->currentRes);
 
+		static int sectionMode = 0;
 
-		static bool sectionGuiMisc = true;
-		if(gui->beginSection("Misc", &sectionGuiMisc)) {
+		gui->label("App", 1, gui->colors.sectionColor, vec4(0,0,0,1));
 
+		gui->div(vec2(0,0));
+		if(gui->button("Options", (int)(sectionMode == 0) + 1)) sectionMode = 0;
+		if(gui->button("Videos", (int)(sectionMode == 1) + 1)) sectionMode = 1;
+
+		if(sectionMode == 0) {
+			gui->div(0.1f,0,0,0.1f);
+			if(gui->button("<-")) {
+				int newSelection = clampMin(ad->selectedVideo - 1, 0);
+				if(newSelection != ad->selectedVideo) {
+					ad->selectedVideo = newSelection;
+					downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+				}
+			};			
+
+			if(gui->button("Open in Chrome.")) {
+				shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+			}
+			if(gui->button("Open in Firefox.")) {
+				shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+			}
+
+			if(gui->button("->")) {
+				int newSelection = clampMax(ad->selectedVideo + 1, ad->videoCount - 1);
+				if(newSelection != ad->selectedVideo) {
+					ad->selectedVideo = newSelection;
+					downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+				}
+			};
+
+			gui->div(vec2(0.2f,0));
+			gui->label("Url: ", 0);
+			gui->textBoxChar(ad->urlString, strLen(ad->urlString), 100);
+
+			gui->div(vec2(0.2f,0));
+			gui->label("File: ", 0);
+			gui->textBoxChar(ad->urlFile, strLen(ad->urlFile), 100);
+
+			gui->div(0.2f,0.2f,0);
+			gui->label("Count: ", 0);
+			gui->textBoxInt(&ad->urlVideoCount);
+			if(gui->button("Get video count from url.")) {
+				int count = getYoutubePlaylistSize(ad->curlHandle, ad->urlString);
+				ad->urlVideoCount = count;
+			}
+
+			gui->div(0,0,0);
+			if(gui->button("Download and Save.")) ad->startDownload = true;
+			if(gui->button("Save to file.")) ad->startSaveFile = true;
+			if(gui->button("Load from file.")) ad->startLoadFile = true;
+		}
+
+		if(sectionMode == 1) {
 			gui->label(fillString("VideoCount: %i.", ad->videoCount), 0);
 
-			// for(int i = 0; i < min(ad->videoCount, 10); i++) {
+			float leftPad = 20;
+
 			for(int i = 0; i < ad->videoCount; i++) {
 				YoutubeVideo* video = ad->videos + i;
 
 				gui->label(fillString("Video %i:", i), 0);
 
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("Id: %s", video->id), 0);
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("Date: %s", video->dateString), 0);
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("ViewCount: %i", video->viewCount), 0);
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("likeCount: %i", video->likeCount), 0);
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("DislikeCount: %i", video->dislikeCount), 0);
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("FavoriteCount: %i", video->favoriteCount), 0);
-				gui->div(vec2(100,0)); gui->empty(); gui->label(fillString("CommentCount: %i", video->commentCount), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Title: %s", video->title), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Thumbnail: %s", video->thumbnail), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", video->id), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Date: %s", video->dateString), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("ViewCount: %i.", video->viewCount), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("likeCount: %i.", video->likeCount), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("DislikeCount: %i.", video->dislikeCount), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("FavoriteCount: %i.", video->favoriteCount), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("CommentCount: %i.", video->commentCount), 0);
 
 			}
+		}
 
-			gui->label("");
 
-		} gui->endSection();
 
 		static bool sectionGuiRecording = false;
-		if(gui->beginSection("Recording", &sectionGuiRecording)) {
+		// if(gui->beginSection("Recording", &sectionGuiRecording)) {
+		if(false) {
 
 			bool noActiveThreads = threadQueueFinished(threadQueue);
 
@@ -1691,15 +1817,19 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				}
 			}
 
-		} gui->endSection();
+		// } gui->endSection();
+		}
 
 		static bool sectionGuiSettings = initSections;
-		if(gui->beginSection("GuiSettings", &sectionGuiSettings)) {
+		// if(gui->beginSection("GuiSettings", &sectionGuiSettings)) {
+		if(false) {
 			guiSettings(gui);
-		} gui->endSection();
+		// } gui->endSection();
+		}
 
 		static bool sectionSettings = initSections;
-		if(gui->beginSection("Settings", &sectionSettings)) {
+		// if(gui->beginSection("Settings", &sectionSettings)) {
+		if(false) {
 			gui->div(vec2(0,0)); if(gui->button("Compile")) shellExecute("C:\\Projects\\Hmm\\code\\buildWin32.bat");
 								 if(gui->button("Up Buffers")) ad->updateFrameBuffers = true;
 			gui->div(vec2(0,0)); gui->label("FoV", 0); gui->slider(&ad->fieldOfView, 1, 180);
@@ -1707,13 +1837,15 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			gui->switcher("Native Res", &ad->useNativeRes);
 			gui->div(0,0,0); gui->label("FboRes", 0); gui->slider(&ad->fboRes.x, 150, ad->cur3dBufferRes.x); gui->slider(&ad->fboRes.y, 150, ad->cur3dBufferRes.y);
 			gui->div(0,0,0); gui->label("NFPlane", 0); gui->slider(&ad->nearPlane, 0.01, 2); gui->slider(&ad->farPlane, 1000, 5000);
-		} gui->endSection();
+		// } gui->endSection();
+		}
 
 
 
 
 		static bool sectionTest = false;
-		if(gui->beginSection("Test", &sectionTest)) {
+		// if(gui->beginSection("Test", &sectionTest)) {
+		if(false) {
 			static int scrollHeight = 200;
 			static int scrollElements = 13;
 			static float scrollVal = 0;
@@ -1741,7 +1873,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			static float textFloat = 123.456f;
 			gui->div(vec2(0,0)); gui->label("Float Box:", 0); gui->textBoxFloat(&textFloat);
 
-		} gui->endSection();
+		// } gui->endSection();
+		}
 
 		gui->end();
 	}
