@@ -233,6 +233,11 @@ struct YoutubePlaylist {
 	int count;
 };
 
+struct SearchResult {
+	char title[101];
+	char id[40];
+};
+
 char* tempFile = "messageContent.txt";
 
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
@@ -241,6 +246,8 @@ char* youtubeApiPlaylistItems = "https://www.googleapis.com/youtube/v3/playlistI
 char* youtubeApiPlaylist = "https://www.googleapis.com/youtube/v3/playlists";
 char* youtubeApiVideos = "https://www.googleapis.com/youtube/v3/videos";
 char* youtubeApiCommentThread = "https://www.googleapis.com/youtube/v3/commentThreads";
+char* youtubeApiChannel = "https://www.googleapis.com/youtube/v3/channels";
+char* youtubeApiSearch = "https://www.googleapis.com/youtube/v3/search";
 
 int maxDownloadCount = 40;
 
@@ -255,6 +262,11 @@ char* tempPlaylistFile = "temp.playlist";
 // UUQvTDmHza8erxZqDkjQ4bQQ
 // PLsksxTH4pR3KLj8__o-le4FlJtUbA9oHC
 
+/*
+	Apichannel
+	part:contentDetails, id:"channel"
+	"uploads": "UUQvTDmHza8erxZqDkjQ4bQQ",
+*/
 
 int getYoutubePlaylistSize(CURL* curlHandle, char* playlistId) {
 	char* request = getTString(1000); strClear(request);
@@ -389,12 +401,36 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 		strAppend(request, "&part=snippet");
 		curlRequest(curlHandle, request, buffer);
 
+		int resultCount = strToInt(stringGetBetween(buffer, "\"totalResults\": ", ","));
+		count = min(resultCount, count);
+
 		char* nextPageToken = stringGetBetween(buffer, "\"nextPageToken\": \"", "\"");
 		pageToken = nextPageToken;
 
-		int index = i;
+		// First load "all uploads" playlist.
+		bool hasAllUploadsPLaylist = false;
+		if(i == 0) {
+			char* buffer = (char*)getTMemory(kiloBytes(2));
+			strClear(request);
+			strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
+			strAppend(request, "&part=contentDetails");
+			strAppend(request, fillString("&id=%s", channelId));
+			curlRequest(curlHandle, request, buffer);
+
+			char* s = stringGetBetween(buffer, "\"uploads\": \"", "\"");
+			if(strLen(s) != 0) {
+				strCpy(playlists[(*playlistCount)].id, s);
+				strCpy(playlists[(*playlistCount)].title, "All Uploads");
+				(*playlistCount)++;
+				hasAllUploadsPLaylist = true;
+			}
+		}
+
+		int index = hasAllUploadsPLaylist ? 1 : i;
 		int advance = 0;
 		for(;;) {
+			if(index > count) break;
+
 			char* s = stringGetBetween(buffer, "\"id\": \"", "\"", &advance); buffer += advance;
 			if(strLen(s) == 0) break;
 
@@ -431,7 +467,74 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 	*playlistCount = count;
 }
 
+char* downloadChannelIdFromUserName(CURL* curlHandle, char* userName) {
+	char* buffer = (char*)getTMemory(kiloBytes(1));
+	char* request = getTString(kiloBytes(1)); strClear(request);
+	strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
+	strAppend(request, fillString("&forUsername=%s", userName));
+	strAppend(request, "&part=id");
+	curlRequest(curlHandle, request, buffer);
 
+	char* channelId = stringGetBetween(buffer, "\"id\": \"", "\"");
+
+	return channelId;
+}
+
+char* eatWhiteSpace(char* str) {
+	int index = 0;
+	while(str[index] == ' ') index++;
+	return str + index;
+}
+
+void quickSearch(CURL* curlHandle, SearchResult* searchResults, int* channelCount, char* searchString, bool searchForChannels = true) {
+	char* buffer = (char*)getTMemory(kiloBytes(50));
+	char* request = getTString(kiloBytes(1)); strClear(request);
+	strAppend(request, fillString("%s?key=%s", youtubeApiSearch, apiKey));
+	strAppend(request, "&part=snippet");
+	if(searchForChannels) strAppend(request, "&type=channel");
+	else strAppend(request, "&type=playlist");
+	strAppend(request, "&maxResults=10");
+
+	// strAppend(request, fillString("&q=%s", searchString));
+
+	strAppend(request, "&q=");
+	for(;;) {
+		searchString = eatWhiteSpace(searchString);
+		int pos = strFind(searchString, ' ');
+		if(pos != 0) {
+			strAppend(request, searchString, pos-1);
+			strAppend(request, ",");
+			searchString += pos-1;
+			continue;
+		}
+
+		pos = strLen(searchString);
+
+		strAppend(request, searchString, pos);
+		break;
+	}
+
+	curlRequest(curlHandle, request, buffer);
+
+	int resultCount = strToInt(stringGetBetween(buffer, "\"totalResults\": ", ","));
+	int count = min(resultCount, 10);
+
+	int advance = 0;
+	for(int i = 0; i < count; i++) {
+		if(searchForChannels) {
+			char* s = stringGetBetween(buffer, "\"channelId\": \"", "\"", &advance); buffer += advance;
+			strCpy(searchResults[i].id, s);
+		} else {
+			char* s = stringGetBetween(buffer, "\"playlistId\": \"", "\"", &advance); buffer += advance;
+			strCpy(searchResults[i].id, s);
+		}
+
+		char* s = stringGetBetween(buffer, "\"title\": \"", "\""); buffer += advance;
+		strCpy(searchResults[i].title, s);
+	}
+
+	*channelCount = count;
+}
 
 struct AppData {
 	// General.
@@ -482,6 +585,7 @@ struct AppData {
 	int selectedVideo;
 	VideoSnippet videoSnippet;
 
+	char* searchString;
 	char* urlString;
 	char* urlFile;
 	int urlVideoCount;
@@ -490,11 +594,17 @@ struct AppData {
 	bool startLoadFile;
 	bool startSaveFile;
 
+	char* userName;
 	char* channelId;
 	int playlistDownloadCount;
 
 	YoutubePlaylist playlists[200];
 	int playlistCount;
+
+	SearchResult searchResults[10];
+	int searchResultCount;
+
+	int lastSearchMode;
 };
 
 
@@ -741,6 +851,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
 		strCpy(ad->channelId, rocketBeansId);
+
+		ad->userName = (char*)getPMemory(100); strClear(ad->userName);
+		ad->searchString = (char*)getPMemory(100); strClear(ad->searchString);
 	}
 
 	// @AppStart.
@@ -1766,10 +1879,12 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		if(sectionMode == 0) {
 			gui->div(0.1f,0,0,0.1f);
 			if(gui->button("<-")) {
-				int newSelection = clampMin(ad->selectedVideo - 1, 0);
-				if(newSelection != ad->selectedVideo) {
-					ad->selectedVideo = newSelection;
-					downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+				if(ad->selectedVideo != -1) {
+					int newSelection = clampMin(ad->selectedVideo - 1, 0);
+					if(newSelection != ad->selectedVideo) {
+						ad->selectedVideo = newSelection;
+						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+					}
 				}
 			};			
 
@@ -1781,20 +1896,24 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			}
 
 			if(gui->button("->")) {
-				int newSelection = clampMax(ad->selectedVideo + 1, ad->videoCount - 1);
-				if(newSelection != ad->selectedVideo) {
-					ad->selectedVideo = newSelection;
-					downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+				if(ad->selectedVideo != -1) {
+					int newSelection = clampMax(ad->selectedVideo + 1, ad->videoCount - 1);
+					if(newSelection != ad->selectedVideo) {
+						ad->selectedVideo = newSelection;
+						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+					}
 				}
 			};
 
+			gui->empty();
+
 			gui->div(vec2(0.2f,0));
 			gui->label("Url: ", 0);
-			gui->textBoxChar(ad->urlString, strLen(ad->urlString), 100);
+			gui->textBoxChar(ad->urlString, strLen(ad->urlString), 50);
 
 			gui->div(vec2(0.2f,0));
 			gui->label("File: ", 0);
-			gui->textBoxChar(ad->urlFile, strLen(ad->urlFile), 100);
+			gui->textBoxChar(ad->urlFile, strLen(ad->urlFile), 50);
 
 			gui->div(0.2f,0.2f,0);
 			gui->label("Count: ", 0);
@@ -1810,16 +1929,55 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			if(gui->button("Load from file.")) ad->startLoadFile = true;
 
 			gui->empty();
+
+			gui->div(0,0,0,0);
+			gui->label("QuickSearch:", 0);
+			gui->textBoxChar(ad->searchString, strLen(ad->searchString), 50);
+			if(gui->button("Playlists.")) {
+				quickSearch(ad->curlHandle, ad->searchResults, &ad->searchResultCount, ad->searchString, false);
+				ad->lastSearchMode = 1;
+			}
+			if(gui->button("Channels.")) {
+				quickSearch(ad->curlHandle, ad->searchResults, &ad->searchResultCount, ad->searchString);
+				ad->lastSearchMode = 0;
+			}
+
+			if(ad->searchResultCount > 0) {
+				gui->label("Channels");
+
+				float leftPad = 20;
+				for(int i = 0; i < ad->searchResultCount; i++) {
+					SearchResult* sResult = ad->searchResults + i;
+
+					if(gui->button(fillString("%i: %s.", i, sResult->title), 0, 0)) {
+						if(ad->lastSearchMode == 0) {
+							strCpy(ad->channelId, sResult->id);
+						} else {
+							strCpy(ad->urlString, sResult->id);
+						}
+					}
+				}
+			}
+
 			{
+				gui->empty();
+	
+				gui->div(vec2(0,0));
+				if(gui->button("Get id from username.")) {
+					char* channelId = downloadChannelIdFromUserName(ad->curlHandle, ad->userName);
+					strCpy(ad->channelId, channelId);
+				}
+				gui->textBoxChar(ad->userName, strLen(ad->userName), 50);
+
 				gui->div(vec2(0.2f,0));
 				gui->label("Channel Id:", 0);
-				gui->textBoxChar(ad->channelId);
+				gui->textBoxChar(ad->channelId, strLen(ad->channelId), 50);
 
 				gui->div(0.2f,0.2f,0);
 				gui->label("Count: ", 0);
 				gui->textBoxInt(&ad->playlistDownloadCount);
 				if(gui->button("Get playlist count.")) {
-					ad->playlistDownloadCount = downloadChannelPlaylistCount(ad->curlHandle, ad->channelId);;
+					ad->playlistDownloadCount = downloadChannelPlaylistCount(ad->curlHandle, ad->channelId);
 				}
 				
 				if(gui->button("Load Playlist from Channel")) {
