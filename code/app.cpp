@@ -46,6 +46,7 @@
 	  - They probably mean 100 characters of unicode, not ascii.
 	- Download playlists fron channel.
 	- Draw command dots.
+	- Gui when scrollsection gets initialized, put in the current window height to avoid one frame jumping.
 */
 
 // External.
@@ -226,6 +227,12 @@ struct YoutubeVideo {
 };
 // #pragma pack(pop)
 
+struct YoutubePlaylist {
+	char id[40];
+	char title[101];
+	int count;
+};
+
 char* tempFile = "messageContent.txt";
 
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
@@ -237,6 +244,7 @@ char* youtubeApiCommentThread = "https://www.googleapis.com/youtube/v3/commentTh
 
 int maxDownloadCount = 40;
 
+char* rocketBeansId = "UCQvTDmHza8erxZqDkjQ4bQQ";
 char* moinmoinPlaylist = "PLsksxTH4pR3KZe3wbmAP2Tgn6rfhbDlBH";
 char* moinmoinFile = "MoinMoin.playlist";
 
@@ -352,6 +360,76 @@ void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo*
 	}
 }
 
+int downloadChannelPlaylistCount(CURL* curlHandle, char* channelId) {
+	char* buffer = (char*)getTMemory(kiloBytes(2));
+
+	char* request = getTString(kiloBytes(1)); strClear(request);
+	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
+	strAppend(request, fillString("&channelId=%s", channelId));
+	strAppend(request, "&maxResults=1");
+	strAppend(request, "&part=id");
+	curlRequest(curlHandle, request, buffer);
+
+	int count = strToInt(stringGetBetween(buffer, "\"totalResults\": ", ","));
+	return count;
+}
+
+void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int* playlistCount, char* channelId, char* buffer, int count) {
+	char* request = getTString(kiloBytes(20)); strClear(request);
+
+	char* pageToken = 0;
+	for(int i = 0; i < count; i += maxDownloadCount) {
+		int dCount = i + maxDownloadCount > count ? count-i : maxDownloadCount;
+
+		strClear(request);
+		strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
+		strAppend(request, fillString("&channelId=%s", channelId));
+		strAppend(request, fillString("&maxResults=%i", dCount));
+		if(pageToken != 0) strAppend(request, fillString("&pageToken=%s", pageToken));
+		strAppend(request, "&part=snippet");
+		curlRequest(curlHandle, request, buffer);
+
+		char* nextPageToken = stringGetBetween(buffer, "\"nextPageToken\": \"", "\"");
+		pageToken = nextPageToken;
+
+		int index = i;
+		int advance = 0;
+		for(;;) {
+			char* s = stringGetBetween(buffer, "\"id\": \"", "\"", &advance); buffer += advance;
+			if(strLen(s) == 0) break;
+
+			strCpy(playlists[index].id, s);
+
+			s = stringGetBetween(buffer, "\"title\": \"", "\"", &advance); buffer += advance;
+			strCpy(playlists[index].title, s);
+			index++;
+		}
+
+		// Get playlist video count.
+		{
+			strClear(request);
+			strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
+			strAppend(request, "&part=contentDetails");
+			strAppend(request, "&id=");
+			for(int index = 0; index < dCount; index++) {
+				strAppend(request, fillString("%s,", playlists[i+index].id));
+			}
+			curlRequest(curlHandle, request, buffer);
+
+			int index = i;
+			int advance = 0;
+			for(;;) {
+				char* s = stringGetBetween(buffer, "\"itemCount\": ", "\n", &advance); buffer += advance;
+				if(strLen(s) == 0) break;
+
+				playlists[index].count = strToInt(s);
+				index++;
+			}
+		}
+	}
+
+	*playlistCount = count;
+}
 
 
 
@@ -411,6 +489,12 @@ struct AppData {
 	bool startDownload;
 	bool startLoadFile;
 	bool startSaveFile;
+
+	char* channelId;
+	int playlistDownloadCount;
+
+	YoutubePlaylist playlists[200];
+	int playlistCount;
 };
 
 
@@ -654,6 +738,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		strCpy(ad->urlFile, tempPlaylistFile);
 
 		ad->selectedVideo = -1;
+
+		ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
+		strCpy(ad->channelId, rocketBeansId);
 	}
 
 	// @AppStart.
@@ -1079,45 +1166,54 @@ extern "C" APPMAINFUNCTION(appMain) {
 			fread(&ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
 			fclose(file);
 
-			// Sort videos.
-			// if(false)
-			{
-				int size = ad->videoCount;
-				for(int off = 0; off < size-1; off++) {
-					bool sw = false;
+			if(ad->videoCount == 0) {
+				graphCamInit(&ad->cam,      0, 10000, 0, 1000);
+				graphCamInit(&ad->camLikes, 0, 10000, 0, 1000);
+			} else {
 
-					for(int i = 0; i < size-1 - off; i++) {
-						if(ad->videos[i+1].date.num < ad->videos[i].date.num) {
-							// swap(&off, &size);
-							swapGeneric(YoutubeVideo, ad->videos[i+1], ad->videos[i]);
-							sw = true;
+				// Sort videos.
+				// if(false)
+				{
+					int size = ad->videoCount;
+					for(int off = 0; off < size-1; off++) {
+						bool sw = false;
+
+						for(int i = 0; i < size-1 - off; i++) {
+							if(ad->videos[i+1].date.num < ad->videos[i].date.num) {
+								// swap(&off, &size);
+								swapGeneric(YoutubeVideo, ad->videos[i+1], ad->videos[i]);
+								sw = true;
+							}
 						}
+
+						if(!sw) break;
 					}
+				}
 
-					if(!sw) break;
+				Statistic statViews, statLikes, statDates;
+				{
+					beginStatistic(&statViews);
+					beginStatistic(&statLikes);
+					beginStatistic(&statDates);
+
+					for(int i = 0; i < ad->videoCount; i++) {
+						YoutubeVideo* video = ad->videos + i;
+
+						updateStatistic(&statViews, video->viewCount);
+						updateStatistic(&statLikes, video->likeCount);
+						updateStatistic(&statDates, video->date.num);
+					}
+				}
+
+				if(statDates.min == statDates.max) {
+					graphCamInit(&ad->cam,      statDates.min - 10000, statDates.min + 10000, 0, statViews.max*1.5f);
+					graphCamInit(&ad->camLikes, statDates.min - 10000, statDates.min + 10000, 0, statLikes.max*1.5f);
+				} else {
+					graphCamInit(&ad->cam,      statDates.min, statDates.max, 0, statViews.max*1.5f);
+					graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.5f);
 				}
 			}
 
-			Statistic statViews, statLikes, statDates;
-			{
-				beginStatistic(&statViews);
-				beginStatistic(&statLikes);
-				beginStatistic(&statDates);
-
-				for(int i = 0; i < ad->videoCount; i++) {
-					YoutubeVideo* video = ad->videos + i;
-
-					updateStatistic(&statViews, video->viewCount);
-					updateStatistic(&statLikes, video->likeCount);
-					updateStatistic(&statDates, video->date.num);
-				}
-			}
-
-			graphCamInit(&ad->cam,      statDates.min, statDates.max, 0, statViews.max*1.5f);
-			graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.5f);
-
-			// graphCamInit(&ad->cam, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, videodMaximums.viewCount*1.5f);
-			// graphCamInit(&ad->camLikes, ad->videos[0].date.num, ad->videos[ad->videoCount-1].date.num, 0, videodMaximums.likeCount*1.5f);
 			ad->selectedVideo = -1;
 
 		} 
@@ -1662,9 +1758,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 		gui->label("App", 1, gui->colors.sectionColor, vec4(0,0,0,1));
 
-		gui->div(vec2(0,0));
+		gui->div(0,0,0);
 		if(gui->button("Options", (int)(sectionMode == 0) + 1)) sectionMode = 0;
 		if(gui->button("Videos", (int)(sectionMode == 1) + 1)) sectionMode = 1;
+		if(gui->button("Playlists", (int)(sectionMode == 2) + 1)) sectionMode = 2;
 
 		if(sectionMode == 0) {
 			gui->div(0.1f,0,0,0.1f);
@@ -1711,13 +1808,45 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			if(gui->button("Download and Save.")) ad->startDownload = true;
 			if(gui->button("Save to file.")) ad->startSaveFile = true;
 			if(gui->button("Load from file.")) ad->startLoadFile = true;
+
+			gui->empty();
+			{
+				gui->div(vec2(0.2f,0));
+				gui->label("Channel Id:", 0);
+				gui->textBoxChar(ad->channelId);
+
+				gui->div(0.2f,0.2f,0);
+				gui->label("Count: ", 0);
+				gui->textBoxInt(&ad->playlistDownloadCount);
+				if(gui->button("Get playlist count.")) {
+					ad->playlistDownloadCount = downloadChannelPlaylistCount(ad->curlHandle, ad->channelId);;
+				}
+				
+				if(gui->button("Load Playlist from Channel")) {
+					char* buffer = (char*)getTMemory(megaBytes(3));
+					downloadChannelPlaylists(ad->curlHandle, ad->playlists, &ad->playlistCount, ad->channelId, buffer, ad->playlistDownloadCount);
+				}
+
+				if(ad->playlistCount > 0) {
+					gui->label("Playlists");
+
+					float leftPad = 20;
+					for(int i = 0; i < ad->playlistCount; i++) {
+						YoutubePlaylist* playlist = ad->playlists + i;
+
+						if(gui->button(fillString("%i: %s. (%i.)", i, playlist->title, playlist->count), 0, 0)) {
+							strCpy(ad->urlString, playlist->id);
+							ad->urlVideoCount = playlist->count;
+						}
+					}
+				}
+			}
 		}
 
 		if(sectionMode == 1) {
 			gui->label(fillString("VideoCount: %i.", ad->videoCount), 0);
 
 			float leftPad = 20;
-
 			for(int i = 0; i < ad->videoCount; i++) {
 				YoutubeVideo* video = ad->videos + i;
 
@@ -1736,7 +1865,18 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			}
 		}
 
+		if(sectionMode == 2) {
+			float leftPad = 20;
+			for(int i = 0; i < ad->playlistCount; i++) {
+				YoutubePlaylist* playlist = ad->playlists + i;
 
+				gui->label(fillString("Playlist %i: ", i), 0);
+
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", playlist->id), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("title: %s", playlist->title), 0);
+				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("count: %i.", playlist->count), 0);
+			}
+		}
 
 		static bool sectionGuiRecording = false;
 		// if(gui->beginSection("Recording", &sectionGuiRecording)) {
