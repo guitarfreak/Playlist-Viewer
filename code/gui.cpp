@@ -911,7 +911,9 @@ struct Gui {
 		bool active = setActive(mouseOver, 2);
 		Vec4 colorAdd = getColorAdd(active, mouseOver, 2);
 
-		if(rectOutside(region)) return active;
+		if(rectOutside(region)) return false;
+
+		bool textBoxValueConfirmed = false;
 
 		if(!activeBefore && active) {
 			int textLength;
@@ -1065,6 +1067,7 @@ struct Gui {
 				else *((float*)originalPointer) = strToFloat(textBoxText);
 
 				activeId = 0;
+				textBoxValueConfirmed = true;
 			}
 
 			if(input.mouseClick && !getMouseOver(input.mousePos, region)) activeId = 0;
@@ -1087,7 +1090,7 @@ struct Gui {
 		}
 
 		post();
-		return active;
+		return textBoxValueConfirmed;
 	}
 
 	bool textBoxChar(char* text, int textSize = 0, int textCapacity = 0) {

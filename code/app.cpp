@@ -14,7 +14,7 @@
 	- On WM_KILLFOCUS release all the keys.
 	- Gui textbox clipboard.
 	- Fixed getClipboard, added closeClipboard.
-
+	- Gui textbox returns true only on new value when hitting enter.
 
 
 	* Add gradient.
@@ -664,6 +664,8 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, 
 	}
 }
 
+
+
 struct AppData {
 	// General.
 
@@ -743,6 +745,9 @@ struct AppData {
 
 	double avgPoints[1000];
 	int avgPointsCount;
+
+	char exclusiveFilter[50];
+	char inclusiveFilter[50];
 };
 
 
@@ -1411,8 +1416,124 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(ad->startLoadFile) {
 		ad->startLoadFile = false;
 
-		bool foundFile = loadPlaylistFromFile(&ad->playlist, ad->videos, &ad->videoCount);
+
+		YoutubePlaylist tempPlaylist;		
+		loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id));
+		memCpy(&ad->playlist, &tempPlaylist, sizeof(YoutubePlaylist));
+
+		int tempVidCount = tempPlaylist.count;
+		YoutubeVideo* tempVids = getTArray(YoutubeVideo, tempVidCount);
+
+
+
+		bool foundFile = loadPlaylistFromFile(&tempPlaylist, tempVids, &tempVidCount);
+		// bool foundFile = loadPlaylistFromFile(&ad->playlist, ad->videos, &ad->videoCount);
 		if(foundFile) {
+
+			// Filter videos.
+			{
+				int* filteredIndexes = getTArray(int, tempVidCount);
+				int filteredIndexesCount = 0;
+
+				char* inclusiveFilterStrings[10];
+				int inclusiveFilterStringCount = 0;
+				{
+					char* searchString = ad->inclusiveFilter;
+					for(;;) {
+						searchString = eatWhiteSpace(searchString);
+						int pos = strFind(searchString, ' ');
+						if(pos != 0) {
+							char* filter = getTString(pos-1 + 1);
+							strCpy(filter, searchString, pos-1);
+							inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
+
+							searchString += pos-1;
+							continue;
+						}
+
+						pos = strLen(searchString);
+						if(pos == 0) break;
+
+						char* filter = getTString(pos + 1);
+						strCpy(filter, searchString, pos);
+						inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
+
+						break;
+					}
+				}
+				char* exclusiveFilterStrings[10];
+				int exclusiveFilterStringCount = 0;
+				{
+					char* searchString = ad->exclusiveFilter;
+					for(;;) {
+						searchString = eatWhiteSpace(searchString);
+						int pos = strFind(searchString, ' ');
+						if(pos != 0) {
+							char* filter = getTString(pos-1 + 1);
+							strCpy(filter, searchString, pos-1);
+							exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
+
+							searchString += pos-1;
+							continue;
+						}
+
+						pos = strLen(searchString);
+						if(pos == 0) break;
+
+						char* filter = getTString(pos + 1);
+						strCpy(filter, searchString, pos);
+						exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
+
+						break;
+					}
+				}
+
+				bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
+				bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
+
+				for(int i = 0; i < tempVidCount; i++) {
+					char* title = tempVids[i].title;
+
+					bool inclusiveCorrect;
+					if(inclusiveFilterActive) {
+						inclusiveCorrect = true;
+						for(int fi = 0; fi < inclusiveFilterStringCount; fi++) {
+							char* filter = inclusiveFilterStrings[fi];
+							bool correct = (strFind(title, filter) != -1);
+							if(!correct) {
+								inclusiveCorrect = false;
+								break;
+							}
+						}
+					}
+
+					bool exclusiveCorrect;
+					if(exclusiveFilterActive) {
+						exclusiveCorrect = true;
+						for(int fi = 0; fi < exclusiveFilterStringCount; fi++) {
+							char* filter = exclusiveFilterStrings[fi];
+							bool correct = (strFind(title, filter) == -1);
+							if(!correct) {
+								exclusiveCorrect = false;
+								break;
+							}
+						}
+					}
+					
+					if(!inclusiveFilterActive) inclusiveCorrect = true;
+					if(!exclusiveFilterActive) exclusiveCorrect = true;
+
+					if(inclusiveCorrect && exclusiveCorrect) filteredIndexes[filteredIndexesCount++] = i;
+				}
+
+				ad->playlist.count = filteredIndexesCount;
+				ad->videoCount = filteredIndexesCount;
+
+				for(int i = 0; i < filteredIndexesCount; i++) {
+					int index = filteredIndexes[i];
+					ad->videos[i] = tempVids[index];
+				}
+			}
 
 			if(ad->videoCount == 0) {
 				graphCamInit(&ad->cam,      0, 10000, 0, 1000);
@@ -1760,12 +1881,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
 
 			for(int i = 0; i < vidCount-1; i++) {
+			// for(int fi = 0; fi < filteredIndexesCount-1; fi++) {
+				// int i = filteredIndexes[fi];
+
 				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
 
 				float x = graphCamMapX(cam, vids[i].date.num) + 1;
 				float x2 = graphCamMapX(cam, vids[i+1].date.num) + 1;
 
 				if(graphIndex == 0) {
+					// if(filteredIndex[i]
 					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec2(x2, graphCamMapY(cam, vids[i+1].viewCount)), vec4(0,0.7f,1,1));
 
 				} else if(graphIndex == 1) {
@@ -2068,13 +2193,21 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				}
 			};
 
-			gui->empty();
+			// gui->empty();
 
 			bool updateStats = false;
-			gui->div(vec2(0,0));    gui->label("Stats");           if(gui->button("Update Stats.")) updateStats = true;
-			gui->div(vec2(0.2f,0)); gui->label("Time Span: ", 0);  gui->textBoxFloat(&ad->statTimeSpan);
-			gui->div(vec2(0.2f,0)); gui->label("Time Width: ", 0); gui->textBoxFloat(&ad->statWidth);
+			gui->label("Stats");
+			gui->div(vec2(0,0)); gui->label("Time span in months: ", 0);  if(gui->textBoxFloat(&ad->statTimeSpan)) updateStats = true;
+			gui->div(vec2(0,0)); gui->label("Time width in months: ", 0); if(gui->textBoxFloat(&ad->statWidth)) updateStats = true;
 			if(updateStats) calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->statTimeSpan, ad->statWidth, &ad->cam);
+
+			gui->label("Filters");
+			bool reloadFile = false;
+			gui->div(vec2(0.2f,0)); gui->label("Inclusive: ", 0); if(gui->textBoxChar(ad->inclusiveFilter, 0, 50)) reloadFile = true;
+			gui->div(vec2(0.2f,0)); gui->label("Exclusive: ", 0); if(gui->textBoxChar(ad->exclusiveFilter, 0, 50)) reloadFile = true;
+			if(reloadFile) {
+				ad->startLoadFile = true;
+			}
 
 			gui->empty();
 
@@ -2128,17 +2261,17 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				ad->downloadPlaylist.count = count;
 			}
 
-			gui->div(0,0,0);
+			gui->div(vec2(0,0));
 			if(gui->button("Download and Save.")) {
 				ad->startDownload = true;
 				gui->activeId = 0;
 			}
-			if(gui->button("Save to file.")) {
-				savePlaylistToFile(&ad->playlist, ad->videos, ad->videoCount);
+			// if(gui->button("Save to file.")) {
+			// 	savePlaylistToFile(&ad->playlist, ad->videos, ad->videoCount);
 
-				ad->playlistFolderCount = 0;
-				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-			}
+			// 	ad->playlistFolderCount = 0;
+			// 	loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+			// }
 			if(gui->button("Load from file.")) ad->startLoadFile = true;
 
 			gui->empty();
