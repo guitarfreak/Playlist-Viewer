@@ -262,23 +262,10 @@ char* youtubeApiChannel = "https://www.googleapis.com/youtube/v3/channels";
 char* youtubeApiSearch = "https://www.googleapis.com/youtube/v3/search";
 
 int maxDownloadCount = 40;
+int pageTokenSize = 10;
 
 char* rocketBeansId = "UCQvTDmHza8erxZqDkjQ4bQQ";
-char* moinmoinPlaylist = "PLsksxTH4pR3KZe3wbmAP2Tgn6rfhbDlBH";
-char* moinmoinFile = "MoinMoin.playlist";
 
-char* tempPlaylistFile = "temp.playlist";
-
-// PLZ6-wZZqtEoGeqACJ1oK9H739inthE7X_
-// PLsksxTH4pR3IGid8awp3UMNIPj1HoKWBS
-// UUQvTDmHza8erxZqDkjQ4bQQ
-// PLsksxTH4pR3KLj8__o-le4FlJtUbA9oHC
-
-/*
-	Apichannel
-	part:contentDetails, id:"channel"
-	"uploads": "UUQvTDmHza8erxZqDkjQ4bQQ",
-*/
 
 int getYoutubePlaylistSize(CURL* curlHandle, char* playlistId) {
 	char* request = getTString(1000); strClear(request);
@@ -395,12 +382,29 @@ int downloadChannelPlaylistCount(CURL* curlHandle, char* channelId) {
 	curlRequest(curlHandle, request, buffer);
 
 	int count = strToInt(stringGetBetween(buffer, "\"totalResults\": ", ","));
+
+
+	strClear(request);
+	strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
+	strAppend(request, "&part=contentDetails");
+	strAppend(request, fillString("&id=%s", channelId));
+	curlRequest(curlHandle, request, buffer);
+
+	bool hasAllUploadsPlaylist = false;
+
+	char* s = stringGetBetween(buffer, "\"uploads\": \"", "\"");
+	if(strLen(s) != 0) hasAllUploadsPlaylist = true;
+
+	if(hasAllUploadsPlaylist) count++;
+
 	return count;
 }
 
 void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int* playlistCount, char* channelId, char* buffer, int count) {
 	char* request = getTString(kiloBytes(20)); strClear(request);
 
+	bool hasAllUploadsPLaylist = false;
+	
 	char* pageToken = 0;
 	for(int i = 0; i < count; i += maxDownloadCount) {
 		int dCount = i + maxDownloadCount > count ? count-i : maxDownloadCount;
@@ -420,7 +424,6 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 		pageToken = nextPageToken;
 
 		// First load "all uploads" playlist.
-		bool hasAllUploadsPLaylist = false;
 		if(i == 0) {
 			// Get Channel name.
 			{
@@ -492,6 +495,7 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 	}
 
 	*playlistCount = count;
+	if(hasAllUploadsPLaylist) (*playlistCount)++;
 }
 
 char* downloadChannelIdFromUserName(CURL* curlHandle, char* userName) {
@@ -565,24 +569,61 @@ void quickSearch(CURL* curlHandle, SearchResult* searchResults, int* channelCoun
 
 char* playlistFolder = "..\\playlists\\";
 
-void savePlaylistToFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int videoCount) {
+// void savePlaylistToFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int videoCount) {
+void savePlaylistToFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int videoCount, int maxVideoCount, int oldVideoCount, char* pageToken) {
 	char* filePath = fillString("%s%s.playlist", playlistFolder, playlist->id);
-	FILE* file = fopen(filePath, "wb");
+
+	FILE* file;
+	if(oldVideoCount == 0) {
+		file = fopen(filePath, "wb");
+	} else {
+		file = fopen(filePath, "rb+");
+		fseek(file, 0, SEEK_SET);
+	}		
+
 	fwrite(&playlist->title, memberSize(YoutubePlaylist, title), 1, file);
 	fwrite(&playlist->id, memberSize(YoutubePlaylist, id), 1, file);
-	fwrite(&videoCount, sizeof(int), 1, file);
+	int currentCount = videoCount + oldVideoCount;
+	fwrite(&currentCount, sizeof(int), 1, file);
+	fwrite(&maxVideoCount, sizeof(int), 1, file);
+	fwrite(pageToken, pageTokenSize, 1, file);
+
+	int pos;
+	pos = ftell(file);
+	fseek(file, (maxVideoCount-videoCount-oldVideoCount)*sizeof(YoutubeVideo), SEEK_CUR);
+	pos = ftell(file);
+
 	fwrite(videos, videoCount*sizeof(YoutubeVideo), 1, file);
+	pos = ftell(file);
+
 	fclose(file);
 }
 
-bool loadPlaylistFromFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int* videoCount) {
+bool loadPlaylistFromFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int* videoCount, int* maxVideoCount = 0, char* pageToken = 0) {
 	char* filePath = fillString("%s%s.playlist", playlistFolder, playlist->id);
 	FILE* file = fopen(filePath, "rb");
 	if(file) {
 		fread(&playlist->title, memberSize(YoutubePlaylist, title), 1, file);
 		fread(&playlist->id, memberSize(YoutubePlaylist, id), 1, file);
 		fread(videoCount, sizeof(int), 1, file);
+
+		int pos;
+		pos = ftell(file);
+
+		int tempMaxCount;
+		if(maxVideoCount == 0) fread(&tempMaxCount, sizeof(int), 1, file);
+		else fread(&maxVideoCount, sizeof(int), 1, file);
+		pos = ftell(file);
+		if(pageToken == 0) fseek(file, pageTokenSize, SEEK_CUR);
+		else fread(&pageToken, pageTokenSize, 1, file);
+		pos = ftell(file);
+
+		if(maxVideoCount == 0) fseek(file, (tempMaxCount-(*videoCount))*sizeof(YoutubeVideo), SEEK_CUR);
+		else fseek(file, ((*maxVideoCount)-(*videoCount))*sizeof(YoutubeVideo), SEEK_CUR);
+		pos = ftell(file);
+
 		fread(videos, (*videoCount)*sizeof(YoutubeVideo), 1, file);
+		pos = ftell(file);
 		fclose(file);
 
 		return true;
@@ -591,13 +632,19 @@ bool loadPlaylistFromFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int* 
 	return false;
 }
 
-bool loadPlaylistHeaderFromFile(YoutubePlaylist* playlist, char* fileName) {
+bool loadPlaylistHeaderFromFile(YoutubePlaylist* playlist, char* fileName, int* maxVideoCount = 0, char* pageToken = 0) {
 	char* filePath = fillString("%s%s", playlistFolder, fileName);
 	FILE* file = fopen(filePath, "rb");
 	if(file) {
 		fread(&playlist->title, memberSize(YoutubePlaylist, title), 1, file);
 		fread(&playlist->id, memberSize(YoutubePlaylist, id), 1, file);
 		fread(&playlist->count, sizeof(int), 1, file);
+
+		if(maxVideoCount == 0) fseek(file, sizeof(int), SEEK_CUR);
+		else fread(maxVideoCount, sizeof(int), 1, file);
+		if(pageToken == 0) fseek(file, pageTokenSize, SEEK_CUR);
+		else fread(pageToken, pageTokenSize, 1, file);
+
 		fclose(file);
 
 		return true;
@@ -612,6 +659,7 @@ void loadPlaylistFolder(YoutubePlaylist* playlists, int* playlistCount) {
 	HANDLE folderHandle = FindFirstFile(folderPath, &findData);
 
 	if(INVALID_HANDLE_VALUE != folderHandle) {
+		(*playlistCount) = 0;
 		for(;;) {
 			bool result = FindNextFile(folderHandle, &findData);
 			if(!result) break;
@@ -1265,9 +1313,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// @AppLoop.
 
-
-
-
 	if(ad->startDownload) { 
 	// if(init) { 
 		ad->startDownload = false;
@@ -1278,6 +1323,24 @@ extern "C" APPMAINFUNCTION(appMain) {
 		YoutubeVideo* vids = getTArray(YoutubeVideo, count);
 
 		char* pageToken = 0;
+
+		YoutubePlaylist tempPlaylist;
+		char* fileName = fillString("%s.playlist", ad->downloadPlaylist.id);
+		int maxVideoCount = 0;
+		char* pt = getTString(pageTokenSize);
+		bool continuedDownload = loadPlaylistHeaderFromFile(&tempPlaylist, fileName, &maxVideoCount, pt);
+
+		int lastVideoCount = 0;
+
+		if(continuedDownload) {
+			pageToken = pt;			
+			lastVideoCount = tempPlaylist.count;
+
+			if(maxVideoCount == tempPlaylist.count) return;
+		}
+
+		int totalCount = 0;
+
 		char* buffer = (char*)getTMemory(megaBytes(3)); 
 		for(int i = 0; i < count; i += maxDownloadCount) {
 
@@ -1287,6 +1350,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			pageToken = downloadYoutubePlaylistVideoIds(ad->curlHandle, playlist, buffer, dCount, pageToken);
+
+			// Get total count.
+			{
+				char* s = stringGetBetween(buffer, "\"totalResults\": ", ",");
+				totalCount = strToInt(s);
+			}
 
 			// Get Video ids.
 			{
@@ -1390,14 +1459,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 			vids[i].date = stringToDate(vids[i].dateString);
 		}
 
-		// ad->playlist = ad->downloadPlaylist;
 		memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
 		ad->videoCount = ad->downloadPlaylist.count;
 
-		// savePlaylistToFile();
-		savePlaylistToFile(&ad->playlist, vids, ad->videoCount);
+		if(continuedDownload) {
+		// if(false) {
+			savePlaylistToFile(&ad->playlist, vids, ad->videoCount, totalCount, lastVideoCount, pageToken);
+		} else {
+			savePlaylistToFile(&ad->playlist, vids, ad->videoCount, totalCount, 0, pageToken);
+		}
 
-		ad->playlistFolderCount = 0;
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 	}
 
@@ -2224,6 +2295,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
 					ad->videoCount = playlist->count;
 					ad->startLoadFile = true;
+
+					strCpy(ad->downloadPlaylist.title, ad->playlist.title);
+					strCpy(ad->downloadPlaylist.id, ad->playlist.id);
 				}
 				gui->label(fillString("%i", playlist->count), 0);
 				gui->label(playlist->id);
