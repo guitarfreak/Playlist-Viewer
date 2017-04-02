@@ -26,27 +26,30 @@
 	* Clipboard messed up when app is running.
 	* Sort playlist by date after download.
 	* Cant copy in chrome when switching from app.
+	* Download playlists fron channel.
+	* Get playlists from channel.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
 	- Dithering.
 	- Date timeline.
 	- Abstract timeline.
 	- Mouse hover, show specific data.
-	- Averages and statistics.
 	- Debug gui stuff should disable app input when needed. (Mouse dragging, for example.)
 
+	- Gui when scrollsection gets initialized, put in the current window height to avoid one frame jumping.
 	- Zoom stages for bottom timeline.
 	- Combine 2 graphs again and do h scroll with side bars.
 	- Unicode for comments.
-	- Make middle mouse button on right panel open firefox with video.
-	- Get playlists from channel.
 	- Bottom Zoom glitchy.
 	  - Viewport left and right of cam to big probably. Should add offset so cam goes from 0 to viewport width.
 	- 101 not enough space for title, found on with 102. (Including zero byte.)
 	  - They probably mean 100 characters of unicode, not ascii.
-	- Download playlists fron channel.
 	- Draw command dots.
-	- Gui when scrollsection gets initialized, put in the current window height to avoid one frame jumping.
+
+	- Averages and statistics.
+	- Search key words to remove certain items in playlist.
+	  - A Video has to have a certain word, or should not have a certain keyword.
+	
 */
 
 // External.
@@ -410,6 +413,21 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 		// First load "all uploads" playlist.
 		bool hasAllUploadsPLaylist = false;
 		if(i == 0) {
+			// Get Channel name.
+			{
+				char* buffer = (char*)getTMemory(kiloBytes(2));
+				strClear(request);
+				strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
+				strAppend(request, "&part=snippet");
+				strAppend(request, fillString("&id=%s", channelId));
+				curlRequest(curlHandle, request, buffer);
+
+				char* s = stringGetBetween(buffer, "\"title\": \"", "\"");
+				if(strLen(s) != 0) {
+					strCpy(playlists[(*playlistCount)].title, s);
+				}
+			}
+
 			char* buffer = (char*)getTMemory(kiloBytes(2));
 			strClear(request);
 			strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
@@ -420,7 +438,7 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 			char* s = stringGetBetween(buffer, "\"uploads\": \"", "\"");
 			if(strLen(s) != 0) {
 				strCpy(playlists[(*playlistCount)].id, s);
-				strCpy(playlists[(*playlistCount)].title, "All Uploads");
+				// strCpy(playlists[(*playlistCount)].title, "All Uploads");
 				(*playlistCount)++;
 				hasAllUploadsPLaylist = true;
 			}
@@ -536,6 +554,77 @@ void quickSearch(CURL* curlHandle, SearchResult* searchResults, int* channelCoun
 	*channelCount = count;
 }
 
+char* playlistFolder = "..\\playlists\\";
+
+void savePlaylistToFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int videoCount) {
+	char* filePath = fillString("%s%s.playlist", playlistFolder, playlist->id);
+	FILE* file = fopen(filePath, "wb");
+	fwrite(&playlist->title, memberSize(YoutubePlaylist, title), 1, file);
+	fwrite(&playlist->id, memberSize(YoutubePlaylist, id), 1, file);
+	fwrite(&videoCount, sizeof(int), 1, file);
+	fwrite(videos, videoCount*sizeof(YoutubeVideo), 1, file);
+	fclose(file);
+}
+
+bool loadPlaylistFromFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int* videoCount) {
+	char* filePath = fillString("%s%s.playlist", playlistFolder, playlist->id);
+	FILE* file = fopen(filePath, "rb");
+	if(file) {
+		fread(&playlist->title, memberSize(YoutubePlaylist, title), 1, file);
+		fread(&playlist->id, memberSize(YoutubePlaylist, id), 1, file);
+		fread(videoCount, sizeof(int), 1, file);
+		fread(videos, (*videoCount)*sizeof(YoutubeVideo), 1, file);
+		fclose(file);
+
+		return true;
+	}
+
+	return false;
+}
+
+bool loadPlaylistHeaderFromFile(YoutubePlaylist* playlist, char* fileName) {
+	char* filePath = fillString("%s%s", playlistFolder, fileName);
+	FILE* file = fopen(filePath, "rb");
+	if(file) {
+		fread(&playlist->title, memberSize(YoutubePlaylist, title), 1, file);
+		fread(&playlist->id, memberSize(YoutubePlaylist, id), 1, file);
+		fread(&playlist->count, sizeof(int), 1, file);
+		fclose(file);
+
+		return true;
+	}
+
+	return false;
+}
+
+void loadPlaylistFolder(YoutubePlaylist* playlists, int* playlistCount) {
+	char* folderPath = fillString("%s*",playlistFolder);
+	WIN32_FIND_DATA findData; 
+	HANDLE folderHandle = FindFirstFile(folderPath, &findData);
+
+	if(INVALID_HANDLE_VALUE != folderHandle) {
+		for(;;) {
+			bool result = FindNextFile(folderHandle, &findData);
+			if(!result) break;
+
+			char* fileName = findData.cFileName;
+
+			int pos = strFind(fileName, ".playlist");
+			if(pos != -1) {
+				loadPlaylistHeaderFromFile(&playlists[*playlistCount], fileName);
+				(*playlistCount)++;
+			}
+		}
+	}
+}
+
+void removePlaylistFile(YoutubePlaylist* playlist) {
+	char* filePath = fillString("%s%s.playlist", playlistFolder, playlist->id);
+	remove(filePath);
+}
+
+
+
 struct AppData {
 	// General.
 
@@ -577,22 +666,23 @@ struct AppData {
 	CURL* curlHandle;
 	HMODULE curlDll;
 
+	YoutubePlaylist playlist;
 	YoutubeVideo videos[1000];
 	int videoCount;
+
 	GraphCam cam, camLikes;
 	int heightMoveMode;
 
 	int selectedVideo;
 	VideoSnippet videoSnippet;
 
+
+	YoutubePlaylist downloadPlaylist;
+
 	char* searchString;
-	char* urlString;
-	char* urlFile;
-	int urlVideoCount;
 
 	bool startDownload;
 	bool startLoadFile;
-	bool startSaveFile;
 
 	char* userName;
 	char* channelId;
@@ -605,6 +695,9 @@ struct AppData {
 	int searchResultCount;
 
 	int lastSearchMode;
+
+	YoutubePlaylist playlistFolder[50];
+	int playlistFolderCount;
 };
 
 
@@ -840,12 +933,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// curl_easy_setoptX(curlHandle, CURLOPT_WRITEDATA, &internal_struct);
 
 		ad->videoSnippet.thumbnailTexture.id = -1;
-
-		ad->urlString = (char*)getPMemory(100); strClear(ad->urlString);
-		strCpy(ad->urlString, moinmoinPlaylist);
-
-		ad->urlFile = (char*)getPMemory(100); strClear(ad->urlFile);
-		strCpy(ad->urlFile, tempPlaylistFile);
 
 		ad->selectedVideo = -1;
 
@@ -1125,18 +1212,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// @AppLoop.
 
+
+
+	// Load playlist folder.
+	if(init) {
+		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+	}
+
 	if(ad->startDownload) { 
 	// if(init) { 
 		ad->startDownload = false;
 
-		char* playlist = ad->urlString;
-		char* playlistFile = ad->urlFile;
-		int count = ad->urlVideoCount;
-
-		// maxDownloadCount = 40;
-		// playlist = "ULhcJGOokZyFk";
-		// playlistFile = "temp.playlist";
-		// count = 50;
+		char* playlist = ad->downloadPlaylist.id;
+		int count = ad->downloadPlaylist.count;
 
 		YoutubeVideo* vids = getTArray(YoutubeVideo, count);
 
@@ -1253,31 +1341,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 			vids[i].date = stringToDate(vids[i].dateString);
 		}
 
-		// Save to file.
-		FILE* file = fopen(playlistFile, "wb");
-		fwrite(&count, sizeof(int), 1, file);
-		fwrite(vids, count*sizeof(YoutubeVideo), 1, file);
-		fclose(file);
+		// ad->playlist = ad->downloadPlaylist;
+		memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
+		ad->videoCount = ad->downloadPlaylist.count;
+
+		// savePlaylistToFile();
+		savePlaylistToFile(&ad->playlist, vids, ad->videoCount);
+
+		ad->playlistFolderCount = 0;
+		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 	}
 
-	if(ad->startSaveFile) {
-		// Save to file.
-		FILE* file = fopen(ad->urlFile, "wb");
-		fwrite(&ad->videoCount, sizeof(int), 1, file);
-		fwrite(ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
-		fclose(file);
-	}
-
-	if(init || ad->startLoadFile) {
-	// if(ad->startLoadFile) {
+	// if(init || ad->startLoadFile) {
+	if(ad->startLoadFile) {
 		ad->startLoadFile = false;
-		char* filePath = init?tempPlaylistFile:ad->urlFile;
 
-		FILE* file = fopen(filePath, "rb");
-		if(file) {
-			fread(&ad->videoCount, sizeof(int), 1, file);
-			fread(&ad->videos, ad->videoCount*sizeof(YoutubeVideo), 1, file);
-			fclose(file);
+		bool foundFile = loadPlaylistFromFile(&ad->playlist, ad->videos, &ad->videoCount);
+		if(foundFile) {
 
 			if(ad->videoCount == 0) {
 				graphCamInit(&ad->cam,      0, 10000, 0, 1000);
@@ -1907,25 +1987,67 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 			gui->empty();
 
-			gui->div(vec2(0.2f,0));
-			gui->label("Url: ", 0);
-			gui->textBoxChar(ad->urlString, strLen(ad->urlString), 50);
+			gui->div(vec2(0,0));
+			gui->label("Playlist folder contents: ", 0);
+			if(gui->button("Update folder.")) {
+				ad->playlistFolderCount = 0;
+				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+			}
+			for(int i = 0; i < ad->playlistFolderCount; i++) {
+				YoutubePlaylist* playlist = ad->playlistFolder + i;
+				gui->div(0,0.1f,0,0.1f);
+				if(gui->button(fillString("%s", playlist->title))) {
+					memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
+					ad->videoCount = playlist->count;
+					ad->startLoadFile = true;
+				}
+				gui->label(fillString("%i", playlist->count), 0);
+				gui->label(playlist->id);
+				if(gui->button("Del")) {
+					removePlaylistFile(playlist);
+					ad->playlistFolderCount = 0;
+					loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+					gui->activeId = 0;
+				}
+			}
+
+			gui->empty();
+
+			gui->div(vec2(0,0));
+			gui->label("Loaded playlist.", 0);
+			gui->label(ad->playlist.title);
+			gui->div(vec2(0,0));
+			gui->label(ad->playlist.id);
+			gui->label(fillString("VideoCount: %i", ad->videoCount));
+
+			gui->empty();
 
 			gui->div(vec2(0.2f,0));
-			gui->label("File: ", 0);
-			gui->textBoxChar(ad->urlFile, strLen(ad->urlFile), 50);
+			gui->label("Playlist Title:", 0);
+			gui->label(ad->downloadPlaylist.title, 0);
+			gui->div(vec2(0.2f,0));
+			gui->label("Url: ", 0);
+			gui->textBoxChar(ad->downloadPlaylist.id, strLen(ad->downloadPlaylist.id), 50);
 
 			gui->div(0.2f,0.2f,0);
 			gui->label("Count: ", 0);
-			gui->textBoxInt(&ad->urlVideoCount);
+			gui->textBoxInt(&ad->downloadPlaylist.count);
 			if(gui->button("Get video count from url.")) {
-				int count = getYoutubePlaylistSize(ad->curlHandle, ad->urlString);
-				ad->urlVideoCount = count;
+				int count = getYoutubePlaylistSize(ad->curlHandle, ad->downloadPlaylist.id);
+				ad->downloadPlaylist.count = count;
 			}
 
 			gui->div(0,0,0);
-			if(gui->button("Download and Save.")) ad->startDownload = true;
-			if(gui->button("Save to file.")) ad->startSaveFile = true;
+			if(gui->button("Download and Save.")) {
+				ad->startDownload = true;
+				gui->activeId = 0;
+			}
+			if(gui->button("Save to file.")) {
+				savePlaylistToFile(&ad->playlist, ad->videos, ad->videoCount);
+
+				ad->playlistFolderCount = 0;
+				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+			}
 			if(gui->button("Load from file.")) ad->startLoadFile = true;
 
 			gui->empty();
@@ -1953,7 +2075,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						if(ad->lastSearchMode == 0) {
 							strCpy(ad->channelId, sResult->id);
 						} else {
-							strCpy(ad->urlString, sResult->id);
+							strCpy(ad->downloadPlaylist.id, sResult->id);
 						}
 					}
 				}
@@ -1993,8 +2115,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						YoutubePlaylist* playlist = ad->playlists + i;
 
 						if(gui->button(fillString("%i: %s. (%i.)", i, playlist->title, playlist->count), 0, 0)) {
-							strCpy(ad->urlString, playlist->id);
-							ad->urlVideoCount = playlist->count;
+							strCpy(ad->downloadPlaylist.id, playlist->id);
+							strCpy(ad->downloadPlaylist.title, playlist->title);
+							ad->downloadPlaylist.count = playlist->count;
 						}
 					}
 				}
