@@ -28,6 +28,7 @@
 	* Cant copy in chrome when switching from app.
 	* Download playlists fron channel.
 	* Get playlists from channel.
+	* Averages and statistics.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
 	- Dithering.
@@ -46,10 +47,13 @@
 	  - They probably mean 100 characters of unicode, not ascii.
 	- Draw command dots.
 
-	- Averages and statistics.
 	- Search key words to remove certain items in playlist.
 	  - A Video has to have a certain word, or should not have a certain keyword.
-	
+
+	- Stop and continue downloading playlist.
+	- Update a playlist.
+
+	- Sort videos by most commented, most viewed, etc.
 */
 
 // External.
@@ -181,6 +185,11 @@ i64 dateToInt(int year, int month, int day, int hour, int minute, int second) {
 	result += (i64)(minute*60);
 	result += (i64)(second);
 
+	return result;
+}
+
+i64 monthsToInt(float months) {
+	i64 result = (i64)(months*2629744.0f);
 	return result;
 }
 
@@ -623,7 +632,37 @@ void removePlaylistFile(YoutubePlaylist* playlist) {
 	remove(filePath);
 }
 
+void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, int* avgPointsCount, float timeSpanInMonths, float widthInMonths, GraphCam* cam) {
+	double avgStartX = videos[0].date.num;
+	double avgWidth = monthsToInt(widthInMonths);
+	double avgTimeSpan = monthsToInt(timeSpanInMonths);
 
+	int statCount = (cam->w/avgWidth) + 2;
+	(*avgPointsCount) = statCount;
+
+	Statistic* stats = getTArray(Statistic, statCount);
+	for(int i = 0; i < statCount; i++) beginStatistic(stats + i);
+
+	for(int i = 1; i < videoCount; i++) {
+		YoutubeVideo* vid = videos + i;
+		double timeX = vid->date.num;
+
+		for(int si = 0; si < statCount; si++) {
+			double avgMidX = avgStartX + (si*avgWidth);
+			if((avgMidX - avgTimeSpan/2) <= timeX && timeX <= (avgMidX + avgTimeSpan/2)) {
+				updateStatistic(&stats[si], vid->viewCount);
+			}
+		}
+	}
+
+	double lastValidData = 0;
+	for(int i = 0; i < statCount; i++) {
+		endStatistic(stats + i);
+
+		if(stats[i].count > 0) avgPoints[i] = stats[i].avg;
+		else avgPoints[i] = 0;
+	}
+}
 
 struct AppData {
 	// General.
@@ -698,6 +737,12 @@ struct AppData {
 
 	YoutubePlaylist playlistFolder[50];
 	int playlistFolderCount;
+
+	float statTimeSpan;
+	float statWidth;
+
+	double avgPoints[1000];
+	int avgPointsCount;
 };
 
 
@@ -804,8 +849,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->gui2->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 3);
 
 		ds->input = getPStructDebug(Input);
+		ds->showMenu = true;
 		// ds->showMenu = false;
-		ds->showMenu = false;
 		ds->showStats = false;
 		ds->showConsole = false;
 		ds->showHud = true;
@@ -941,6 +986,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->userName = (char*)getPMemory(100); strClear(ad->userName);
 		ad->searchString = (char*)getPMemory(100); strClear(ad->searchString);
+
+		ad->statTimeSpan = 3.0f;
+		ad->statWidth = 1.0f;
 	}
 
 	// @AppStart.
@@ -1214,10 +1262,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-	// Load playlist folder.
-	if(init) {
-		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-	}
 
 	if(ad->startDownload) { 
 	// if(init) { 
@@ -1352,6 +1396,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 	}
 
+	// Load playlist folder.
+	if(init) {
+		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+
+		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + 0;
+		memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
+		ad->videoCount = ad->playlist.count;
+
+		ad->startLoadFile = true;
+	}
+
 	// if(init || ad->startLoadFile) {
 	if(ad->startLoadFile) {
 		ad->startLoadFile = false;
@@ -1405,10 +1460,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 					graphCamInit(&ad->cam,      statDates.min, statDates.max, 0, statViews.max*1.5f);
 					graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.5f);
 				}
+
+				calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->statTimeSpan, ad->statWidth, &ad->cam);
 			}
 
 			ad->selectedVideo = -1;
-
 		} 
 	}
 
@@ -1711,6 +1767,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				if(graphIndex == 0) {
 					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec2(x2, graphCamMapY(cam, vids[i+1].viewCount)), vec4(0,0.7f,1,1));
+
 				} else if(graphIndex == 1) {
 					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].likeCount)), vec4(0.0f,0.7f,1,1));
 					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].dislikeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].dislikeCount)), vec4(0.7f,0.3f,1,1));
@@ -1725,6 +1782,32 @@ extern "C" APPMAINFUNCTION(appMain) {
 				// dcLine2d(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
 			}
 		}
+
+		// Average line.
+		{
+			GraphCam* cam = &ad->cam;
+	
+			dcState(STATE_LINEWIDTH, 4);
+			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
+
+			double avgStartX = ad->videos[0].date.num;
+			double avgWidth = monthsToInt(ad->statWidth);
+			double avgTimeSpan = monthsToInt(ad->statTimeSpan);
+
+			double xPos = avgStartX;
+			for(int i = 0; i < ad->avgPointsCount-1; i++) {
+				if(xPos + avgWidth < cam->left || xPos > cam->right) {
+					xPos += avgWidth;
+					continue;
+				}
+
+				dcLine2d(graphCamMap(cam, xPos, ad->avgPoints[i]), graphCamMap(cam, xPos + avgWidth, ad->avgPoints[i+1]), vec4(0,1,0,0.3f));
+				xPos += avgWidth;
+			}
+			
+			dcState(STATE_LINEWIDTH, 2);
+		}
+
 
 		dcDisable(STATE_SCISSOR);
 
@@ -1987,6 +2070,14 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 			gui->empty();
 
+			bool updateStats = false;
+			gui->div(vec2(0,0));    gui->label("Stats");           if(gui->button("Update Stats.")) updateStats = true;
+			gui->div(vec2(0.2f,0)); gui->label("Time Span: ", 0);  gui->textBoxFloat(&ad->statTimeSpan);
+			gui->div(vec2(0.2f,0)); gui->label("Time Width: ", 0); gui->textBoxFloat(&ad->statWidth);
+			if(updateStats) calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->statTimeSpan, ad->statWidth, &ad->cam);
+
+			gui->empty();
+
 			gui->div(vec2(0,0));
 			gui->label("Playlist folder contents: ", 0);
 			if(gui->button("Update folder.")) {
@@ -2052,8 +2143,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 			gui->empty();
 
-			gui->div(0,0,0,0);
 			gui->label("QuickSearch:", 0);
+			gui->div(0,0,0,50);
 			gui->textBoxChar(ad->searchString, strLen(ad->searchString), 50);
 			if(gui->button("Playlists.")) {
 				quickSearch(ad->curlHandle, ad->searchResults, &ad->searchResultCount, ad->searchString, false);
@@ -2062,6 +2153,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			if(gui->button("Channels.")) {
 				quickSearch(ad->curlHandle, ad->searchResults, &ad->searchResultCount, ad->searchString);
 				ad->lastSearchMode = 0;
+			}
+			if(gui->button("X")) {
+				ad->searchResultCount = 0;
 			}
 
 			if(ad->searchResultCount > 0) {
@@ -2084,13 +2178,14 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			{
 				gui->empty();
 	
-				gui->div(vec2(0,0));
-				if(gui->button("Get id from username.")) {
-					char* channelId = downloadChannelIdFromUserName(ad->curlHandle, ad->userName);
-					strCpy(ad->channelId, channelId);
-				}
-				gui->textBoxChar(ad->userName, strLen(ad->userName), 50);
+				// gui->div(vec2(0,0));
+				// if(gui->button("Get id from username.")) {
+				// 	char* channelId = downloadChannelIdFromUserName(ad->curlHandle, ad->userName);
+				// 	strCpy(ad->channelId, channelId);
+				// }
+				// gui->textBoxChar(ad->userName, strLen(ad->userName), 50);
 
+				gui->label("Channel Playlists:", 0);
 				gui->div(vec2(0.2f,0));
 				gui->label("Channel Id:", 0);
 				gui->textBoxChar(ad->channelId, strLen(ad->channelId), 50);
@@ -2102,9 +2197,13 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					ad->playlistDownloadCount = downloadChannelPlaylistCount(ad->curlHandle, ad->channelId);
 				}
 				
+				gui->div(vec2(0,50));
 				if(gui->button("Load Playlist from Channel")) {
 					char* buffer = (char*)getTMemory(megaBytes(3));
 					downloadChannelPlaylists(ad->curlHandle, ad->playlists, &ad->playlistCount, ad->channelId, buffer, ad->playlistDownloadCount);
+				}
+				if(gui->button("X")) {
+					ad->playlistCount = 0;
 				}
 
 				if(ad->playlistCount > 0) {
