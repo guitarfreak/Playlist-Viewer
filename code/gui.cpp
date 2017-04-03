@@ -411,7 +411,6 @@ struct Gui {
 		}
 	}
 
-
 	void end() {
 		// terrible hack
 		currentPos.y = currentPos.y - (currentDim.h - getDefaultHeightEx());
@@ -421,6 +420,52 @@ struct Gui {
 		{
 			endScroll();
 		}
+
+		scissorPop();
+		setScissor(false);
+	}
+
+	void startStatic(GuiInput guiInput, Font* font, Rect panelRect, Vec2i res, bool moveable = true, bool resizeable = true, bool clipToWindow = true) {
+		this->font = font;
+		fontHeight = font->height;
+		lastMousePos = input.mousePos;
+		input = guiInput;
+		input.mousePos.y *= -1;
+		mouseDelta = input.mousePos - lastMousePos;
+		screenRes = res;
+		currentId = 0;
+		scrollStackIndexX = 0;
+		for(int i = 0; i < 4; i++) scrollStackIndexY[i] = 0;
+		hotId = wantsToBeActiveId;
+		wantsToBeActiveId = 0;
+		for(int i = 0; i < arrayCount(heightStack); i++) heightStack[i] = 1;
+		heightStackIndex = 0;
+
+		Vec2i border = settings.border;
+
+		Rect background = panelRect;
+		Rect realRect = rectExpand(background, vec2(-border.x*2, border.y*2));
+		panelWidth = rectGetW(realRect);
+		cornerPos = rectGetUL(realRect);
+		panelStartDim = rectGetDim(realRect);
+		panelStartDim.h += settings.border.h*2;
+
+		startPos = cornerPos;
+		defaultHeight();
+		currentPos = startPos + vec2(0, getDefaultYOffset());
+
+		currentDim.h = 20;
+
+		setScissor(true);
+		scissorPush(background);
+		// dcRoundedRect(background, colors.panelColor, 7, 0);
+		dcRect(background, colors.panelColor);
+	}
+
+	void endStatic() {
+		// terrible hack
+		// currentPos.y = currentPos.y - (currentDim.h - getDefaultHeightEx());
+		// currentDim.h = getDefaultHeightEx();
 
 		scissorPop();
 		setScissor(false);

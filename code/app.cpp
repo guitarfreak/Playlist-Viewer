@@ -29,6 +29,9 @@
 	* Download playlists fron channel.
 	* Get playlists from channel.
 	* Averages and statistics.
+	* Stop and continue downloading playlist.
+	* Search key words to remove certain items in playlist.
+	  * A Video has to have a certain word, or should not have a certain keyword.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
 	- Dithering.
@@ -46,14 +49,11 @@
 	- 101 not enough space for title, found on with 102. (Including zero byte.)
 	  - They probably mean 100 characters of unicode, not ascii.
 	- Draw command dots.
-
-	- Search key words to remove certain items in playlist.
-	  - A Video has to have a certain word, or should not have a certain keyword.
-
-	- Stop and continue downloading playlist.
 	- Update a playlist.
-
 	- Sort videos by most commented, most viewed, etc.
+	- If data cant be received from a video, still make it work. (Probably should be more precise with parsing.)
+	- Scale font size to windows. (For high resolution monitors.)
+	- Filter -> percentage of views.
 */
 
 // External.
@@ -680,16 +680,26 @@ void removePlaylistFile(YoutubePlaylist* playlist) {
 	remove(filePath);
 }
 
-void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, int* avgPointsCount, float timeSpanInMonths, float widthInMonths, GraphCam* cam) {
+double divZero(double a, double b) {
+	if(a == 0 || b == 0) return 0;
+	else return a/b;
+}
+
+void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, int* avgPointsCount, double* avgPointsLikes, int* avgPointsLikesCount, float timeSpanInMonths, float widthInMonths, double minMaxWidth) {
 	double avgStartX = videos[0].date.num;
 	double avgWidth = monthsToInt(widthInMonths);
 	double avgTimeSpan = monthsToInt(timeSpanInMonths);
 
-	int statCount = (cam->w/avgWidth) + 2;
+	int statCount = (minMaxWidth/avgWidth) + 2;
 	(*avgPointsCount) = statCount;
+	(*avgPointsLikesCount) = statCount;
 
 	Statistic* stats = getTArray(Statistic, statCount);
-	for(int i = 0; i < statCount; i++) beginStatistic(stats + i);
+	Statistic* statsLikes = getTArray(Statistic, statCount);
+	for(int i = 0; i < statCount; i++) {
+		beginStatistic(stats + i);
+		beginStatistic(statsLikes + i);
+	}
 
 	for(int i = 1; i < videoCount; i++) {
 		YoutubeVideo* vid = videos + i;
@@ -699,6 +709,7 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, 
 			double avgMidX = avgStartX + (si*avgWidth);
 			if((avgMidX - avgTimeSpan/2) <= timeX && timeX <= (avgMidX + avgTimeSpan/2)) {
 				updateStatistic(&stats[si], vid->viewCount);
+				updateStatistic(&statsLikes[si], divZero(vid->likeCount, (vid->likeCount + vid->dislikeCount)));
 			}
 		}
 	}
@@ -709,6 +720,11 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, 
 
 		if(stats[i].count > 0) avgPoints[i] = stats[i].avg;
 		else avgPoints[i] = 0;
+
+		endStatistic(statsLikes + i);
+
+		if(statsLikes[i].count > 0) avgPointsLikes[i] = statsLikes[i].avg;
+		else avgPointsLikes[i] = 0;
 	}
 }
 
@@ -756,7 +772,7 @@ struct AppData {
 	HMODULE curlDll;
 
 	YoutubePlaylist playlist;
-	YoutubeVideo videos[1000];
+	YoutubeVideo* videos;
 	int videoCount;
 
 	GraphCam cam, camLikes;
@@ -793,9 +809,13 @@ struct AppData {
 
 	double avgPoints[1000];
 	int avgPointsCount;
+	double avgPointsLikes[1000];
+	int avgPointsLikesCount;
 
 	char exclusiveFilter[50];
 	char inclusiveFilter[50];
+
+	Gui filtersGui;
 };
 
 
@@ -902,8 +922,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->gui2->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 3);
 
 		ds->input = getPStructDebug(Input);
-		ds->showMenu = true;
-		// ds->showMenu = false;
+		// ds->showMenu = true;
+		ds->showMenu = false;
 		ds->showStats = false;
 		ds->showConsole = false;
 		ds->showHud = true;
@@ -1024,6 +1044,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		//
+
+		int maxVideoCount = 10000;
+		ad->videos = getPArray(YoutubeVideo, maxVideoCount);
+		zeroMemory(ad->videos, maxVideoCount * sizeof(YoutubeVideo));
 
 		curl_global_initX(CURL_GLOBAL_ALL);
 		ad->curlHandle = curl_easy_initX();
@@ -1635,6 +1659,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
+				// Hack because of corrupted playlist file.
+				if(strFind(ad->playlist.title, "Rocket") != -1) {
+					int off = 7;
+					for(int i = 0; i < off; i++) {
+						memCpy(ad->videos + i, ad->videos + off, sizeof(YoutubeVideo));
+					}
+				}
+
 				Statistic statViews, statLikes, statDates;
 				{
 					beginStatistic(&statViews);
@@ -1646,19 +1678,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 						updateStatistic(&statViews, video->viewCount);
 						updateStatistic(&statLikes, video->likeCount);
-						updateStatistic(&statDates, video->date.num);
+
+						if(video->date.num > 0) updateStatistic(&statDates, video->date.num);
 					}
 				}
 
 				if(statDates.min == statDates.max) {
-					graphCamInit(&ad->cam,      statDates.min - 10000, statDates.min + 10000, 0, statViews.max*1.5f);
-					graphCamInit(&ad->camLikes, statDates.min - 10000, statDates.min + 10000, 0, statLikes.max*1.5f);
+					graphCamInit(&ad->cam,      statDates.min - 10000, statDates.min + 10000, 0, statViews.max*1.1f);
+					graphCamInit(&ad->camLikes, statDates.min - 10000, statDates.min + 10000, 0, statLikes.max*1.1f);
 				} else {
-					graphCamInit(&ad->cam,      statDates.min, statDates.max, 0, statViews.max*1.5f);
-					graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.5f);
+					graphCamInit(&ad->cam,      statDates.min, statDates.max, 0, statViews.max*1.1f);
+					graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.1f);
 				}
 
-				calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->statTimeSpan, ad->statWidth, &ad->cam);
+				calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
 			}
 
 			ad->selectedVideo = -1;
@@ -1674,23 +1707,31 @@ extern "C" APPMAINFUNCTION(appMain) {
 		float zoomSpeed = 1.2f;
 
 
-		Rect screenRect = rect(0, -res.h, res.w, 0);
+		Rect screenRect, rChart, rFilters, rGraph, rGraph2, rLeftText, rLeftText2, rBottomText, infoRect, rGraphs;
+
+		screenRect = rect(0, -res.h, res.w, 0);
 		float sidePanelWidth = rectGetW(screenRect)*0.25f;
 
-		// Rect rChart = screenRect;
-		Rect rChart = ad->selectedVideo!=-1 ? rect(screenRect.min, screenRect.max - vec2(sidePanelWidth,0)) : screenRect;
-		Rect rGraph = rChart;
+		rChart = ad->selectedVideo!=-1 ? rect(screenRect.min, screenRect.max - vec2(sidePanelWidth,0)) : screenRect;
+		rFilters = rChart;
+		float filtersHeight = font->height*2 - ad->filtersGui.settings.border.h*2 + ad->filtersGui.settings.offsets.y;
+		rFilters.min.y = rFilters.top - filtersHeight;
+		rChart.max.y -= filtersHeight;
+		// rFilters = rectExpand(rFilters, vec2(-2,-2));
+		rFilters = rectAddOffset(rFilters, vec2(0,-1));
+
+		rGraph = rChart;
 		rGraph.min += vec2(100,font->height*2);
-		Rect rLeftText = rect(rChart.left,rGraph.bottom,rGraph.left,rChart.top);
-		Rect rBottomText = rect(rGraph.left,rChart.bottom,rChart.right,rGraph.bottom);
-		Rect infoRect = rect(screenRect.min + vec2(rectGetW(screenRect)-sidePanelWidth, 0), screenRect.max);
+		rLeftText = rect(rChart.left,rGraph.bottom,rGraph.left,rChart.top);
+		rBottomText = rect(rGraph.left,rChart.bottom,rChart.right,rGraph.bottom);
+		infoRect = rect(screenRect.min + vec2(rectGetW(screenRect)-sidePanelWidth, 0), screenRect.max);
 
 		float graphHeight = rectGetH(rGraph);
 		rGraph.min.y += graphHeight/2;
 		rLeftText.min.y += graphHeight/2;
 
-		Rect rGraph2 = rect(rectGetUL(rBottomText), rectGetDR(rGraph));
-		Rect rLeftText2 = rect(rChart.left, rBottomText.top, rGraph2.left, rLeftText.bottom);
+		rGraph2 = rect(rectGetUL(rBottomText), rectGetDR(rGraph));
+		rLeftText2 = rect(rChart.left, rBottomText.top, rGraph2.left, rLeftText.bottom);
 
 		float g = 0.15f;
 		dcRect(screenRect, vec4(0.4f,g,g,1));
@@ -1705,6 +1746,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// dcRect(rGraph2, vec4(0,1,0,1));
 		// dcRect(rLeftText2, vec4(0,1,1,1));
 
+		rGraphs = rect(rGraph2.min, rGraph.max);
+
 		{
 			GraphCam* cam = &ad->cam;
 			GraphCam* camLikes = &ad->camLikes;
@@ -1713,13 +1756,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			graphCamSetViewPort(camLikes, rGraph2);
 
 			if(input->mouseWheel != 0) {
-				if(input->keysDown[KEYCODE_SHIFT]) {
-					if(pointInRect(input->mousePosNegative, cam->viewPort))
-						graphCamScaleToPos(cam, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
-					if(pointInRect(input->mousePosNegative, camLikes->viewPort))
-						graphCamScaleToPos(camLikes, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
-					
-				} else {
+				if(pointInRect(input->mousePosNegative, rLeftText))
+					graphCamScaleToPos(cam, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
+				if(pointInRect(input->mousePosNegative, rLeftText2))
+					graphCamScaleToPos(camLikes, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
+				if(pointInRect(input->mousePosNegative, rGraphs)) {
 					graphCamScaleToPos(cam, -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
 					graphCamScaleToPos(camLikes, -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
 				}
@@ -1729,8 +1770,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			graphCamSizeClamp(camLikes, 60*60*4, 100);
 
 			if(input->mouseButtonPressed[0]) {
-				if(pointInRect(input->mousePosNegative, cam->viewPort)) ad->heightMoveMode = 0;
-				else if(pointInRect(input->mousePosNegative, camLikes->viewPort)) ad->heightMoveMode = 1;
+				if(pointInRect(input->mousePosNegative, rLeftText)) ad->heightMoveMode = 0;
+				else if(pointInRect(input->mousePosNegative, rLeftText2)) ad->heightMoveMode = 1;
 			}
 
 			if(input->mouseButtonReleased[0]) {
@@ -1924,6 +1965,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 				float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.num) + 1 : x + 1000000;
 
 				if(input->mousePos.x < x + (x2-x)/2) {
+					dcScissor(scissorRectScreenSpace(rGraphs, res.h));
+					dcEnable(STATE_SCISSOR);
+
 					if(input->mousePos.x >= ad->camLikes.viewPort.left)
 						dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
 
@@ -1933,6 +1977,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					dcText(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1)); p.y -= font->height;
 					dcText(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1)); p.y -= font->height;
 					dcText(fillString("%i", i), font, p, c, vec2i(1,1)); p.y -= font->height;
+	
+					dcDisable(STATE_SCISSOR);
 
 					if(input->mouseButtonPressed[2]) {
 						if(i != ad->selectedVideo) {
@@ -1957,24 +2003,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
 
 			for(int i = 0; i < vidCount-1; i++) {
-			// for(int fi = 0; fi < filteredIndexesCount-1; fi++) {
-				// int i = filteredIndexes[fi];
-
 				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
 
 				float x = graphCamMapX(cam, vids[i].date.num) + 1;
 				float x2 = graphCamMapX(cam, vids[i+1].date.num) + 1;
 
 				if(graphIndex == 0) {
-					// if(filteredIndex[i]
 					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec2(x2, graphCamMapY(cam, vids[i+1].viewCount)), vec4(0,0.7f,1,1));
 
-				} else if(graphIndex == 1) {
-					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].likeCount)), vec4(0.0f,0.7f,1,1));
-					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].dislikeCount)), vec2(x2, graphCamMapY(cam, vids[i+1].dislikeCount)), vec4(0.7f,0.3f,1,1));
+					// dcLine2d(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec4(0,0.7f,1,1));
 
-					double div1 = (double)vids[i].likeCount/(vids[i].likeCount + vids[i].dislikeCount);
-					double div2 = (double)vids[i+1].likeCount/(vids[i+1].likeCount + vids[i+1].dislikeCount);
+				} else if(graphIndex == 1) {
+					double div1 = divZero(vids[i].likeCount, (vids[i].likeCount + vids[i].dislikeCount));
+					double div2 = divZero(vids[i+1].likeCount, (vids[i+1].likeCount + vids[i+1].dislikeCount));
 					dcLine2d(vec2(x, mapRangeDouble(div1,0,1,cam->viewPort.bottom,cam->viewPort.top)), vec2(x2, mapRangeDouble(div2,0,1,cam->viewPort.bottom,cam->viewPort.top)), vec4(0.9f,0.5f,1,1));
 				}
 
@@ -1984,16 +2025,36 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 		}
 
+		{
+			dcState(STATE_LINEWIDTH, 6);
+
+			GraphCam* cam = &ad->camLikes;
+			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
+
+			for(int i = 0; i < vidCount; i++) {
+				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+
+				float x = graphCamMapX(cam, vids[i].date.num) + 1;
+
+				dcLine2d(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec4(0.0f,0.7f,1,1));
+				dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x, graphCamMapY(cam, vids[i].dislikeCount + vids[i].likeCount)), vec4(0.7f,0.3f,1,1));
+			}
+		}
+
+		dcState(STATE_LINEWIDTH, 2);
+
 		// Average line.
 		{
 			GraphCam* cam = &ad->cam;
+			GraphCam* camLikes = &ad->camLikes;
 	
 			dcState(STATE_LINEWIDTH, 4);
-			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
 
 			double avgStartX = ad->videos[0].date.num;
 			double avgWidth = monthsToInt(ad->statWidth);
 			double avgTimeSpan = monthsToInt(ad->statTimeSpan);
+
+			dcScissor(scissorRectScreenSpace(rGraph, res.h));
 
 			double xPos = avgStartX;
 			for(int i = 0; i < ad->avgPointsCount-1; i++) {
@@ -2003,11 +2064,32 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 
 				dcLine2d(graphCamMap(cam, xPos, ad->avgPoints[i]), graphCamMap(cam, xPos + avgWidth, ad->avgPoints[i+1]), vec4(0,1,0,0.3f));
+
 				xPos += avgWidth;
 			}
 			
+			dcScissor(scissorRectScreenSpace(rGraph2, res.h));
+			
+			xPos = avgStartX;
+			for(int i = 0; i < ad->avgPointsCount-1; i++) {
+				if(xPos + avgWidth < cam->left || xPos > cam->right) {
+					xPos += avgWidth;
+					continue;
+				}
+
+				float x1 = graphCamMapX(camLikes, xPos);
+				float x2 = graphCamMapX(camLikes, xPos + avgWidth);
+				float y1 = mapRangeDouble(ad->avgPointsLikes[i], 0, 1, camLikes->viewPort.bottom, camLikes->viewPort.top);
+				float y2 = mapRangeDouble(ad->avgPointsLikes[i+1], 0, 1, camLikes->viewPort.bottom, camLikes->viewPort.top);
+				dcLine2d(vec2(x1,y1), vec2(x2,y2), vec4(0,1,0,0.3f));
+
+				xPos += avgWidth;
+			}
+			
+
 			dcState(STATE_LINEWIDTH, 2);
 		}
+
 
 
 		dcDisable(STATE_SCISSOR);
@@ -2061,7 +2143,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			char* date = fillString("Date: %i..%i..%i", sv->date.day, sv->date.month, sv->date.year);
 			char* time = fillString("Time: %i:%i:%i.", sv->date.hours, sv->date.minutes, sv->date.seconds);
 			char* views = fillString("Views: %i.", sv->viewCount);
-			char* likes = fillString("Likes/Dislikes: %i | %i -> %f", sv->likeCount, sv->dislikeCount, sv->likeCount / (float)(sv->likeCount+sv->dislikeCount));
+			char* likes = fillString("Likes/Dislikes: %i | %i -> %f", sv->likeCount, sv->dislikeCount, sv->dislikeCount / (float)(sv->likeCount+sv->dislikeCount));
 			char* comments = fillString("Comments: %i", sv->commentCount);
 			char* favorites = fillString("Favorites: %i", sv->favoriteCount);
 			char* s = fillString("%s, %s\n%s\n%s\n%s\n%s", date, time, views, likes, comments, favorites);
@@ -2084,6 +2166,47 @@ extern "C" APPMAINFUNCTION(appMain) {
 			dcDisable(STATE_SCISSOR);
 		}
 
+
+		// Filters gui.
+		{
+			GuiInput gInput = { input->mousePos, input->mouseWheel, input->mouseButtonPressed[0], input->mouseButtonDown[0], 
+							input->keysPressed[KEYCODE_ESCAPE], input->keysPressed[KEYCODE_RETURN], input->keysPressed[KEYCODE_SPACE], input->keysPressed[KEYCODE_BACKSPACE], input->keysPressed[KEYCODE_DEL], input->keysPressed[KEYCODE_HOME], input->keysPressed[KEYCODE_END], 
+							input->keysPressed[KEYCODE_LEFT], input->keysPressed[KEYCODE_RIGHT], input->keysPressed[KEYCODE_UP], input->keysPressed[KEYCODE_DOWN], 
+							input->keysDown[KEYCODE_SHIFT], input->keysDown[KEYCODE_CTRL], 
+							input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
+							input->inputCharacters, input->inputCharacterCount};
+
+			if(init) {
+				rGraph;
+				ad->filtersGui.init(rectCenDim(400,-400,600,200), -1);
+				ad->filtersGui.settings.fontOffset = 0.0f;
+				// ad->filtersGui.settings.border = vec2i(2,-2);
+			}
+
+			Gui* gui = &ad->filtersGui;
+			gui->startStatic(ds->gInput, font, rFilters, ws->currentRes);
+
+			bool updateStats = false;
+
+			float divs[10] = {150,0, 180,40,10,130,300};
+			gui->div(divs, 7);
+			gui->switcher("Panel (F1)", &ds->showMenu);
+			gui->empty();
+			gui->label("Time span (months): ", 0);  if(gui->textBoxFloat(&ad->statTimeSpan)) updateStats = true;
+			gui->empty();
+			gui->label("Inclusive filter: ", 0); if(gui->textBoxChar(ad->inclusiveFilter, 0, 50)) ad->startLoadFile = true;
+			gui->div(divs, 7);
+			gui->empty();
+			gui->empty();
+			gui->label("Time width (months): ", 0); if(gui->textBoxFloat(&ad->statWidth)) updateStats = true;
+			gui->empty();
+			gui->label("Exclusive filter: ", 0); if(gui->textBoxChar(ad->exclusiveFilter, 0, 50)) ad->startLoadFile = true;
+
+			gui->endStatic();
+
+			if(updateStats) calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
+		}
+
 		// Border.
 		float w = 0.8f;
 		Vec4 borderColor = vec4(w,w,w,1);
@@ -2091,10 +2214,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 		dcLine2d(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
 		dcLine2d(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
 		dcLine2d(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
+
 	}
 
 
 	endOfMainLabel:
+
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
@@ -2204,7 +2329,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
 					input->inputCharacters, input->inputCharacterCount};
 
-	if(input->keysPressed[KEYCODE_F6]) ds->showMenu = !ds->showMenu;
+	if(input->keysPressed[KEYCODE_F1]) ds->showMenu = !ds->showMenu;
 	if(input->keysPressed[KEYCODE_F7]) ds->showStats = !ds->showStats;
 	if(input->keysPressed[KEYCODE_F8]) ds->showHud = !ds->showHud;
 
@@ -2233,7 +2358,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 		static int sectionMode = 0;
 
+		gui->div(vec2(0,fontSize));
 		gui->label("App", 1, gui->colors.sectionColor, vec4(0,0,0,1));
+		if(gui->button("x",0,1, gui->colors.sectionColor)) ds->showMenu = false;
 
 		gui->div(0,0,0);
 		if(gui->button("Options", (int)(sectionMode == 0) + 1)) sectionMode = 0;
@@ -2269,29 +2396,30 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				}
 			};
 
-			// gui->empty();
+			// bool updateStats = false;
+			// gui->label("Stats");
+			// gui->div(vec2(0,0)); gui->label("Time span in months: ", 0);  if(gui->textBoxFloat(&ad->statTimeSpan)) updateStats = true;
+			// gui->div(vec2(0,0)); gui->label("Time width in months: ", 0); if(gui->textBoxFloat(&ad->statWidth)) updateStats = true;
+			// if(updateStats) calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->statTimeSpan, ad->statWidth, &ad->cam);
 
-			bool updateStats = false;
-			gui->label("Stats");
-			gui->div(vec2(0,0)); gui->label("Time span in months: ", 0);  if(gui->textBoxFloat(&ad->statTimeSpan)) updateStats = true;
-			gui->div(vec2(0,0)); gui->label("Time width in months: ", 0); if(gui->textBoxFloat(&ad->statWidth)) updateStats = true;
-			if(updateStats) calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->statTimeSpan, ad->statWidth, &ad->cam);
-
-			gui->label("Filters");
-			bool reloadFile = false;
-			gui->div(vec2(0.2f,0)); gui->label("Inclusive: ", 0); if(gui->textBoxChar(ad->inclusiveFilter, 0, 50)) reloadFile = true;
-			gui->div(vec2(0.2f,0)); gui->label("Exclusive: ", 0); if(gui->textBoxChar(ad->exclusiveFilter, 0, 50)) reloadFile = true;
-			if(reloadFile) {
-				ad->startLoadFile = true;
-			}
+			// gui->label("Filters");
+			// bool reloadFile = false;
+			// gui->div(vec2(0.2f,0)); gui->label("Inclusive: ", 0); if(gui->textBoxChar(ad->inclusiveFilter, 0, 50)) reloadFile = true;
+			// gui->div(vec2(0.2f,0)); gui->label("Exclusive: ", 0); if(gui->textBoxChar(ad->exclusiveFilter, 0, 50)) reloadFile = true;
+			// if(reloadFile) {
+			// 	ad->startLoadFile = true;
+			// }
 
 			gui->empty();
 
-			gui->div(vec2(0,0));
+			gui->div(vec3(0,0,0));
 			gui->label("Playlist folder contents: ", 0);
 			if(gui->button("Update folder.")) {
 				ad->playlistFolderCount = 0;
 				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+			}
+			if(gui->button("Open folder.")) {
+				shellExecute("start ..\\playlists");
 			}
 			for(int i = 0; i < ad->playlistFolderCount; i++) {
 				YoutubePlaylist* playlist = ad->playlistFolder + i;
@@ -2468,144 +2596,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("title: %s", playlist->title), 0);
 				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("count: %i.", playlist->count), 0);
 			}
-		}
-
-		static bool sectionGuiRecording = false;
-		// if(gui->beginSection("Recording", &sectionGuiRecording)) {
-		if(false) {
-
-			bool noActiveThreads = threadQueueFinished(threadQueue);
-
-			gui->div(vec2(0,0));
-			gui->label("Active Threads:");
-			gui->label(fillString("%i", !noActiveThreads));
-
-			gui->div(vec2(0,0));
-			gui->label("Max Frames:");
-			gui->label(fillString("%i", ds->inputCapacity));
-
-			gui->div(vec2(0,0));
-			if(gui->switcher("Record", &ds->recordingInput)) {
-				if(ds->playbackInput || !noActiveThreads) ds->recordingInput = false;
-
-				if(ds->recordingInput) {
-					if(threadQueueFinished(threadQueue)) {
-
-						ds->snapShotCount = pMemory->index+1;
-						ds->snapShotMemoryIndex = pMemory->arrays[pMemory->index].index;
-						for(int i = 0; i < ds->snapShotCount; i++) {
-							if(ds->snapShotMemory[i] == 0) 
-								ds->snapShotMemory[i] = (char*)malloc(pMemory->slotSize);
-
-							memCpy(ds->snapShotMemory[i], pMemory->arrays[i].data, pMemory->slotSize);
-						}
-
-
-						ds->recordingInput = true;
-						ds->inputIndex = 0;
-					}
-				}
-			}
-			gui->label(fillString("%i", ds->inputIndex));
-
-
-			if(ds->inputIndex > 0 && !ds->recordingInput) {
-				char* s = ds->playbackInput ? "Stop Playback" : "Start Playback";
-
-				if(gui->switcher(s, &ds->playbackInput)) {
-					if(ds->playbackInput) {
-						threadQueueComplete(threadQueue);
-						ds->playbackIndex = 0;
-
-						pMemory->index = ds->snapShotCount-1;
-						pMemory->arrays[pMemory->index].index = ds->snapShotMemoryIndex;
-
-						for(int i = 0; i < ds->snapShotCount; i++) {
-							memCpy(pMemory->arrays[i].data, ds->snapShotMemory[i], pMemory->slotSize);
-						}
-					} else {
-						ds->playbackPause = false;
-						ds->playbackBreak = false;
-					}
-				}
-
-				if(ds->playbackInput) {
-					gui->div(vec2(0,0));
-
-					gui->switcher("Pause/Resume", &ds->playbackPause);
-
-					int cap = ds->playbackIndex;
-					gui->slider(&ds->playbackIndex, 0, ds->inputIndex - 1);
-					ds->playbackIndex = cap;
-
-					gui->div(vec3(0.25f,0.25f,0));
-					if(gui->button("Step")) {
-						ds->playbackBreak = true;
-						ds->playbackPause = false;
-						ds->playbackBreakIndex = (ds->playbackIndex + 1)%ds->inputIndex;
-					}
-					gui->switcher("Break", &ds->playbackBreak);
-					gui->slider(&ds->playbackBreakIndex, 0, ds->inputIndex - 1);
-				}
-			}
-
-		// } gui->endSection();
-		}
-
-		static bool sectionGuiSettings = initSections;
-		// if(gui->beginSection("GuiSettings", &sectionGuiSettings)) {
-		if(false) {
-			guiSettings(gui);
-		// } gui->endSection();
-		}
-
-		static bool sectionSettings = initSections;
-		// if(gui->beginSection("Settings", &sectionSettings)) {
-		if(false) {
-			gui->div(vec2(0,0)); if(gui->button("Compile")) shellExecute("C:\\Projects\\Hmm\\code\\buildWin32.bat");
-								 if(gui->button("Up Buffers")) ad->updateFrameBuffers = true;
-			gui->div(vec2(0,0)); gui->label("FoV", 0); gui->slider(&ad->fieldOfView, 1, 180);
-			gui->div(vec2(0,0)); gui->label("MSAA", 0); gui->slider(&ad->msaaSamples, 1, 8);
-			gui->switcher("Native Res", &ad->useNativeRes);
-			gui->div(0,0,0); gui->label("FboRes", 0); gui->slider(&ad->fboRes.x, 150, ad->cur3dBufferRes.x); gui->slider(&ad->fboRes.y, 150, ad->cur3dBufferRes.y);
-			gui->div(0,0,0); gui->label("NFPlane", 0); gui->slider(&ad->nearPlane, 0.01, 2); gui->slider(&ad->farPlane, 1000, 5000);
-		// } gui->endSection();
-		}
-
-
-
-
-		static bool sectionTest = false;
-		// if(gui->beginSection("Test", &sectionTest)) {
-		if(false) {
-			static int scrollHeight = 200;
-			static int scrollElements = 13;
-			static float scrollVal = 0;
-			gui->div(vec2(0,0)); gui->slider(&scrollHeight, 0, 2000); gui->slider(&scrollElements, 0, 100);
-
-			gui->beginScroll(scrollHeight, &scrollVal); {
-				for(int i = 0; i < scrollElements; i++) {
-					gui->button(fillString("Element: %i.", i));
-				}
-			} gui->endScroll();
-
-			static int textCapacity = 50;
-			static char* text = getPArray(char, textCapacity);
-			static bool DOIT = true;
-			if(DOIT) {
-				DOIT = false;
-				strClear(text);
-				strCpy(text, "This is a really long sentence!");
-			}
-			gui->div(vec2(0,0)); gui->label("Text Box:", 0); gui->textBoxChar(text, 0, textCapacity);
-
-			static int textNumber = 1234;
-			gui->div(vec2(0,0)); gui->label("Int Box:", 0); gui->textBoxInt(&textNumber);
-
-			static float textFloat = 123.456f;
-			gui->div(vec2(0,0)); gui->label("Float Box:", 0); gui->textBoxFloat(&textFloat);
-
-		// } gui->endSection();
 		}
 
 		gui->end();
@@ -3354,67 +3344,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		}
 
 		gui->end();
-
-	}
-
-	//
-	// Dropdown Console.
-	//
-
-	{
-		Console* con = &ds->console;
-
-		if(init) {
-			con->init(ws->currentRes.y);
-		}
-
-		bool smallExtension = input->keysPressed[KEYCODE_F5] && !input->keysDown[KEYCODE_CTRL];
-		bool bigExtension = input->keysPressed[KEYCODE_F5] && input->keysDown[KEYCODE_CTRL];
-
-		con->update(ds->input, vec2(ws->currentRes), ad->dt, smallExtension, bigExtension);
-
-		// Execute commands.
-
-		if(con->commandAvailable) {
-			con->commandAvailable = false;
-
-			char* comName = con->comName;
-			char** args = con->comArgs;
-			char* resultString = "";
-			bool pushResult = true;
-
-			if(strCompare(comName, "add")) {
-				int a = strToInt(args[0]);
-				int b = strToInt(args[1]);
-
-				resultString = fillString("%i + %i = %i.", a, b, a+b);
-
-			} else if(strCompare(comName, "addFloat")) {
-				float a = strToFloat(args[0]);
-				float b = strToFloat(args[1]);
-
-				resultString = fillString("%f + %f = %f.", a, b, a+b);
-
-			} else if(strCompare(comName, "print")) {
-				resultString = fillString("\"%s\"", args[0]);
-
-			} else if(strCompare(comName, "cls")) {
-				con->clearMainBuffer();
-				pushResult = false;
-
-			} else if(strCompare(comName, "doNothing")) {
-
-			} else if(strCompare(comName, "setGuiAlpha")) {
-				ds->guiAlpha = strToFloat(args[0]);
-
-			} else if(strCompare(comName, "exit")) {
-				*isRunning = false;
-
-			}
-			if(pushResult) con->pushToMainBuffer(resultString);
-		}
-
-		con->updateBody();
 
 	}
 
