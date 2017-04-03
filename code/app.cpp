@@ -1337,6 +1337,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			lastVideoCount = tempPlaylist.count;
 
 			if(maxVideoCount == tempPlaylist.count) return;
+			if(count + lastVideoCount > maxVideoCount) count = maxVideoCount - lastVideoCount;
 		}
 
 		int totalCount = 0;
@@ -1463,7 +1464,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->videoCount = ad->downloadPlaylist.count;
 
 		if(continuedDownload) {
-		// if(false) {
+			if(ad->downloadPlaylist.count + lastVideoCount > maxVideoCount) {
+				ad->videoCount = (ad->downloadPlaylist.count + lastVideoCount) - maxVideoCount;
+				ad->playlist.count = (ad->downloadPlaylist.count + lastVideoCount) - maxVideoCount;
+			}
+
 			savePlaylistToFile(&ad->playlist, vids, ad->videoCount, totalCount, lastVideoCount, pageToken);
 		} else {
 			savePlaylistToFile(&ad->playlist, vids, ad->videoCount, totalCount, 0, pageToken);
