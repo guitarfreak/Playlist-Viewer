@@ -967,6 +967,52 @@ float getCharAdvance(uchar c, Font* font) {
 	return result;
 }
 
+inline char getRightBits(char n, int count) {
+	int bitMask = 0;
+	for(int i = 0; i < count; i++) bitMask += (1 << i);
+	return n&bitMask;
+}
+
+int unicodeDecode(uchar* s, int* byteCount) {
+	if(s[0] <= 127) {
+		*byteCount = 1;
+		return s[0];
+	}
+
+	int bitCount = 1;
+	for(;;) {
+		char bit = (1 << 8-bitCount-1);
+		if(s[0]&bit) bitCount++;
+		else break;
+	}
+
+	(*byteCount) = bitCount;
+
+	int unicodeChar = 0;
+	for(int i = 0; i < bitCount; i++) {
+		char byte = i==0 ? getRightBits(s[i], 8-(bitCount+1)) : getRightBits(s[i], 6);
+
+		unicodeChar += ((int)byte) << (6*((bitCount-1)-i));
+	}
+
+	return unicodeChar;
+}
+
+void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
+	stbtt_aligned_quad q;
+	stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
+
+	float baseLine = 0.8f;
+	float off = baseLine * font->height;
+
+	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
+	*uv = rect(q.s0, q.t0, q.s1, q.t1);
+}
+
+float getCharAdvance(int c, Font* font) {
+	float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
+	return result;
+}
 
 
 struct TextInfo {
@@ -1017,20 +1063,22 @@ int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPo
 	Vec2 oldPos = tsi->pos;
 
 	int i = tsi->index;
-	uchar t = text[i];
+	int tSize;
+	int t = unicodeDecode((uchar*)(&text[i]), &tSize);
 
 	bool wrapped = false;
 
 	if(wrapWidth != 0 && i == tsi->wrapIndex) {
-		uchar c = text[i];
+		int size;
+		int c = unicodeDecode((uchar*)(&text[i]), &size);
 		float wordWidth = 0;
 		if(c == '\n') wordWidth = getCharAdvance(c, font);
 
 		int it = i;
 		while(c != '\n' && c != '\0' && c != ' ') {
 			wordWidth += getCharAdvance(c, font);
-			it++;
-			c = text[it];
+			it += size;
+			c = unicodeDecode((uchar*)(&text[it]), &size);
 		}
 
 		if(tsi->pos.x + wordWidth > startPos.x + wrapWidth) {
@@ -1063,7 +1111,7 @@ int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPo
 		ti->posAdvance = tsi->pos - oldPos;
 	}
 
-	tsi->index++;
+	tsi->index += tSize;
 
 	return 1;
 }
