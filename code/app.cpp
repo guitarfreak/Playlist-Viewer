@@ -32,6 +32,10 @@
 	* Stop and continue downloading playlist.
 	* Search key words to remove certain items in playlist.
 	  * A Video has to have a certain word, or should not have a certain keyword.
+	* Unicode for comments.
+	* Mouse Selection only updating when inside graph rects.
+	* Change video title length to something like 110 chars to support a few unicode chars 
+	  and then clamp the rest of the title if it's too much.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
 	- Dithering.
@@ -43,17 +47,15 @@
 	- Gui when scrollsection gets initialized, put in the current window height to avoid one frame jumping.
 	- Zoom stages for bottom timeline.
 	- Combine 2 graphs again and do h scroll with side bars.
-	- Unicode for comments.
 	- Bottom Zoom glitchy.
 	  - Viewport left and right of cam to big probably. Should add offset so cam goes from 0 to viewport width.
-	- 101 not enough space for title, found on with 102. (Including zero byte.)
-	  - They probably mean 100 characters of unicode, not ascii.
 	- Draw command dots.
 	- Update a playlist.
 	- Sort videos by most commented, most viewed, etc.
 	- If data cant be received from a video, still make it work. (Probably should be more precise with parsing.)
 	- Scale font size to windows. (For high resolution monitors.)
 	- Filter -> percentage of views.
+	- Make stress test playlist file with 100k videos.
 */
 
 // External.
@@ -226,7 +228,7 @@ Date stringToDate(char* s) {
 // #pragma pack(push,1)
 struct YoutubeVideo {
 	char id[12];
-	char title[101];
+	char title[151];
 	char thumbnail[51];
 	char dateString[25];
 	Date date;
@@ -241,12 +243,12 @@ struct YoutubeVideo {
 
 struct YoutubePlaylist {
 	char id[40];
-	char title[101];
+	char title[151];
 	int count;
 };
 
 struct SearchResult {
-	char title[101];
+	char title[151];
 	char id[40];
 };
 
@@ -405,9 +407,11 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 
 	bool hasAllUploadsPLaylist = false;
 	
+	int playlistMaxDownloadCount = maxDownloadCount - 1; // If we also load All Uploads playlist we have 41 which is too much.
+
 	char* pageToken = 0;
-	for(int i = 0; i < count; i += maxDownloadCount) {
-		int dCount = i + maxDownloadCount > count ? count-i : maxDownloadCount;
+	for(int i = 0; i < count; i += playlistMaxDownloadCount) {
+		int dCount = i + playlistMaxDownloadCount > count ? count-i : playlistMaxDownloadCount;
 
 		strClear(request);
 		strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
@@ -477,7 +481,9 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 			strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
 			strAppend(request, "&part=contentDetails");
 			strAppend(request, "&id=");
-			for(int index = 0; index < dCount; index++) {
+
+			int maxCount = hasAllUploadsPLaylist?dCount+1 : dCount;
+			for(int index = 0; index < maxCount; index++) {
 				strAppend(request, fillString("%s,", playlists[i+index].id));
 			}
 			curlRequest(curlHandle, request, buffer);
@@ -761,7 +767,7 @@ struct AppData {
 
 	// Window.
 
-	bool resizeMode;
+	int resizeMode;
 	bool dragMode;
 	int dragOffsetX, dragOffsetY;
 	int resizeOffsetX, resizeOffsetY;
@@ -771,16 +777,15 @@ struct AppData {
 	CURL* curlHandle;
 	HMODULE curlDll;
 
-	YoutubePlaylist playlist;
-	YoutubeVideo* videos;
-	int videoCount;
-
 	GraphCam cam, camLikes;
 	int heightMoveMode;
+	bool widthMove;
 
-	int selectedVideo;
+	YoutubePlaylist playlist;
+	YoutubeVideo* videos;
+
 	VideoSnippet videoSnippet;
-
+	int selectedVideo;
 
 	YoutubePlaylist downloadPlaylist;
 
@@ -815,7 +820,9 @@ struct AppData {
 	char exclusiveFilter[50];
 	char inclusiveFilter[50];
 
+	GuiInput guiInput;
 	Gui filtersGui;
+	Gui snippetGui;
 };
 
 
@@ -943,7 +950,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		getPMemory(sizeof(AppData));
 		*ad = {};
 		
-		initSystem(systemData, ws, windowsData, vec2i(1920*0.75f, 1080*0.75f), true, true, true, 1);
+		initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, true, 1);
 		windowHandle = systemData->windowHandle;
 
 		loadFunctions();
@@ -1111,8 +1118,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		TIMER_BLOCK_NAMED("Input");
 		updateInput(ds->input, isRunning, windowHandle);
-
 		ad->input = *ds->input;
+
+		ad->guiInput = { input->mousePos, input->mouseWheel, input->mouseButtonPressed[0], input->mouseButtonDown[0], 
+						input->keysPressed[KEYCODE_ESCAPE], input->keysPressed[KEYCODE_RETURN], input->keysPressed[KEYCODE_SPACE], input->keysPressed[KEYCODE_BACKSPACE], input->keysPressed[KEYCODE_DEL], input->keysPressed[KEYCODE_HOME], input->keysPressed[KEYCODE_END], 
+						input->keysPressed[KEYCODE_LEFT], input->keysPressed[KEYCODE_RIGHT], input->keysPressed[KEYCODE_UP], input->keysPressed[KEYCODE_DOWN], 
+						input->keysDown[KEYCODE_SHIFT], input->keysDown[KEYCODE_CTRL], 
+						input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
+						input->inputCharacters, input->inputCharacterCount};
+
 		if(ds->console.isActive) {
 			memSet(ad->input.keysPressed, 0, sizeof(ad->input.keysPressed));
 			memSet(ad->input.keysDown, 0, sizeof(ad->input.keysDown));
@@ -1153,29 +1167,62 @@ extern "C" APPMAINFUNCTION(appMain) {
     	*isRunning = false;
     }
 
+	{
+		SetCursor(LoadCursor(0, IDC_ARROW));
 
+	    Vec2i res = ws->currentRes;
+	    float w = 20;
+	    Rect screenRect = rect(0, -res.h, res.w, 0);
+	    Rect moveRect = rectExpand(screenRect, -vec2(w*2,w*2));
+		Rect resizeRight = rect(res.w-w, -res.h+w, res.w, 0);
+		Rect resizeBottom = rect(0, -res.h, res.w-w, -res.h+w);
+		Rect resizeDR = rect(resizeBottom.right, resizeBottom.bottom, resizeRight.right, resizeRight.bottom);
 
-	if(input->mouseButtonPressed[1]) {
-		POINT p;
-		GetCursorPos(&p);
-		ScreenToClient(windowHandle, &p);
-		ad->dragOffsetX = p.x; // Border size.
-		ad->dragOffsetY = p.y;
-
-		RECT r;
-		GetWindowRect(windowHandle, &r);
-		ad->resizeOffsetX = (r.right - r.left) - p.x;
-		ad->resizeOffsetY = (r.bottom - r.top) - p.y;
-
-		if(input->keysDown[KEYCODE_CTRL]) {
-			ad->resizeMode = true;
-		} else {
-			ad->dragMode = true;
+		if(pointInRect(input->mousePosNegative, resizeRight)) {
+			SetCursor(LoadCursor(0, IDC_SIZEWE));
+		} else if(pointInRect(input->mousePosNegative, resizeBottom)) {
+			SetCursor(LoadCursor(0, IDC_SIZENS));
+		} else if(pointInRect(input->mousePosNegative, resizeDR)) {
+			SetCursor(LoadCursor(0, IDC_SIZENWSE));
 		}
-	} 
+
+		if(input->mouseButtonPressed[1]) {
+			POINT p;
+			GetCursorPos(&p);
+			ScreenToClient(windowHandle, &p);
+			ad->dragOffsetX = p.x + 1; // Border size.
+			ad->dragOffsetY = p.y + 1;
+
+			RECT r;
+			GetWindowRect(windowHandle, &r);
+			ad->resizeOffsetX = (r.right - r.left) - p.x;
+			ad->resizeOffsetY = (r.bottom - r.top) - p.y;
+
+			// if(input->keysDown[KEYCODE_CTRL]) {
+			// 	ad->resizeMode = true;
+			// } else {
+			// 	ad->dragMode = true;
+			// }
+
+			if(pointInRect(input->mousePosNegative, resizeRight)) {
+				ad->resizeMode = 1;
+			} else if(pointInRect(input->mousePosNegative, resizeBottom)) {
+				ad->resizeMode = 2;
+			} else if(pointInRect(input->mousePosNegative, resizeDR)) {
+				ad->resizeMode = 3;
+			} else if(pointInRect(input->mousePosNegative, moveRect)) {
+				ad->dragMode = true;
+			}
+
+			if(input->keysDown[KEYCODE_CTRL]) {
+				ad->resizeMode = 3;
+				ad->dragMode = false;
+			}
+		} 
+	}
 
 	if(input->mouseButtonReleased[1]) {
-		ad->resizeMode = false;
+		ad->resizeMode = 0;
 		ad->dragMode = false;
 	}
 
@@ -1196,15 +1243,25 @@ extern "C" APPMAINFUNCTION(appMain) {
 		int newWidth = clampMin(ps.x + ad->resizeOffsetX, 300);
 		int newHeight = clampMin(ps.y + ad->resizeOffsetY, 300);
 
+		if(ad->resizeMode == 1) {
+			SetCursor(LoadCursor(0, IDC_SIZEWE));
+			newHeight = r.bottom - r.top;
+		} else if(ad->resizeMode == 2) {
+			SetCursor(LoadCursor(0, IDC_SIZENS));
+			newWidth = r.right - r.left;
+		} else if(ad->resizeMode == 3) {
+			SetCursor(LoadCursor(0, IDC_SIZENWSE));
+		}
+
 		updateWindow = true;
 
 		updateWindowX = r.left;
 		updateWindowY = r.top;
 		updateWidth = newWidth;
 		updateHeight = newHeight;
-		
-		ws->currentRes.w = newWidth;
-		ws->currentRes.h = newHeight;
+
+		ws->currentRes.w = newWidth-2;
+		ws->currentRes.h = newHeight-2;
 		ws->aspectRatio = ws->currentRes.x / (float)ws->currentRes.y;
 
 		ad->updateFrameBuffers = true;
@@ -1338,7 +1395,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// @AppLoop.
 
 	if(ad->startDownload) { 
-	// if(init) { 
 		ad->startDownload = false;
 
 		char* playlist = ad->downloadPlaylist.id;
@@ -1361,10 +1417,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 			lastVideoCount = tempPlaylist.count;
 
 			if(maxVideoCount == tempPlaylist.count) return;
-			if(count + lastVideoCount > maxVideoCount) count = maxVideoCount - lastVideoCount;
+			if(count + lastVideoCount > maxVideoCount) {
+				count = maxVideoCount - lastVideoCount;
+				ad->downloadPlaylist.count = count;
+			}
 		}
 
 		int totalCount = 0;
+
+		pushTMemoryStack();
 
 		char* buffer = (char*)getTMemory(megaBytes(3)); 
 		for(int i = 0; i < count; i += maxDownloadCount) {
@@ -1461,7 +1522,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(strLen(s) == 0) break;
 
 					// Title
-					strCpy(vids[reverseIndex].title, s);
+
+					int length = strLen(s);
+					if(strLen(s)+1 > memberSize(YoutubeVideo, title)) {
+						length = memberSize(YoutubeVideo, title)-1;
+						s[length-1] = '.';
+						s[length-2] = '.';
+						s[length-3] = '.';
+					}
+
+					strCpy(vids[reverseIndex].title, s, length);
 
 					// Thumbnail.
 					// default, medium, high, standard, maxres.
@@ -1478,24 +1548,25 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			}
 			
+			clearTMemoryToStackIndex();
 		}
+
+		popTMemoryStack();
 
 		for(int i = 0; i < count; i++) {
 			vids[i].date = stringToDate(vids[i].dateString);
 		}
 
 		memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
-		ad->videoCount = ad->downloadPlaylist.count;
 
 		if(continuedDownload) {
 			if(ad->downloadPlaylist.count + lastVideoCount > maxVideoCount) {
-				ad->videoCount = (ad->downloadPlaylist.count + lastVideoCount) - maxVideoCount;
 				ad->playlist.count = (ad->downloadPlaylist.count + lastVideoCount) - maxVideoCount;
 			}
 
-			savePlaylistToFile(&ad->playlist, vids, ad->videoCount, totalCount, lastVideoCount, pageToken);
+			savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, lastVideoCount, pageToken);
 		} else {
-			savePlaylistToFile(&ad->playlist, vids, ad->videoCount, totalCount, 0, pageToken);
+			savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, 0, pageToken);
 		}
 
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
@@ -1507,7 +1578,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + 0;
 		memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
-		ad->videoCount = ad->playlist.count;
 
 		ad->startLoadFile = true;
 	}
@@ -1527,7 +1597,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 		bool foundFile = loadPlaylistFromFile(&tempPlaylist, tempVids, &tempVidCount);
-		// bool foundFile = loadPlaylistFromFile(&ad->playlist, ad->videos, &ad->videoCount);
+		// bool foundFile = loadPlaylistFromFile(&ad->playlist, ad->videos, &ad->playlist.count);
 		if(foundFile) {
 
 			// Filter videos.
@@ -1627,7 +1697,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 
 				ad->playlist.count = filteredIndexesCount;
-				ad->videoCount = filteredIndexesCount;
 
 				for(int i = 0; i < filteredIndexesCount; i++) {
 					int index = filteredIndexes[i];
@@ -1635,7 +1704,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 
-			if(ad->videoCount == 0) {
+			if(ad->playlist.count == 0) {
 				graphCamInit(&ad->cam,      0, 10000, 0, 1000);
 				graphCamInit(&ad->camLikes, 0, 10000, 0, 1000);
 			} else {
@@ -1643,7 +1712,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				// Sort videos.
 				// if(false)
 				{
-					int size = ad->videoCount;
+					int size = ad->playlist.count;
 					for(int off = 0; off < size-1; off++) {
 						bool sw = false;
 
@@ -1673,7 +1742,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					beginStatistic(&statLikes);
 					beginStatistic(&statDates);
 
-					for(int i = 0; i < ad->videoCount; i++) {
+					for(int i = 0; i < ad->playlist.count; i++) {
 						YoutubeVideo* video = ad->videos + i;
 
 						updateStatistic(&statViews, video->viewCount);
@@ -1691,7 +1760,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.1f);
 				}
 
-				calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
+				calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
 			}
 
 			ad->selectedVideo = -1;
@@ -1714,7 +1783,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		rChart = ad->selectedVideo!=-1 ? rect(screenRect.min, screenRect.max - vec2(sidePanelWidth,0)) : screenRect;
 		rFilters = rChart;
-		float filtersHeight = font->height*2 - ad->filtersGui.settings.border.h*2 + ad->filtersGui.settings.offsets.y;
+		float filtersHeight = font->height - ad->filtersGui.settings.border.h*2 + ad->filtersGui.settings.offsets.y;
 		rFilters.min.y = rFilters.top - filtersHeight;
 		rChart.max.y -= filtersHeight;
 		// rFilters = rectExpand(rFilters, vec2(-2,-2));
@@ -1772,10 +1841,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(input->mouseButtonPressed[0]) {
 				if(pointInRect(input->mousePosNegative, rLeftText)) ad->heightMoveMode = 0;
 				else if(pointInRect(input->mousePosNegative, rLeftText2)) ad->heightMoveMode = 1;
+				else if(pointInRect(input->mousePosNegative, rGraphs)) ad->widthMove = 1;
 			}
 
 			if(input->mouseButtonReleased[0]) {
 				ad->heightMoveMode = -1;
+				ad->widthMove = 0;
 			}
 
 			if(input->mouseDelta != vec2(0,0)) {
@@ -1785,7 +1856,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					graphCamTrans(camLikes, 0, input->mouseDelta.y);
 				}
 
-				if(input->mouseButtonDown[0]) {
+				if(ad->widthMove) {
 					graphCamTrans(cam, -input->mouseDelta.x, 0);
 					graphCamTrans(camLikes, -input->mouseDelta.x, 0);
 				}
@@ -1950,45 +2021,49 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		YoutubeVideo* vids = ad->videos;
-		int vidCount = ad->videoCount;
+		int vidCount = ad->playlist.count;
 
 		// Mouse hover.
 		{
-			GraphCam* cam = &ad->cam;
-			for(int i = 0; i < vidCount; i++) {
-				bool lastElement = i < vidCount-1;
+			if(pointInRect(input->mousePosNegative, rGraphs)) {
 
-				if(lastElement)
-					if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+				GraphCam* cam = &ad->cam;
+				for(int i = 0; i < vidCount; i++) {
+					bool lastElement = i < vidCount-1;
 
-				float x = graphCamMapX(cam, vids[i].date.num) + 1;
-				float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.num) + 1 : x + 1000000;
+					if(lastElement)
+						if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
 
-				if(input->mousePos.x < x + (x2-x)/2) {
-					dcScissor(scissorRectScreenSpace(rGraphs, res.h));
-					dcEnable(STATE_SCISSOR);
+					float x = graphCamMapX(cam, vids[i].date.num) + 1;
+					float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.num) + 1 : x + 1000000;
 
-					if(input->mousePos.x >= ad->camLikes.viewPort.left)
-						dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
+					if(input->mousePos.x < x + (x2-x)/2) {
+						dcScissor(scissorRectScreenSpace(rGraphs, res.h));
+						dcEnable(STATE_SCISSOR);
 
-					Font* font = getFont(FONT_CALIBRI, 20);
-					Vec4 c = vec4(1.0f,0.5f,0,1);
-					Vec2 p = rChart.max - vec2(5);
-					dcText(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1)); p.y -= font->height;
-					dcText(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1)); p.y -= font->height;
-					dcText(fillString("%i", i), font, p, c, vec2i(1,1)); p.y -= font->height;
-	
-					dcDisable(STATE_SCISSOR);
+						if(input->mousePos.x >= ad->camLikes.viewPort.left)
+							dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
 
-					if(input->mouseButtonPressed[2]) {
-						if(i != ad->selectedVideo) {
-							ad->selectedVideo = i;
-							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+						Font* font = getFont(FONT_CALIBRI, 20);
+						Vec4 c = vec4(1.0f,0.5f,0,1);
+						Vec2 p = rChart.max - vec2(5);
+						dcText(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1)); p.y -= font->height;
+						dcText(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1)); p.y -= font->height;
+						dcText(fillString("%i", i), font, p, c, vec2i(1,1)); p.y -= font->height;
+		
+						dcDisable(STATE_SCISSOR);
+
+						if(input->mouseButtonPressed[2]) {
+							if(i != ad->selectedVideo) {
+								ad->selectedVideo = i;
+								downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+							}
 						}
-					}
 
-					break;
+						break;
+					}
 				}
+
 			}
 		}
 
@@ -2104,6 +2179,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		dcText("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
 		dcText("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
 
+		if(init) {
+			ad->snippetGui.init(rectCenDim(400,-400,600,200), -1);
+		}
+
 		if(ad->selectedVideo != -1) {
 			// Graph selection line.
 			{
@@ -2122,13 +2201,65 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float width = rectGetW(infoRect);
 			float yPos = infoRect.top;
 
+			Rect infoPanelTop = infoRect;
+			infoPanelTop.min.y = infoPanelTop.top - font->height - 4;
+
+			// Top gui.
+			{
+				Gui* gui = &ad->snippetGui;
+				gui->settings.border = vec2i(2,-2);
+				gui->settings.fontOffset = 0.0f;
+				gui->startStatic(ds->gInput, font, infoPanelTop, ws->currentRes);
+
+				bool updateStats = false;
+
+				gui->div(0.1f,0,0,0.1f);
+				if(gui->button("<-")) {
+					if(ad->selectedVideo != -1) {
+						int newSelection = clampMin(ad->selectedVideo - 1, 0);
+						if(newSelection != ad->selectedVideo) {
+							ad->selectedVideo = newSelection;
+							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+						}
+					}
+				};			
+
+				if(gui->button("Open in Chrome.")) {
+					shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+				}
+				if(gui->button("Open in Firefox.")) {
+					shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+				}
+
+				if(gui->button("->")) {
+					if(ad->selectedVideo != -1) {
+						int newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
+						if(newSelection != ad->selectedVideo) {
+							ad->selectedVideo = newSelection;
+							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+						}
+					}
+				};
+
+				gui->endStatic();
+			}
+
+			yPos -= font->height + 8;
+
 			dcEnable(STATE_SCISSOR);
 			dcScissor(scissorRectScreenSpace(infoRect, res.h));
 
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
 			VideoSnippet* sn = &ad->videoSnippet;
 
-			dcText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			char* ss = fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id);
+			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
+			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
+			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
+			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
+
+			dcText(ss, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			// dcText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
 			yPos -= font->height;
 
 			// dcRect(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
@@ -2169,51 +2300,47 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Filters gui.
 		{
-			GuiInput gInput = { input->mousePos, input->mouseWheel, input->mouseButtonPressed[0], input->mouseButtonDown[0], 
-							input->keysPressed[KEYCODE_ESCAPE], input->keysPressed[KEYCODE_RETURN], input->keysPressed[KEYCODE_SPACE], input->keysPressed[KEYCODE_BACKSPACE], input->keysPressed[KEYCODE_DEL], input->keysPressed[KEYCODE_HOME], input->keysPressed[KEYCODE_END], 
-							input->keysPressed[KEYCODE_LEFT], input->keysPressed[KEYCODE_RIGHT], input->keysPressed[KEYCODE_UP], input->keysPressed[KEYCODE_DOWN], 
-							input->keysDown[KEYCODE_SHIFT], input->keysDown[KEYCODE_CTRL], 
-							input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
-							input->inputCharacters, input->inputCharacterCount};
-
 			if(init) {
-				rGraph;
 				ad->filtersGui.init(rectCenDim(400,-400,600,200), -1);
-				ad->filtersGui.settings.fontOffset = 0.0f;
-				// ad->filtersGui.settings.border = vec2i(2,-2);
 			}
 
 			Gui* gui = &ad->filtersGui;
+			gui->settings.fontOffset = 0.0f;
+			gui->settings.border = vec2i(2,-2);
 			gui->startStatic(ds->gInput, font, rFilters, ws->currentRes);
 
 			bool updateStats = false;
 
-			float divs[10] = {150,0, 180,40,10,130,300};
-			gui->div(divs, 7);
+			char* labels[] = {"Avg. line (width/res months): ", "Filter (Incl./Excl.): "};
+			float divs[] = {150, 0, gui->getTextWidth(labels[0]), 40, 40, 10, gui->getTextWidth(labels[1]), 250, 250};
+			gui->div(divs, arrayCount(divs));
 			gui->switcher("Panel (F1)", &ds->showMenu);
+
 			gui->empty();
-			gui->label("Time span (months): ", 0);  if(gui->textBoxFloat(&ad->statTimeSpan)) updateStats = true;
+			
+			gui->label(labels[0], 0); 
+			if(gui->textBoxFloat(&ad->statTimeSpan)) updateStats = true;
+			if(gui->textBoxFloat(&ad->statWidth)) updateStats = true;
+
 			gui->empty();
-			gui->label("Inclusive filter: ", 0); if(gui->textBoxChar(ad->inclusiveFilter, 0, 50)) ad->startLoadFile = true;
-			gui->div(divs, 7);
-			gui->empty();
-			gui->empty();
-			gui->label("Time width (months): ", 0); if(gui->textBoxFloat(&ad->statWidth)) updateStats = true;
-			gui->empty();
-			gui->label("Exclusive filter: ", 0); if(gui->textBoxChar(ad->exclusiveFilter, 0, 50)) ad->startLoadFile = true;
+
+			gui->label(labels[1], 0); 
+			if(gui->textBoxChar(ad->inclusiveFilter, 0, 50)) ad->startLoadFile = true;
+			if(gui->textBoxChar(ad->exclusiveFilter, 0, 50)) ad->startLoadFile = true;
+
+			// gui->empty();
 
 			gui->endStatic();
 
-			if(updateStats) calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
+			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
 		}
 
 		// Border.
-		float w = 0.8f;
-		Vec4 borderColor = vec4(w,w,w,1);
-		dcLine2d(vec2(screenRect.left+1, screenRect.bottom), vec2(screenRect.left+1, screenRect.top), borderColor);
-		dcLine2d(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
-		dcLine2d(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
-		dcLine2d(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
+		// Vec4 borderColor = vec4(0.5f,1);
+		// dcLine2d(vec2(screenRect.left+1, screenRect.bottom), vec2(screenRect.left+1, screenRect.top), borderColor);
+		// dcLine2d(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
+		// dcLine2d(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
+		// dcLine2d(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
 
 	}
 
@@ -2222,6 +2349,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
+
 
 	// Render.
 	{
@@ -2368,48 +2496,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		if(gui->button("Playlists", (int)(sectionMode == 2) + 1)) sectionMode = 2;
 
 		if(sectionMode == 0) {
-			gui->div(0.1f,0,0,0.1f);
-			if(gui->button("<-")) {
-				if(ad->selectedVideo != -1) {
-					int newSelection = clampMin(ad->selectedVideo - 1, 0);
-					if(newSelection != ad->selectedVideo) {
-						ad->selectedVideo = newSelection;
-						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
-					}
-				}
-			};			
-
-			if(gui->button("Open in Chrome.")) {
-				shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
-			}
-			if(gui->button("Open in Firefox.")) {
-				shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
-			}
-
-			if(gui->button("->")) {
-				if(ad->selectedVideo != -1) {
-					int newSelection = clampMax(ad->selectedVideo + 1, ad->videoCount - 1);
-					if(newSelection != ad->selectedVideo) {
-						ad->selectedVideo = newSelection;
-						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
-					}
-				}
-			};
-
-			// bool updateStats = false;
-			// gui->label("Stats");
-			// gui->div(vec2(0,0)); gui->label("Time span in months: ", 0);  if(gui->textBoxFloat(&ad->statTimeSpan)) updateStats = true;
-			// gui->div(vec2(0,0)); gui->label("Time width in months: ", 0); if(gui->textBoxFloat(&ad->statWidth)) updateStats = true;
-			// if(updateStats) calculateAverages(ad->videos, ad->videoCount, ad->avgPoints, &ad->avgPointsCount, ad->statTimeSpan, ad->statWidth, &ad->cam);
-
-			// gui->label("Filters");
-			// bool reloadFile = false;
-			// gui->div(vec2(0.2f,0)); gui->label("Inclusive: ", 0); if(gui->textBoxChar(ad->inclusiveFilter, 0, 50)) reloadFile = true;
-			// gui->div(vec2(0.2f,0)); gui->label("Exclusive: ", 0); if(gui->textBoxChar(ad->exclusiveFilter, 0, 50)) reloadFile = true;
-			// if(reloadFile) {
-			// 	ad->startLoadFile = true;
-			// }
-
 			gui->empty();
 
 			gui->div(vec3(0,0,0));
@@ -2426,7 +2512,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				gui->div(0,0.1f,0,0.1f);
 				if(gui->button(fillString("%s", playlist->title))) {
 					memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
-					ad->videoCount = playlist->count;
+					ad->playlist.count = playlist->count;
 					ad->startLoadFile = true;
 
 					strCpy(ad->downloadPlaylist.title, ad->playlist.title);
@@ -2449,7 +2535,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			gui->label(ad->playlist.title);
 			gui->div(vec2(0,0));
 			gui->label(ad->playlist.id);
-			gui->label(fillString("VideoCount: %i", ad->videoCount));
+			gui->label(fillString("VideoCount: %i", ad->playlist.count));
 
 			gui->empty();
 
@@ -2474,7 +2560,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				gui->activeId = 0;
 			}
 			// if(gui->button("Save to file.")) {
-			// 	savePlaylistToFile(&ad->playlist, ad->videos, ad->videoCount);
+			// 	savePlaylistToFile(&ad->playlist, ad->videos, ad->playlist.count);
 
 			// 	ad->playlistFolderCount = 0;
 			// 	loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
@@ -2564,10 +2650,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		}
 
 		if(sectionMode == 1) {
-			gui->label(fillString("VideoCount: %i.", ad->videoCount), 0);
+			gui->label(fillString("VideoCount: %i.", ad->playlist.count), 0);
 
 			float leftPad = 20;
-			for(int i = 0; i < ad->videoCount; i++) {
+			for(int i = 0; i < ad->playlist.count; i++) {
 				YoutubeVideo* video = ad->videos + i;
 
 				gui->label(fillString("Video %i:", i), 0);
@@ -3427,6 +3513,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		ds->debugTime = timerUpdate(timeStamp);
 		tempTime = 0;
 	}
+
+	globalMemory->debugMode = false;
 }
 
 #pragma optimize( "", on ) 

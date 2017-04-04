@@ -1,6 +1,8 @@
 
 struct MemoryBlock {
 	bool debugMode;
+	int tempStack[10];
+	int tempStackSize;
 
 	ExtendibleMemoryArray* pMemory;
 	MemoryArray* tMemory;
@@ -37,6 +39,24 @@ void * getTMemoryMain(int size, MemoryBlock * memory = 0) {
 
 	void* location = getMemoryArray(size, memory->tMemory);
     return location;
+}
+
+void pushTMemoryStack(MemoryBlock* memory = 0) {
+	if(memory == 0) memory = globalMemory;
+
+	globalMemory->tempStack[globalMemory->tempStackSize++] = globalMemory->tMemory->index;
+}
+
+void popTMemoryStack(MemoryBlock* memory = 0) {
+	if(memory == 0) memory = globalMemory;
+
+	globalMemory->tempStackSize--;
+}
+
+void clearTMemoryToStackIndex(MemoryBlock* memory = 0) {
+	if(memory == 0) memory = globalMemory;
+
+	globalMemory->tMemory->index = globalMemory->tempStack[globalMemory->tempStackSize-1];
 }
 
 #define getPStructDebug(type) 		(type*)(getPMemoryDebug(sizeof(type)))

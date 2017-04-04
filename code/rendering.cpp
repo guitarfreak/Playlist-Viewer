@@ -1573,6 +1573,13 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 				if(dc.cullWidth == -1) {
 					if(dc.shadow != 0) 
 						drawText(dc.text, dc.font, dc.pos + vec2(dc.shadow,-dc.shadow), dc.shadowColor, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
+
+					// if(strFind(dc.text, "Index: 66") != -1) {
+					// 	printf("True->", dc.text);
+					// 	if(strFind(dc.text, "Index: 66, VideoId: 9n8UugFsaZE") != -1) {
+					// 		printf("<-Not\n", dc.text);
+					// 	}
+					// }
 					drawText(dc.text, dc.font, dc.pos, dc.color, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
 				} else {
 					if(dc.shadow != 0) 

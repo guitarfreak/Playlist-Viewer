@@ -312,9 +312,9 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	// if(visible) ws->style |= WS_VISIBLE;
 
 	// ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
-	// ws->style = WS_POPUP | WS_BORDER;
+	ws->style = WS_POPUP | WS_BORDER;
 	// ws->style = WS_POPUP | WS_VISIBLE | WS_CAPTION;
-	ws->style = WS_POPUP;
+	// ws->style = WS_POPUP;
 
 	RECT cr = {0, 0, res.w, res.h};
 	AdjustWindowRectEx(&cr, ws->style, 0, 0);
