@@ -749,6 +749,10 @@ FrameBuffer* getFrameBuffer(int id) {
 	return fb;
 }
 
+#define Font_Glyph_Start 0
+#define Font_Glyph_End 256
+#define Font_Error_Glyph 164
+
 Font* getFont(int fontId, int height) {
 
 	// Search if Font in this size exists, if not create it.
@@ -783,8 +787,8 @@ Font* getFont(int fontId, int height) {
 		font.baseOffset = 0.8f;
 		// font.glyphStart = 32;
 		// font.glyphCount = 95;
-		font.glyphStart = 0;
-		font.glyphCount = 256;
+		font.glyphStart = Font_Glyph_Start;
+		font.glyphCount = Font_Glyph_End;
 		font.cData = (stbtt_bakedchar*)getPMemory(sizeof(stbtt_bakedchar)*font.glyphCount);
 		stbtt_BakeFontBitmap((unsigned char*)fileBuffer, 0, font.height, fontBitmapBuffer, size.w, size.h, font.glyphStart, font.glyphCount, font.cData);
 		for(int i = 0; i < size.w*size.h; i++) {
@@ -999,6 +1003,8 @@ int unicodeDecode(uchar* s, int* byteCount) {
 }
 
 void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
+	if(c > Font_Glyph_End - Font_Glyph_Start) c = Font_Error_Glyph;
+
 	stbtt_aligned_quad q;
 	stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
 
@@ -1010,6 +1016,7 @@ void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 }
 
 float getCharAdvance(int c, Font* font) {
+	if(c > Font_Glyph_End - Font_Glyph_Start) c = Font_Error_Glyph;
 	float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
 	return result;
 }
@@ -1162,6 +1169,7 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 }
 
 void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
+
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
 	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
@@ -1286,97 +1294,6 @@ char* textSelectionToString(char* text, int index1, int index2) {
 	strCpy(str, text + minInt(index1, index2), range);
 	return str;
 }
-
-
-
-
-// void drawCube(Vec3 trans, Vec3 scale, Vec4 color, float degrees, Vec3 rot) {
-// 	glBindTextures(0,1,&getTexture(TEXTURE_WHITE)->id);
-
-// 	Mesh* cubeMesh = getMesh(MESH_CUBE);
-// 	glBindBuffer(GL_ARRAY_BUFFER, cubeMesh->bufferId);
-
-// 	glVertexAttribPointer(0, 3, GL_FLOAT, 0, sizeof(Vertex), (void*)0);
-// 	glEnableVertexAttribArray(0);
-// 	glVertexAttribPointer(1, 2, GL_FLOAT, 0, sizeof(Vertex), (void*)(sizeof(Vec3)));
-// 	glEnableVertexAttribArray(1);
-// 	glVertexAttribPointer(2, 3, GL_FLOAT, 0, sizeof(Vertex), (void*)(sizeof(Vec3) + sizeof(Vec2)));
-// 	glEnableVertexAttribArray(2);
-
-// 	Mat4 model = modelMatrix(trans, scale, degrees, rot);
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_MODEL, model.e);
-// 	// pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_COLOR, color.e);
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_COLOR, colorSRGB(color).e);
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_MODE, false);
-
-// 	glDrawArrays(GL_QUADS, 0, cubeMesh->vertCount);
-// 	// glDrawElements(GL_QUADS, cubeMesh->elementCount, GL_UNSIGNED_INT, (void*)0);
-// }
-
-// void drawLine(Vec3 p0, Vec3 p1, Vec4 color) {
-
-// 	// Disabling these arrays is very important.
-
-// 	glDisableVertexAttribArray(0);
-// 	glDisableVertexAttribArray(1);
-// 	glDisableVertexAttribArray(2);
-
-// 	glBindTextures(0,1,&getTexture(TEXTURE_WHITE)->id);
-
-// 	Vec3 verts[] = {p0, p1};
-// 	Vec2 quadUVs[] = {{0,0}, {0,1}};
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_UV, quadUVs[0].e, arrayCount(quadUVs));
-
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_VERTICES, verts[0].e, arrayCount(verts));
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_COLOR, colorSRGB(color).e);
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_MODE, true);
-
-// 	glDrawArrays(GL_LINES, 0, arrayCount(verts));
-// }
-
-// void drawQuad(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Vec4 color) {
-
-// 	// Disabling these arrays is very important.
-
-// 	glDisableVertexAttribArray(0);
-// 	glDisableVertexAttribArray(1);
-// 	glDisableVertexAttribArray(2);
-	
-// 	Vec3 verts[] = {p0, p1, p2, p3};
-
-// 	uint tex[2] = {getTexture(TEXTURE_WHITE)->id, 0};
-// 	glBindTextures(0,2,tex);
-
-// 	Vec2 quadUVs[] = {{0,0}, {0,1}, {1,1}, {1,0}};
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_UV, quadUVs[0].e, arrayCount(quadUVs));
-
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_VERTICES, verts[0].e, arrayCount(verts));
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_COLOR, colorSRGB(color).e);
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_MODE, true);
-
-// 	glDrawArrays(GL_QUADS, 0, arrayCount(verts));
-// }
-
-// void drawQuad(Vec3 p, Vec3 normal, float size, Vec4 color) {
-// 	Vec3 base = p;
-
-// 	int sAxis[2];
-// 	int biggestAxis = getBiggestAxis(normal, sAxis);
-
-// 	float s2 = size*0.5f;
-
-// 	Vec3 verts[4] = {};
-// 	for(int i = 0; i < 4; i++) {
-// 		Vec3 d = base;
-// 		if(i == 0) { d.e[sAxis[0]] += -s2; d.e[sAxis[1]] += -s2; }
-// 		else if(i == 1) { d.e[sAxis[0]] += -s2; d.e[sAxis[1]] +=  s2; }
-// 		else if(i == 2) { d.e[sAxis[0]] +=  s2; d.e[sAxis[1]] +=  s2; }
-// 		else if(i == 3) { d.e[sAxis[0]] +=  s2; d.e[sAxis[1]] += -s2; }
-// 		verts[i] = d;
-// 	}
-
-// 	drawQuad(verts[0], verts[1], verts[2], verts[3], color);
-// }
 
 uint createSampler(float ani, int wrapS, int wrapT, int magF, int minF, int wrapR = GL_CLAMP_TO_EDGE) {
 	uint result;
@@ -1574,12 +1491,6 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 					if(dc.shadow != 0) 
 						drawText(dc.text, dc.font, dc.pos + vec2(dc.shadow,-dc.shadow), dc.shadowColor, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
 
-					// if(strFind(dc.text, "Index: 66") != -1) {
-					// 	printf("True->", dc.text);
-					// 	if(strFind(dc.text, "Index: 66, VideoId: 9n8UugFsaZE") != -1) {
-					// 		printf("<-Not\n", dc.text);
-					// 	}
-					// }
 					drawText(dc.text, dc.font, dc.pos, dc.color, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
 				} else {
 					if(dc.shadow != 0) 

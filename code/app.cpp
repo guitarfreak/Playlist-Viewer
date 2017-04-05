@@ -56,6 +56,12 @@
 	- Scale font size to windows. (For high resolution monitors.)
 	- Filter -> percentage of views.
 	- Make stress test playlist file with 100k videos.
+
+	- Get playlist count != playlist search.
+	- Enhance performance.
+
+	Bug:
+	- Memory leak at text snippet panel above jpg. 
 */
 
 // External.
@@ -156,7 +162,7 @@ int curlRequest(CURL* curlHandle, char* request, char* buffer) {
 	return cd.size;
 }
 
-char* stringGetBetween(char* buffer, char* leftToken, char* rightToken, int* advance = 0) {
+char* stringGetBetween(char* buffer, char* leftToken, char* rightToken, char** bufferIncrement = 0) {
 	char* string;
 
 	int leftPos = strFindRight(buffer, leftToken);
@@ -166,12 +172,26 @@ char* stringGetBetween(char* buffer, char* leftToken, char* rightToken, int* adv
 		string = getTString(size+1); 
 		strClear(string);
 		strCpy(string, buffer + leftPos, rightPos);
-		if(advance) *advance = leftPos + rightPos + 1; 
+		if(bufferIncrement) {
+			(*bufferIncrement) += leftPos + rightPos + 1; 
+		}
 	} else {
 		string = getTString(1); strClear(string);
 	}
 
 	return string;
+}
+
+char* getJSONString(char* buffer, char* name, char** bufferIncrement = 0) {
+	return stringGetBetween(buffer, fillString("\"%s\": \"", name), "\"", bufferIncrement);
+}
+
+char* getJSONInt(char* buffer, char* name, char** bufferIncrement = 0) {
+	return stringGetBetween(buffer, fillString("\"%s\": ", name), ",", bufferIncrement);
+}
+
+char* getJSONIntNewline(char* buffer, char* name, char** bufferIncrement = 0) {
+	return stringGetBetween(buffer, fillString("\"%s\": ", name), "\n", bufferIncrement);
 }
 
 struct Date {
@@ -252,7 +272,7 @@ struct SearchResult {
 	char id[40];
 };
 
-char* tempFile = "messageContent.txt";
+
 
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
 char* apiKey = "AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw";
@@ -264,39 +284,47 @@ char* youtubeApiChannel = "https://www.googleapis.com/youtube/v3/channels";
 char* youtubeApiSearch = "https://www.googleapis.com/youtube/v3/search";
 
 int maxDownloadCount = 40;
+// int maxDownloadCount = 20;
 int pageTokenSize = 10;
 
 char* rocketBeansId = "UCQvTDmHza8erxZqDkjQ4bQQ";
 
 
-int getYoutubePlaylistSize(CURL* curlHandle, char* playlistId) {
-	char* request = getTString(1000); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylistItems, apiKey));
-	strAppend(request, "&maxResults=1");
-	strAppend(request, fillString("&playlistId=%s", playlistId));
-	strAppend(request, "&part=contentDetails");
 
-	char* message = getTString(1000);
-	curlRequest(curlHandle, request, message);
-
-	char* sizeString = stringGetBetween(message, "\"totalResults\": ", ",");
-	int playlistSize = strLen(sizeString) > 0 ? strToInt(sizeString) : 0;
-
-	return playlistSize;
+int requestPlaylistItems(CURL* curlHandle, char* buffer, char* playlistId, int maxResults, char* pageToken = 0) {
+	char* request = fillString("%s?key=%s&maxResults=%i&playlistId=%s&part=contentDetails%s", 
+								youtubeApiPlaylistItems, apiKey, maxResults, playlistId, pageToken?fillString("&pageToken=%s",pageToken):"");
+	return curlRequest(curlHandle, request, buffer);
 }
 
-char* downloadYoutubePlaylistVideoIds(CURL* curlHandle, char* playlistId, char* buffer, int count, char* pageToken = 0) {
-	char* request = getTString(1000); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylistItems, apiKey));
-	strAppend(request, fillString("&maxResults=%i", count));
-	strAppend(request, fillString("&playlistId=%s", playlistId));
-	strAppend(request, "&part=contentDetails");
-	if(pageToken) strAppend(request, fillString("&pageToken=%s", pageToken));
+int requestCommentThread(CURL* curlHandle, char* buffer, char* videoId, int maxResults) {
+	char* request = fillString("%s?key=%s&maxResults=%i&videoId=%s&part=snippet&order=relevance&=textFormat=plainText", 
+								youtubeApiCommentThread, apiKey, maxResults, videoId);
+	return curlRequest(curlHandle, request, buffer);
+}
 
-	curlRequest(curlHandle, request, buffer);
+int requestPlaylist(CURL* curlHandle, char* buffer, char* idType, char* id, char* part, int maxResults, char* pageToken = 0) {
+	char* request = fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s%s", 
+								youtubeApiPlaylist, apiKey, maxResults, idType, id, part, pageToken?fillString("&pageToken=%s",pageToken):"");
+	return curlRequest(curlHandle, request, buffer);
+}
 
-	char* nextPageToken = stringGetBetween(buffer, "\"nextPageToken\": \"", "\"");
-	return nextPageToken;
+int requestChannel(CURL* curlHandle, char* buffer, char* idType, char* id, char* part, int maxResults) {
+	char* request = fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s", 
+								youtubeApiChannel, apiKey, maxResults, idType, id, part);
+	return curlRequest(curlHandle, request, buffer);
+}
+
+int requestVideos(CURL* curlHandle, char* buffer, char* id, char* part) {
+	char* request = fillString("%s?key=%s&id=%s&part=%s", 
+								youtubeApiVideos, apiKey, id, part);
+	return curlRequest(curlHandle, request, buffer);
+}
+
+int requestSearch(CURL* curlHandle, char* buffer, char* type, char* searchString, int maxResults) {
+	char* request = fillString("%s?key=%s&maxResults=%i&part=snippet&type=%s&q=%s", 
+								youtubeApiSearch, apiKey, maxResults, type, searchString);
+	return curlRequest(curlHandle, request, buffer);
 }
 
 struct VideoSnippet {
@@ -322,22 +350,14 @@ void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo*
 	{
 		int commentCount = 10;
 		snippet->selectedCommentCount = 0;
+		requestCommentThread(curlHandle, buffer, vid->id, commentCount);
 
-		char* request = getTString(kiloBytes(20)); strClear(request);
-		strAppend(request, fillString("%s?key=%s", youtubeApiCommentThread, apiKey));
-		strAppend(request, fillString("&videoId=%s", vid->id));
-
-		strAppend(request, "&maxResults=%i", commentCount);
-		strAppend(request, "&part=snippet");
-		strAppend(request, "&order=relevance");
-		strAppend(request, "&textFormat=plainText");
-
-		int size = curlRequest(curlHandle, request, buffer);
+		int totalResults = strToInt(getJSONInt(buffer, "totalResults"));
 
 		char* content;
 		int advance;
-		for(int i = 0; i < commentCount; i++) {
-			content = stringGetBetween(buffer, "\"textOriginal\": \"", "\",", &advance); buffer += advance; // textDisplay
+		for(int i = 0; i < totalResults; i++) {
+			content = getJSONString(buffer, "textOriginal", &buffer);
 			int slen = strLen(content);
 			char* s = getPString(slen + 1);
 			strCpy(s, content);
@@ -354,18 +374,13 @@ void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo*
 				index += pos+1;
 				temp += pos+1;
 			}
-			// int l = strLen(s);
-			// for(int i = 0; i < l; i++) {
-			// 	if(s[i] == 'ö') s[i] = 'o';
-			// 	else if(s[i] == 'ä') s[i] = 'a';
-			// 	else if(s[i] == 'ü') s[i] = 'u';
-			// }
+
 			snippet->selectedTopComments[snippet->selectedCommentCount] = s;
 
-			content = stringGetBetween(buffer, "\"likeCount\": ", ",", &advance); buffer += advance;
+			content = getJSONInt(buffer, "likeCount", &buffer);
 			snippet->selectedCommentLikeCount[snippet->selectedCommentCount] = strToInt(content);
 
-			content = stringGetBetween(buffer, "\"totalReplyCount\": ", ",", &advance); buffer += advance;
+			content = getJSONInt(buffer, "totalReplyCount", &buffer);
 			snippet->selectedCommentReplyCount[snippet->selectedCommentCount] = strToInt(content);
 
 			snippet->selectedCommentCount++;
@@ -375,86 +390,46 @@ void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo*
 
 int downloadChannelPlaylistCount(CURL* curlHandle, char* channelId) {
 	char* buffer = (char*)getTMemory(kiloBytes(2));
+	requestPlaylist(curlHandle, buffer, "channelId", channelId, "id", 1);
+	int count = strToInt(getJSONInt(buffer, "totalResults"));
 
-	char* request = getTString(kiloBytes(1)); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
-	strAppend(request, fillString("&channelId=%s", channelId));
-	strAppend(request, "&maxResults=1");
-	strAppend(request, "&part=id");
-	curlRequest(curlHandle, request, buffer);
+	requestChannel(curlHandle, buffer, "id", channelId, "contentDetails", 1);
 
-	int count = strToInt(stringGetBetween(buffer, "\"totalResults\": ", ","));
-
-
-	strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
-	strAppend(request, "&part=contentDetails");
-	strAppend(request, fillString("&id=%s", channelId));
-	curlRequest(curlHandle, request, buffer);
-
-	bool hasAllUploadsPlaylist = false;
-
-	char* s = stringGetBetween(buffer, "\"uploads\": \"", "\"");
-	if(strLen(s) != 0) hasAllUploadsPlaylist = true;
-
+	bool hasAllUploadsPlaylist = strLen(getJSONString(buffer, "uploads")) != 0 ? true : false;
 	if(hasAllUploadsPlaylist) count++;
 
 	return count;
 }
 
 void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int* playlistCount, char* channelId, char* buffer, int count) {
-	char* request = getTString(kiloBytes(20)); strClear(request);
+	char* idCollection = getTString(kiloBytes(20));
+	char* tempBuffer = getTString(2000);
 
 	bool hasAllUploadsPLaylist = false;
-	
 	int playlistMaxDownloadCount = maxDownloadCount - 1; // If we also load All Uploads playlist we have 41 which is too much.
 
 	char* pageToken = 0;
 	for(int i = 0; i < count; i += playlistMaxDownloadCount) {
 		int dCount = i + playlistMaxDownloadCount > count ? count-i : playlistMaxDownloadCount;
 
-		strClear(request);
-		strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
-		strAppend(request, fillString("&channelId=%s", channelId));
-		strAppend(request, fillString("&maxResults=%i", dCount));
-		if(pageToken != 0) strAppend(request, fillString("&pageToken=%s", pageToken));
-		strAppend(request, "&part=snippet");
-		curlRequest(curlHandle, request, buffer);
+		requestPlaylist(curlHandle, buffer, "channelId", channelId, "snippet", dCount, pageToken);
+		int resultCount = strToInt(getJSONInt(buffer, "totalResults"));
+		pageToken = getJSONString(buffer, "nextPageToken");
 
-		int resultCount = strToInt(stringGetBetween(buffer, "\"totalResults\": ", ","));
 		count = min(resultCount, count);
-
-		char* nextPageToken = stringGetBetween(buffer, "\"nextPageToken\": \"", "\"");
-		pageToken = nextPageToken;
 
 		// First load "all uploads" playlist.
 		if(i == 0) {
+			char* s;
 			// Get Channel name.
-			{
-				char* buffer = (char*)getTMemory(kiloBytes(2));
-				strClear(request);
-				strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
-				strAppend(request, "&part=snippet");
-				strAppend(request, fillString("&id=%s", channelId));
-				curlRequest(curlHandle, request, buffer);
+			requestChannel(curlHandle, tempBuffer, "id", channelId, "snippet", 1);
+			s = getJSONString(tempBuffer, "title");
+			if(strLen(s) != 0) strCpy(playlists[(*playlistCount)].title, s);
 
-				char* s = stringGetBetween(buffer, "\"title\": \"", "\"");
-				if(strLen(s) != 0) {
-					strCpy(playlists[(*playlistCount)].title, s);
-				}
-			}
-
-			char* buffer = (char*)getTMemory(kiloBytes(2));
-			strClear(request);
-			strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
-			strAppend(request, "&part=contentDetails");
-			strAppend(request, fillString("&id=%s", channelId));
-			curlRequest(curlHandle, request, buffer);
-
-			char* s = stringGetBetween(buffer, "\"uploads\": \"", "\"");
+			requestChannel(curlHandle, tempBuffer, "id", channelId, "contentDetails", 1);
+			s = getJSONString(tempBuffer, "uploads");
 			if(strLen(s) != 0) {
 				strCpy(playlists[(*playlistCount)].id, s);
-				// strCpy(playlists[(*playlistCount)].title, "All Uploads");
 				(*playlistCount)++;
 				hasAllUploadsPLaylist = true;
 			}
@@ -465,33 +440,30 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 		for(;;) {
 			if(index > count) break;
 
-			char* s = stringGetBetween(buffer, "\"id\": \"", "\"", &advance); buffer += advance;
+			char* s = getJSONString(buffer, "id", &buffer);
 			if(strLen(s) == 0) break;
 
 			strCpy(playlists[index].id, s);
 
-			s = stringGetBetween(buffer, "\"title\": \"", "\"", &advance); buffer += advance;
+			s = getJSONString(buffer, "title", &buffer);
 			strCpy(playlists[index].title, s);
 			index++;
 		}
 
 		// Get playlist video count.
 		{
-			strClear(request);
-			strAppend(request, fillString("%s?key=%s", youtubeApiPlaylist, apiKey));
-			strAppend(request, "&part=contentDetails");
-			strAppend(request, "&id=");
-
+			strClear(idCollection);
 			int maxCount = hasAllUploadsPLaylist?dCount+1 : dCount;
 			for(int index = 0; index < maxCount; index++) {
-				strAppend(request, fillString("%s,", playlists[i+index].id));
+				strAppend(idCollection, fillString("%s,", playlists[i+index].id));
 			}
-			curlRequest(curlHandle, request, buffer);
+
+			requestPlaylist(curlHandle, buffer, "id", idCollection, "contentDetails", maxCount);
 
 			int index = i;
 			int advance = 0;
 			for(;;) {
-				char* s = stringGetBetween(buffer, "\"itemCount\": ", "\n", &advance); buffer += advance;
+				char* s = getJSONIntNewline(buffer, "itemCount", &buffer);
 				if(strLen(s) == 0) break;
 
 				playlists[index].count = strToInt(s);
@@ -506,13 +478,8 @@ void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int*
 
 char* downloadChannelIdFromUserName(CURL* curlHandle, char* userName) {
 	char* buffer = (char*)getTMemory(kiloBytes(1));
-	char* request = getTString(kiloBytes(1)); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubeApiChannel, apiKey));
-	strAppend(request, fillString("&forUsername=%s", userName));
-	strAppend(request, "&part=id");
-	curlRequest(curlHandle, request, buffer);
-
-	char* channelId = stringGetBetween(buffer, "\"id\": \"", "\"");
+	requestChannel(curlHandle, buffer, "forUsername", userName, "id", 1);
+	char* channelId = getJSONString(buffer, "id");
 
 	return channelId;
 }
@@ -525,48 +492,38 @@ char* eatWhiteSpace(char* str) {
 
 void quickSearch(CURL* curlHandle, SearchResult* searchResults, int* channelCount, char* searchString, bool searchForChannels = true) {
 	char* buffer = (char*)getTMemory(kiloBytes(50));
-	char* request = getTString(kiloBytes(1)); strClear(request);
-	strAppend(request, fillString("%s?key=%s", youtubeApiSearch, apiKey));
-	strAppend(request, "&part=snippet");
-	if(searchForChannels) strAppend(request, "&type=channel");
-	else strAppend(request, "&type=playlist");
-	strAppend(request, "&maxResults=10");
-
-	// strAppend(request, fillString("&q=%s", searchString));
-
-	strAppend(request, "&q=");
+	char* search = getTString(strLen(searchString)+1); strClear(search);
 	for(;;) {
 		searchString = eatWhiteSpace(searchString);
 		int pos = strFind(searchString, ' ');
 		if(pos != 0) {
-			strAppend(request, searchString, pos-1);
-			strAppend(request, ",");
+			strAppend(search, searchString, pos-1);
+			strAppend(search, ",");
 			searchString += pos-1;
 			continue;
 		}
 
 		pos = strLen(searchString);
-
-		strAppend(request, searchString, pos);
+		strAppend(search, searchString, pos);
 		break;
 	}
 
-	curlRequest(curlHandle, request, buffer);
+	requestSearch(curlHandle, buffer, searchForChannels?"channel":"playlist", search, 10);
 
-	int resultCount = strToInt(stringGetBetween(buffer, "\"totalResults\": ", ","));
+	int resultCount = strToInt(getJSONInt(buffer, "totalResults"));
 	int count = min(resultCount, 10);
 
 	int advance = 0;
 	for(int i = 0; i < count; i++) {
 		if(searchForChannels) {
-			char* s = stringGetBetween(buffer, "\"channelId\": \"", "\"", &advance); buffer += advance;
+			char* s = getJSONString(buffer, "channelId", &buffer);
 			strCpy(searchResults[i].id, s);
 		} else {
-			char* s = stringGetBetween(buffer, "\"playlistId\": \"", "\"", &advance); buffer += advance;
+			char* s = getJSONString(buffer, "playlistId", &buffer);
 			strCpy(searchResults[i].id, s);
 		}
 
-		char* s = stringGetBetween(buffer, "\"title\": \"", "\""); buffer += advance;
+		char* s = getJSONString(buffer, "title", &buffer);
 		strCpy(searchResults[i].title, s);
 	}
 
@@ -734,7 +691,85 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, 
 	}
 }
 
+/*
+{
 
+{
+ "kind": "youtube#videoListResponse",
+ "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/qxV2FHUJT3ml7uVUYIO6-shgS9M\"",
+ "pageInfo": {
+  "totalResults": 2,
+  "resultsPerPage": 2
+ },
+ "items": [
+  {
+   "kind": "youtube#video",
+   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/YI7ZuQdFvSWf97ElTGwiWymkIqE\"",
+   "id": "zARMRhhVKjw",
+   "statistics": {
+    "viewCount": "1922",
+    "favoriteCount": "0",
+    "commentCount": "2"
+   }
+  },
+  {
+   "kind": "youtube#video",
+   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/H6OTKqex-Ar3i2frKU_tZv8rb8k\"",
+   "id": "nc6st1butJc",
+   "statistics": {
+    "viewCount": "279",
+    "likeCount": "2",
+    "dislikeCount": "0",
+    "favoriteCount": "0",
+    "commentCount": "0"
+   }
+  }
+ ]
+}
+
+	
+
+
+{
+	 "kind": "youtube#videoListResponse",
+	 "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/qxV2FHUJT3ml7uVUYIO6-shgS9M\"",
+	 "pageInfo": {
+	  "totalResults": 2,
+	  "resultsPerPage": 2
+	 },
+	 "items": 
+	 [
+		  {
+			   "kind": "youtube#video",
+			   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/YI7ZuQdFvSWf97ElTGwiWymkIqE\"",
+			   "id": "zARMRhhVKjw",
+			   "statistics": {
+			    "viewCount": "1922",
+			    "favoriteCount": "0",
+			    "commentCount": "2"
+			   }
+		  },
+		  {
+			   "kind": "youtube#video",
+			   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/H6OTKqex-Ar3i2frKU_tZv8rb8k\"",
+			   "id": "nc6st1butJc",
+			   "statistics": {
+			    "viewCount": "279",
+			    "likeCount": "2",
+			    "dislikeCount": "0",
+			    "favoriteCount": "0",
+			    "commentCount": "0"
+			   }
+		  }
+	 ]
+}
+
+
+
+}
+*/
+
+#define Graph_Zoom_Min 60*60*4
 
 struct AppData {
 	// General.
@@ -778,6 +813,7 @@ struct AppData {
 	HMODULE curlDll;
 
 	GraphCam cam, camLikes;
+	i64 camMaxWithoutMargin;
 	int heightMoveMode;
 	bool widthMove;
 
@@ -1073,6 +1109,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->statTimeSpan = 3.0f;
 		ad->statWidth = 1.0f;
+
+		strCpy(ad->downloadPlaylist.id, "PL0vYTbCY5qP7M2SAE9sxTzXPQhlAOucTk");
 	}
 
 	// @AppStart.
@@ -1428,6 +1466,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		pushTMemoryStack();
 
 		char* buffer = (char*)getTMemory(megaBytes(3)); 
+		char* videoIdList = getTString(kiloBytes(20));
 		for(int i = 0; i < count; i += maxDownloadCount) {
 
 			int dCount = maxDownloadCount;
@@ -1435,13 +1474,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 				dCount = count - i;
 			}
 
-			pageToken = downloadYoutubePlaylistVideoIds(ad->curlHandle, playlist, buffer, dCount, pageToken);
+			requestPlaylistItems(ad->curlHandle, buffer, playlist, dCount, pageToken);
+			pageToken = getJSONString(buffer, "nextPageToken");
 
-			// Get total count.
-			{
-				char* s = stringGetBetween(buffer, "\"totalResults\": ", ",");
-				totalCount = strToInt(s);
-			}
+			totalCount = strToInt(getJSONInt(buffer, "totalResults"));
 
 			// Get Video ids.
 			{
@@ -1450,75 +1486,76 @@ extern "C" APPMAINFUNCTION(appMain) {
 				for(;;) {
 					int reverseIndex = count-1 - index;
 
-					char* s = stringGetBetween(buffer, "\"videoId\": \"", "\"", &advance);
+					char* s = getJSONString(buffer, "videoId", &buffer);
 					if(strLen(s) == 0) break;
 
 					strCpy(vids[reverseIndex].id, s);
-					buffer += advance;
 
-					s = stringGetBetween(buffer, "\"videoPublishedAt\": \"", "\"", &advance);
-
+					s = getJSONString(buffer, "videoPublishedAt", &buffer);
 					strCpy(vids[reverseIndex].dateString, s);
-					buffer += advance;
 					index++;
 				}
 			}
 			
 			// Get Statistics.
 			{
-				char* request = getTString(kiloBytes(20)); strClear(request);
-				strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
-				strAppend(request, "&part=statistics");
-				strAppend(request, "&id=");
-
+				strClear(videoIdList);
 				for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
 					int reverseIndex = count-1 - videoIndex;
-					strAppend(request, fillString("%s,", vids[reverseIndex].id));
+					strAppend(videoIdList, fillString("%s,", vids[reverseIndex].id));
 				}
-
-				curlRequest(ad->curlHandle, request, buffer);
+				requestVideos(ad->curlHandle, buffer, videoIdList, "statistics");
 
 				int index = i;
 				int advance = 0;
 				for(;;) {
 					int reverseIndex = count-1 - index;
+					char* s;
 
-					char* s = stringGetBetween(buffer, "\"viewCount\": \"", "\"", &advance); buffer += advance;
-					if(strLen(s) == 0) break;
+					int pos = strFind(buffer, "\"statistics\":");
+					if(pos == -1) break;
 
-					vids[reverseIndex].viewCount = strToInt(s);
-					s = stringGetBetween(buffer, "\"likeCount\": \"", "\"", &advance); buffer += advance;
-					vids[reverseIndex].likeCount = strToInt(s);
-					s = stringGetBetween(buffer, "\"dislikeCount\": \"", "\"", &advance); buffer += advance;
-					vids[reverseIndex].dislikeCount = strToInt(s);
-					s = stringGetBetween(buffer, "\"favoriteCount\": \"", "\"", &advance); buffer += advance;
-					vids[reverseIndex].favoriteCount = strToInt(s);
-					s = stringGetBetween(buffer, "\"commentCount\": \"", "\"", &advance); buffer += advance;
-					vids[reverseIndex].commentCount = strToInt(s);
-					index++;	
+					buffer += pos;
+					int endBracketPos = strFind(buffer, '}');
+					if(endBracketPos == 0) break;
+
+					vids[reverseIndex].viewCount = 0;
+					vids[reverseIndex].likeCount = 0;
+					vids[reverseIndex].dislikeCount = 0;
+					vids[reverseIndex].favoriteCount = 0;
+					vids[reverseIndex].commentCount = 0;
+
+					pos = strFind(buffer, "viewCount");
+					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].viewCount = strToInt(getJSONString(buffer, "viewCount"));
+					pos = strFind(buffer, "likeCount");
+					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].likeCount = strToInt(getJSONString(buffer, "likeCount"));
+					pos = strFind(buffer, "dislikeCount");
+					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].dislikeCount = strToInt(getJSONString(buffer, "dislikeCount"));
+					pos = strFind(buffer, "favoriteCount");
+					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].favoriteCount = strToInt(getJSONString(buffer, "favoriteCount"));
+					pos = strFind(buffer, "commentCount");
+					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].commentCount = strToInt(getJSONString(buffer, "commentCount"));
+
+					buffer += endBracketPos;
+					index++;
 				}
 			}
 
 			// Get title.
 			{
-				char* request = getTString(kiloBytes(20)); strClear(request);
-				strAppend(request, fillString("%s?key=%s", youtubeApiVideos, apiKey));
-				strAppend(request, "&part=snippet");
-				strAppend(request, "&id=");
-
+				strClear(videoIdList);
 				for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
 					int reverseIndex = count-1 - videoIndex;
-					strAppend(request, fillString("%s,", vids[reverseIndex].id));
+					strAppend(videoIdList, fillString("%s,", vids[reverseIndex].id));
 				}
-
-				curlRequest(ad->curlHandle, request, buffer);
+				requestVideos(ad->curlHandle, buffer, videoIdList, "snippet");
 
 				int index = i;
 				int advance = 0;
 				for(;;) {
 					int reverseIndex = count-1 - index;
 
-					char* s = stringGetBetween(buffer, "\"title\": \"", "\"", &advance); buffer += advance;
+					char* s = getJSONString(buffer, "title", &buffer);
 					if(strLen(s) == 0) break;
 
 					// Title
@@ -1536,11 +1573,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 					// Thumbnail.
 					// default, medium, high, standard, maxres.
 					int pos = strFind(buffer, "\"medium\":"); buffer += pos;
-					s = stringGetBetween(buffer, "\"url\": \"", "\",", &advance); buffer += advance;
+					s = getJSONString(buffer, "url", &buffer);
 					strCpy(vids[reverseIndex].thumbnail, s);
 
 					// Skip the second "title" from localization data.
-					char* throwAway = stringGetBetween(buffer, "\"title\": \"", "\"", &advance); buffer += advance;
+					char* throwAway = getJSONString(buffer, "title", &buffer);
 
 					index++;
 				}
@@ -1736,7 +1773,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
-				Statistic statViews, statLikes, statDates;
+				Statistic statViews, statLikes, statDislikes, statDates;
 				{
 					beginStatistic(&statViews);
 					beginStatistic(&statLikes);
@@ -1746,18 +1783,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 						YoutubeVideo* video = ad->videos + i;
 
 						updateStatistic(&statViews, video->viewCount);
-						updateStatistic(&statLikes, video->likeCount);
+						updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
 
 						if(video->date.num > 0) updateStatistic(&statDates, video->date.num);
 					}
 				}
 
-				if(statDates.min == statDates.max) {
-					graphCamInit(&ad->cam,      statDates.min - 10000, statDates.min + 10000, 0, statViews.max*1.1f);
-					graphCamInit(&ad->camLikes, statDates.min - 10000, statDates.min + 10000, 0, statLikes.max*1.1f);
+				if(statDates.max - statDates.min < Graph_Zoom_Min) {
+					i64 timeMid = statDates.min != statDates.max ? statDates.min + (statDates.max - statDates.min)/2 : statDates.min;
+					ad->camMaxWithoutMargin = statDates.min + Graph_Zoom_Min/2;
+					graphCamInit(&ad->cam,      timeMid - Graph_Zoom_Min/2, statDates.min + Graph_Zoom_Min/2, 0, statViews.max*1.1f);
+					graphCamInit(&ad->camLikes, timeMid - Graph_Zoom_Min/2, statDates.min + Graph_Zoom_Min/2, 0, statLikes.max*1.1f);
 				} else {
-					graphCamInit(&ad->cam,      statDates.min, statDates.max, 0, statViews.max*1.1f);
-					graphCamInit(&ad->camLikes, statDates.min, statDates.max, 0, statLikes.max*1.1f);
+					i64 width = statDates.max - statDates.min;
+					i64 margin = width*0.01f;
+					ad->camMaxWithoutMargin = statDates.max;
+					graphCamInit(&ad->cam,      statDates.min-margin, statDates.max+margin, 0, statViews.max*1.1f);
+					graphCamInit(&ad->camLikes, statDates.min-margin, statDates.max+margin, 0, statLikes.max*1.1f);
 				}
 
 				calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
@@ -1818,6 +1860,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 		rGraphs = rect(rGraph2.min, rGraph.max);
 
 		{
+			bool mouseCaputuredByDebugWindow = pointInRect(input->mousePosNegative, ds->gui->getPanelBackgroundRect());
+
+			if(mouseCaputuredByDebugWindow) {
+				input->mouseWheel = 0;
+				input->mouseButtonPressed[0] = false;
+			}
+
 			GraphCam* cam = &ad->cam;
 			GraphCam* camLikes = &ad->camLikes;
 
@@ -1835,8 +1884,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 
-			graphCamSizeClamp(cam, 60*60*4, 1000);
-			graphCamSizeClamp(camLikes, 60*60*4, 100);
+			graphCamSizeClamp(cam, Graph_Zoom_Min, 1000);
+			graphCamSizeClamp(camLikes, Graph_Zoom_Min, 100);
 
 			if(input->mouseButtonPressed[0]) {
 				if(pointInRect(input->mousePosNegative, rLeftText)) ad->heightMoveMode = 0;
@@ -2101,15 +2150,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		{
-			dcState(STATE_LINEWIDTH, 6);
+			int lineWidth = 3;
+			dcState(STATE_LINEWIDTH, lineWidth*2);
 
 			GraphCam* cam = &ad->camLikes;
 			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
 
 			for(int i = 0; i < vidCount; i++) {
-				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+				if(vids[i].date.num < cam->left-lineWidth || vids[i].date.num > cam->right+lineWidth) continue;
 
 				float x = graphCamMapX(cam, vids[i].date.num) + 1;
+				if(i == 0) x += lineWidth/2;
+				else if(i == vidCount-1) x -= lineWidth/2;
 
 				dcLine2d(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec4(0.0f,0.7f,1,1));
 				dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x, graphCamMapY(cam, vids[i].dislikeCount + vids[i].likeCount)), vec4(0.7f,0.3f,1,1));
@@ -2117,6 +2169,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		dcState(STATE_LINEWIDTH, 2);
+		dcEnable(STATE_SCISSOR);
 
 		// Average line.
 		{
@@ -2138,7 +2191,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 					continue;
 				}
 
-				dcLine2d(graphCamMap(cam, xPos, ad->avgPoints[i]), graphCamMap(cam, xPos + avgWidth, ad->avgPoints[i+1]), vec4(0,1,0,0.3f));
+				float x1 = clampMax(xPos, ad->camMaxWithoutMargin);
+				float x2 = clampMax(xPos + avgWidth, ad->camMaxWithoutMargin);
+				dcLine2d(graphCamMap(cam, x1, ad->avgPoints[i]), graphCamMap(cam, x2, ad->avgPoints[i+1]), vec4(0,1,0,0.3f));
 
 				xPos += avgWidth;
 			}
@@ -2152,20 +2207,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 					continue;
 				}
 
-				float x1 = graphCamMapX(camLikes, xPos);
-				float x2 = graphCamMapX(camLikes, xPos + avgWidth);
+				float x1 = graphCamMapX(camLikes, clampMax(xPos, ad->camMaxWithoutMargin));
+				float x2 = graphCamMapX(camLikes, clampMax(xPos + avgWidth, ad->camMaxWithoutMargin));
 				float y1 = mapRangeDouble(ad->avgPointsLikes[i], 0, 1, camLikes->viewPort.bottom, camLikes->viewPort.top);
 				float y2 = mapRangeDouble(ad->avgPointsLikes[i+1], 0, 1, camLikes->viewPort.bottom, camLikes->viewPort.top);
 				dcLine2d(vec2(x1,y1), vec2(x2,y2), vec4(0,1,0,0.3f));
 
 				xPos += avgWidth;
 			}
-			
 
 			dcState(STATE_LINEWIDTH, 2);
 		}
-
-
 
 		dcDisable(STATE_SCISSOR);
 
@@ -2209,7 +2261,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				Gui* gui = &ad->snippetGui;
 				gui->settings.border = vec2i(2,-2);
 				gui->settings.fontOffset = 0.0f;
-				gui->startStatic(ds->gInput, font, infoPanelTop, ws->currentRes);
+				gui->startStatic(ad->guiInput, font, infoPanelTop, ws->currentRes);
 
 				bool updateStats = false;
 
@@ -2222,7 +2274,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
 						}
 					}
-				};			
+				}		
 
 				if(gui->button("Open in Chrome.")) {
 					shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
@@ -2239,7 +2291,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
 						}
 					}
-				};
+				}
+
+				// Fixes top info text flickering.
+				gui->button("sdf");
 
 				gui->endStatic();
 			}
@@ -2252,14 +2307,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
 			VideoSnippet* sn = &ad->videoSnippet;
 
-			char* ss = fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id);
-			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
-			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
-			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
-			// dcText(ss, font, vec2(200,200), vec4(1,1), vec2i(0,1));
+			dcText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
 
-			dcText(ss, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
-			// dcText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
 			yPos -= font->height;
 
 			// dcRect(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
@@ -2274,7 +2323,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			char* date = fillString("Date: %i..%i..%i", sv->date.day, sv->date.month, sv->date.year);
 			char* time = fillString("Time: %i:%i:%i.", sv->date.hours, sv->date.minutes, sv->date.seconds);
 			char* views = fillString("Views: %i.", sv->viewCount);
-			char* likes = fillString("Likes/Dislikes: %i | %i -> %f", sv->likeCount, sv->dislikeCount, sv->dislikeCount / (float)(sv->likeCount+sv->dislikeCount));
+			char* likes = fillString("Likes/Dislikes: %i | %i -> %f", sv->likeCount, sv->dislikeCount, divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount)));
 			char* comments = fillString("Comments: %i", sv->commentCount);
 			char* favorites = fillString("Favorites: %i", sv->favoriteCount);
 			char* s = fillString("%s, %s\n%s\n%s\n%s\n%s", date, time, views, likes, comments, favorites);
@@ -2550,8 +2599,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			gui->label("Count: ", 0);
 			gui->textBoxInt(&ad->downloadPlaylist.count);
 			if(gui->button("Get video count from url.")) {
-				int count = getYoutubePlaylistSize(ad->curlHandle, ad->downloadPlaylist.id);
-				ad->downloadPlaylist.count = count;
+				char* buffer = (char*)getTMemory(1000);
+				requestPlaylistItems(ad->curlHandle, buffer, ad->downloadPlaylist.id, 1);
+				ad->downloadPlaylist.count = strToInt(getJSONInt(buffer, "totalResults"));
 			}
 
 			gui->div(vec2(0,0));

@@ -312,6 +312,11 @@ struct Gui {
 		drawText(text, align, region, cullWidth);
 	}
 
+	Rect getPanelBackgroundRect() {
+		Rect background = rectULDim(cornerPos, vec2(panelWidth+settings.border.x*2, -(lastPos.y-cornerPos.y)+lastDim.h - settings.border.y));
+		return background;
+	}
+
 	void start(GuiInput guiInput, Font* font, Vec2i res, bool moveable = true, bool resizeable = true, bool clipToWindow = true) {
 		this->font = font;
 		fontHeight = font->height;
@@ -329,7 +334,7 @@ struct Gui {
 		for(int i = 0; i < arrayCount(heightStack); i++) heightStack[i] = 1;
 		heightStackIndex = 0;
 
-		Rect background = rectULDim(cornerPos, vec2(panelWidth+settings.border.x*2, -(lastPos.y-cornerPos.y)+lastDim.h - settings.border.y));
+		Rect background = getPanelBackgroundRect();
 
 		incrementId();
 		// drag window
