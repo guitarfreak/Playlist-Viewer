@@ -150,6 +150,8 @@ enum FrameBufferType {
 	FRAMEBUFFER_DebugMsaa,
 	FRAMEBUFFER_DebugNoMsaa,
 
+	FRAMEBUFFER_ScreenShot,
+
 	FRAMEBUFFER_SIZE,
 };
 

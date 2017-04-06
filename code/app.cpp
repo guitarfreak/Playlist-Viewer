@@ -63,6 +63,10 @@
 	- Comments not solid.
 	- Replace bubble sort.
 	- Bug: Duplicates if you download long enough.
+	- Clamp cam based on viewport.
+
+	- Make screenshot function.
+	- We dont multisample in 2d framebuffer right now.
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
@@ -79,6 +83,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_JPEG
 #include "external\stb_image.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBI_ONLY_JPEG
+#include "external\stb_image_write.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
@@ -749,6 +757,7 @@ struct AppData {
 	bool dragMode;
 	int dragOffsetX, dragOffsetY;
 	int resizeOffsetX, resizeOffsetY;
+	bool screenShotMode;
 
 	// App.
 
@@ -767,6 +776,10 @@ struct AppData {
 	int selectedVideo;
 
 	YoutubePlaylist downloadPlaylist;
+
+	bool startScreenShot;
+	char screenShotFilePath[50];
+	Vec2i screenShotDim;
 
 	char* searchString;
 
@@ -1027,6 +1040,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			attachToFrameBuffer(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0, ad->msaaSamples);
 			attachToFrameBuffer(FRAMEBUFFER_DebugNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
 
+			attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8_ALPHA8, 0, 0);
+
 			ad->updateFrameBuffers = true;
 		}
 
@@ -1055,6 +1070,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->statWidth = 1.0f;
 
 		strCpy(ad->downloadPlaylist.id, "PL0vYTbCY5qP7M2SAE9sxTzXPQhlAOucTk");
+
+		strClear(ad->screenShotFilePath);
+		strCpy(ad->screenShotFilePath, "..\\screenshot.png");
+		ad->screenShotDim = vec2i(5000, 1000);
 	}
 
 	// @AppStart.
@@ -1268,6 +1287,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
+	ad->screenShotMode = false;
+	// if(input->keysPressed[KEYCODE_F9]) ad->screenShotMode = true;
+	if(ad->startScreenShot) {
+		ad->startScreenShot = false;
+		ad->screenShotMode = true;
+
+		ws->currentRes.w = ad->screenShotDim.w;
+		ws->currentRes.h = ad->screenShotDim.h;
+		ad->aspectRatio = ws->currentRes.w / ws->currentRes.h;
+
+		ad->updateFrameBuffers = true;
+	}
+
 	if(ad->updateFrameBuffers) {
 		TIMER_BLOCK_NAMED("Upd FBOs");
 
@@ -1285,6 +1317,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2d, ws->currentRes.w, ws->currentRes.h);
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, ws->currentRes.w, ws->currentRes.h);
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, ws->currentRes.w, ws->currentRes.h);
+
+		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, ws->currentRes.w, ws->currentRes.h);
 	}
 	
 
@@ -1712,7 +1746,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(!inclusiveFilterActive) inclusiveCorrect = true;
 					if(!exclusiveFilterActive) exclusiveCorrect = true;
 
-					if(inclusiveCorrect && exclusiveCorrect) filteredIndexes[filteredIndexesCount++] = i;
+					// Filter corrupted videos for now.
+					bool corrupted = false;
+					{
+						YoutubeVideo* vid = tempVids + i;
+						if(vid->date.num < dateToInt(2005,0,0,0,0,0) || vid->date.num > dateToInt(2018,0,0,0,0,0) ||
+						   vid->viewCount < 0 || 
+						   vid->likeCount < 0 || 
+						   vid->dislikeCount < 0 || 
+						   vid->favoriteCount < 0)
+							corrupted = true;
+					}
+
+					if(inclusiveCorrect && exclusiveCorrect && !corrupted) filteredIndexes[filteredIndexesCount++] = i;
 				}
 
 				ad->playlist.count = filteredIndexesCount;
@@ -1746,14 +1792,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 						if(!sw) break;
 					}
 				}
-
-				// // Hack because of corrupted playlist file.
-				// if(strFind(ad->playlist.title, "Rocket") != -1) {
-				// 	int off = 7;
-				// 	for(int i = 0; i < off; i++) {
-				// 		memCpy(ad->videos + i, ad->videos + off, sizeof(YoutubeVideo));
-				// 	}
-				// }
 
 				Statistic statViews, statLikes, statDislikes, statDates;
 				{
@@ -1842,7 +1880,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		rGraphs = rect(rGraph2.min, rGraph.max);
 
 		{
-			bool mouseCaputuredByDebugWindow = pointInRect(input->mousePosNegative, ds->gui->getPanelBackgroundRect());
+			bool mouseCaputuredByDebugWindow = pointInRect(input->mousePosNegative, ds->gui->getPanelBackgroundRect()) && ds->showMenu;
 
 			if(mouseCaputuredByDebugWindow) {
 				input->mouseWheel = 0;
@@ -2420,7 +2458,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-
 		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
 
@@ -2431,10 +2468,35 @@ extern "C" APPMAINFUNCTION(appMain) {
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
 
-
 		#if USE_SRGB 
 			glEnable(GL_FRAMEBUFFER_SRGB);
 		#endif 
+
+			if(ad->screenShotMode) {
+				ds->showMenu = true;
+
+				bindFrameBuffer(FRAMEBUFFER_ScreenShot);
+				glClearColor(0,0,0,0);
+				glClear(GL_COLOR_BUFFER_BIT);
+
+				drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1), rect(0,0,1,1), 
+				         getFrameBuffer(FRAMEBUFFER_2d)->colorSlot[0]->id);
+
+				int w = ws->currentRes.w;
+				int h = ws->currentRes.h;
+
+				// char* buffer = (char*)malloc(w*h*4);
+				// glReadPixels(0,0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+
+				char* buffer = (char*)malloc(w*h*4);
+				// int texId = getFrameBuffer(FRAMEBUFFER_2d)->colorSlot[0]->id;
+				int texId = getFrameBuffer(FRAMEBUFFER_ScreenShot)->colorSlot[0]->id;
+				glGetTextureSubImage(texId, 0, 0, 0, 0, w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, w*h*4, buffer);
+
+				int result = stbi_write_png(ad->screenShotFilePath, w, h, 4, buffer, w*4);
+
+				free(buffer);
+			}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1), rect(0,1,1,0), 
@@ -2536,6 +2598,17 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		if(gui->button("Playlists", (int)(sectionMode == 2) + 1)) sectionMode = 2;
 
 		if(sectionMode == 0) {
+			gui->empty();
+
+			gui->div(vec4(0,0,0,0));
+			if(gui->button("Screenshot.")) {
+				ad->startScreenShot = true;
+				ds->showMenu = false;
+			}
+			gui->textBoxChar(ad->screenShotFilePath, 0, 49);
+			if(gui->textBoxInt(&ad->screenShotDim.w)) clampInt(&ad->screenShotDim.w, 100, 20000);
+			if(gui->textBoxInt(&ad->screenShotDim.h)) clampInt(&ad->screenShotDim.h, 100, 2000);
+
 			gui->empty();
 
 			gui->div(vec3(0,0,0));
