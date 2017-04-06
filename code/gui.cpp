@@ -817,6 +817,8 @@ struct Gui {
 		drawRect(region, finalColor);
 		drawText(text, align, shadowColor);
 
+		if(active) activeId = 0;
+
 		post();
 		return active;
 	}

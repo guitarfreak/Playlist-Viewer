@@ -60,6 +60,10 @@
 	- Get playlist count != playlist search.
 	- Enhance performance.
 
+	- Comments not solid.
+	- Replace bubble sort.
+	- Bug: Duplicates if you download long enough.
+
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
 */
@@ -336,6 +340,26 @@ struct VideoSnippet {
 	Texture thumbnailTexture;
 };
 
+void copyOverTextAndFixTokens(char* buffer, char* text) {
+	int index = 0;
+	for(;;) {
+		char c = text[0];
+		if(c == '\"') break;
+
+		if(c == '\\') {
+			if(text[1] == 'n') buffer[index++] = '\n';
+			else if(text[1] == '\\') buffer[index++] = '\\';
+			else if(text[1] == '\"') buffer[index++] = '\"';
+
+			text += 2;
+		} else {
+			buffer[index++] = text[0];
+			text++;
+		}
+	}
+	buffer[index] = '\0';
+}
+
 void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo* vid) {
 	char* buffer = (char*)getTMemory(megaBytes(1)); 
 
@@ -354,26 +378,21 @@ void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo*
 
 		int totalResults = strToInt(getJSONInt(buffer, "totalResults"));
 
+		char* commentBuffer = getTString(kiloBytes(1)); strClear(commentBuffer);
+
 		char* content;
 		int advance;
 		for(int i = 0; i < totalResults; i++) {
-			content = getJSONString(buffer, "textOriginal", &buffer);
-			int slen = strLen(content);
-			char* s = getPString(slen + 1);
-			strCpy(s, content);
+			int commentStart = strFindRight(buffer, "\"textOriginal\": \"");
+			if(commentStart == -1) break;
 
-			// Replace \n with real new lines.
-			char* temp = s;
-			int index = 0;
-			for(;;) {
-				int pos = strFind(temp, "\\n");
-				if(index+pos > slen) break;
-				if(pos == -1) break;
-				temp[pos] = '\n';
-				strErase(temp, pos+1, 1);
-				index += pos+1;
-				temp += pos+1;
-			}
+			buffer += commentStart;
+			copyOverTextAndFixTokens(commentBuffer, buffer);
+
+			char* s = getPString(strLen(commentBuffer)+1);
+			strCpy(s, commentBuffer);
+
+			buffer += strLen(commentBuffer);
 
 			snippet->selectedTopComments[snippet->selectedCommentCount] = s;
 
@@ -532,32 +551,34 @@ void quickSearch(CURL* curlHandle, SearchResult* searchResults, int* channelCoun
 
 char* playlistFolder = "..\\playlists\\";
 
-// void savePlaylistToFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int videoCount) {
 void savePlaylistToFile(YoutubePlaylist* playlist, YoutubeVideo* videos, int videoCount, int maxVideoCount, int oldVideoCount, char* pageToken) {
 	char* filePath = fillString("%s%s.playlist", playlistFolder, playlist->id);
 
 	FILE* file;
 	if(oldVideoCount == 0) {
 		file = fopen(filePath, "wb");
-	} else {
+	} else if(oldVideoCount > 0) {
 		file = fopen(filePath, "rb+");
 		fseek(file, 0, SEEK_SET);
-	}		
+	} else if(oldVideoCount == -1) {
+		file = fopen(filePath, "rb+");
+		fseek(file, 0, SEEK_SET);
+	}
 
 	fwrite(&playlist->title, memberSize(YoutubePlaylist, title), 1, file);
 	fwrite(&playlist->id, memberSize(YoutubePlaylist, id), 1, file);
 	int currentCount = videoCount + oldVideoCount;
-	fwrite(&currentCount, sizeof(int), 1, file);
+	if(oldVideoCount != -1) {
+		fwrite(&currentCount, sizeof(int), 1, file);
+	} else {
+		oldVideoCount = 0;
+		fseek(file, sizeof(int), SEEK_CUR);
+	}
 	fwrite(&maxVideoCount, sizeof(int), 1, file);
 	fwrite(pageToken, pageTokenSize, 1, file);
 
-	int pos;
-	pos = ftell(file);
 	fseek(file, (maxVideoCount-videoCount-oldVideoCount)*sizeof(YoutubeVideo), SEEK_CUR);
-	pos = ftell(file);
-
 	fwrite(videos, videoCount*sizeof(YoutubeVideo), 1, file);
-	pos = ftell(file);
 
 	fclose(file);
 }
@@ -691,84 +712,6 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, 
 	}
 }
 
-/*
-{
-
-{
- "kind": "youtube#videoListResponse",
- "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/qxV2FHUJT3ml7uVUYIO6-shgS9M\"",
- "pageInfo": {
-  "totalResults": 2,
-  "resultsPerPage": 2
- },
- "items": [
-  {
-   "kind": "youtube#video",
-   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/YI7ZuQdFvSWf97ElTGwiWymkIqE\"",
-   "id": "zARMRhhVKjw",
-   "statistics": {
-    "viewCount": "1922",
-    "favoriteCount": "0",
-    "commentCount": "2"
-   }
-  },
-  {
-   "kind": "youtube#video",
-   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/H6OTKqex-Ar3i2frKU_tZv8rb8k\"",
-   "id": "nc6st1butJc",
-   "statistics": {
-    "viewCount": "279",
-    "likeCount": "2",
-    "dislikeCount": "0",
-    "favoriteCount": "0",
-    "commentCount": "0"
-   }
-  }
- ]
-}
-
-	
-
-
-{
-	 "kind": "youtube#videoListResponse",
-	 "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/qxV2FHUJT3ml7uVUYIO6-shgS9M\"",
-	 "pageInfo": {
-	  "totalResults": 2,
-	  "resultsPerPage": 2
-	 },
-	 "items": 
-	 [
-		  {
-			   "kind": "youtube#video",
-			   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/YI7ZuQdFvSWf97ElTGwiWymkIqE\"",
-			   "id": "zARMRhhVKjw",
-			   "statistics": {
-			    "viewCount": "1922",
-			    "favoriteCount": "0",
-			    "commentCount": "2"
-			   }
-		  },
-		  {
-			   "kind": "youtube#video",
-			   "etag": "\"m2yskBQFythfE4irbTIeOgYYfBU/H6OTKqex-Ar3i2frKU_tZv8rb8k\"",
-			   "id": "nc6st1butJc",
-			   "statistics": {
-			    "viewCount": "279",
-			    "likeCount": "2",
-			    "dislikeCount": "0",
-			    "favoriteCount": "0",
-			    "commentCount": "0"
-			   }
-		  }
-	 ]
-}
-
-
-
-}
-*/
-
 #define Graph_Zoom_Min 60*60*4
 
 struct AppData {
@@ -828,6 +771,7 @@ struct AppData {
 	char* searchString;
 
 	bool startDownload;
+	bool update;
 	bool startLoadFile;
 
 	char* userName;
@@ -1435,6 +1379,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(ad->startDownload) { 
 		ad->startDownload = false;
 
+		TIMER_BLOCK_NAMED("Total download");
+
+		bool update = ad->update;
+		ad->update = false;
+
 		char* playlist = ad->downloadPlaylist.id;
 		int count = ad->downloadPlaylist.count;
 
@@ -1447,10 +1396,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		int maxVideoCount = 0;
 		char* pt = getTString(pageTokenSize);
 		bool continuedDownload = loadPlaylistHeaderFromFile(&tempPlaylist, fileName, &maxVideoCount, pt);
-
 		int lastVideoCount = 0;
 
-		if(continuedDownload) {
+		if(!update && continuedDownload) {
 			pageToken = pt;			
 			lastVideoCount = tempPlaylist.count;
 
@@ -1467,6 +1415,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		char* buffer = (char*)getTMemory(megaBytes(3)); 
 		char* videoIdList = getTString(kiloBytes(20));
+		char* titleBuffer = getTString(kiloBytes(1));
 		for(int i = 0; i < count; i += maxDownloadCount) {
 
 			int dCount = maxDownloadCount;
@@ -1474,13 +1423,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 				dCount = count - i;
 			}
 
-			requestPlaylistItems(ad->curlHandle, buffer, playlist, dCount, pageToken);
+			{
+				TIMER_BLOCK_NAMED("Request");
+				requestPlaylistItems(ad->curlHandle, buffer, playlist, dCount, pageToken);
+			}
+
 			pageToken = getJSONString(buffer, "nextPageToken");
 
 			totalCount = strToInt(getJSONInt(buffer, "totalResults"));
 
 			// Get Video ids.
 			{
+				TIMER_BLOCK_NAMED("Video ids");
+
 				int index = i;
 				int advance = 0;
 				for(;;) {
@@ -1499,12 +1454,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 			
 			// Get Statistics.
 			{
+
 				strClear(videoIdList);
 				for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
 					int reverseIndex = count-1 - videoIndex;
 					strAppend(videoIdList, fillString("%s,", vids[reverseIndex].id));
 				}
-				requestVideos(ad->curlHandle, buffer, videoIdList, "statistics");
+
+				{
+					TIMER_BLOCK_NAMED("Statistics Request");
+					requestVideos(ad->curlHandle, buffer, videoIdList, "statistics");
+				}
+
+				TIMER_BLOCK_NAMED("Statistics");
 
 				int index = i;
 				int advance = 0;
@@ -1548,36 +1510,54 @@ extern "C" APPMAINFUNCTION(appMain) {
 					int reverseIndex = count-1 - videoIndex;
 					strAppend(videoIdList, fillString("%s,", vids[reverseIndex].id));
 				}
-				requestVideos(ad->curlHandle, buffer, videoIdList, "snippet");
+
+				{
+					TIMER_BLOCK_NAMED("Title Request");
+					requestVideos(ad->curlHandle, buffer, videoIdList, "snippet");
+				}
+
+				TIMER_BLOCK_NAMED("Title");
 
 				int index = i;
 				int advance = 0;
 				for(;;) {
 					int reverseIndex = count-1 - index;
 
-					char* s = getJSONString(buffer, "title", &buffer);
-					if(strLen(s) == 0) break;
+					// char* s = getJSONString(buffer, "title", &buffer);
+					// if(strLen(s) == 0) break;
 
-					// Title
+					// int length = strLen(s);
+					// if(strLen(s)+1 > memberSize(YoutubeVideo, title)) {
+					// 	length = memberSize(YoutubeVideo, title)-1;
+					// 	s[length-1] = '.';
+					// 	s[length-2] = '.';
+					// 	s[length-3] = '.';
+					// }
 
-					int length = strLen(s);
-					if(strLen(s)+1 > memberSize(YoutubeVideo, title)) {
-						length = memberSize(YoutubeVideo, title)-1;
-						s[length-1] = '.';
-						s[length-2] = '.';
-						s[length-3] = '.';
+					int titleStart = strFindRight(buffer, "\"title\": \"");
+					if(titleStart == -1) break;
+
+					buffer += titleStart;
+					copyOverTextAndFixTokens(titleBuffer, buffer);
+					buffer += strLen(titleBuffer);
+					if(strLen(titleBuffer) > memberSize(YoutubeVideo, title)) {
+						int maxSize = memberSize(YoutubeVideo, title);
+						int i = 0;
+						while(titleBuffer[maxSize-i-1] > 127) i--;
+						titleBuffer[maxSize-i-1] = '\0';
 					}
 
-					strCpy(vids[reverseIndex].title, s, length);
+					strCpy(vids[reverseIndex].title, titleBuffer);
 
 					// Thumbnail.
 					// default, medium, high, standard, maxres.
 					int pos = strFind(buffer, "\"medium\":"); buffer += pos;
-					s = getJSONString(buffer, "url", &buffer);
+					char* s = getJSONString(buffer, "url", &buffer);
 					strCpy(vids[reverseIndex].thumbnail, s);
 
 					// Skip the second "title" from localization data.
-					char* throwAway = getJSONString(buffer, "title", &buffer);
+					// char* throwAway = getJSONString(buffer, "title", &buffer);
+					buffer += strFindRight(buffer, "title");
 
 					index++;
 				}
@@ -1596,14 +1576,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
 
-		if(continuedDownload) {
+		if(!update && continuedDownload) {
 			if(ad->downloadPlaylist.count + lastVideoCount > maxVideoCount) {
 				ad->playlist.count = (ad->downloadPlaylist.count + lastVideoCount) - maxVideoCount;
 			}
 
 			savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, lastVideoCount, pageToken);
-		} else {
+		} else if(!update && !continuedDownload) {
 			savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, 0, pageToken);
+		} else if(update) {
+			savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, -1, pageToken);
 		}
 
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
@@ -1765,13 +1747,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
-				// Hack because of corrupted playlist file.
-				if(strFind(ad->playlist.title, "Rocket") != -1) {
-					int off = 7;
-					for(int i = 0; i < off; i++) {
-						memCpy(ad->videos + i, ad->videos + off, sizeof(YoutubeVideo));
-					}
-				}
+				// // Hack because of corrupted playlist file.
+				// if(strFind(ad->playlist.title, "Rocket") != -1) {
+				// 	int off = 7;
+				// 	for(int i = 0; i < off; i++) {
+				// 		memCpy(ad->videos + i, ad->videos + off, sizeof(YoutubeVideo));
+				// 	}
+				// }
 
 				Statistic statViews, statLikes, statDislikes, statDates;
 				{
@@ -2266,15 +2248,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 				bool updateStats = false;
 
 				gui->div(0.1f,0,0,0.1f);
-				if(gui->button("<-")) {
-					if(ad->selectedVideo != -1) {
-						int newSelection = clampMin(ad->selectedVideo - 1, 0);
-						if(newSelection != ad->selectedVideo) {
-							ad->selectedVideo = newSelection;
-							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+				if(ad->selectedVideo > 0) {
+					if(gui->button("<-")) {
+						if(ad->selectedVideo != -1) {
+							int newSelection = clampMin(ad->selectedVideo - 1, 0);
+							if(newSelection != ad->selectedVideo) {
+								ad->selectedVideo = newSelection;
+								downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+							}
 						}
 					}
-				}		
+				} else {
+					gui->empty();
+				}
 
 				if(gui->button("Open in Chrome.")) {
 					shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
@@ -2283,18 +2269,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 					shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
 				}
 
-				if(gui->button("->")) {
-					if(ad->selectedVideo != -1) {
-						int newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
-						if(newSelection != ad->selectedVideo) {
-							ad->selectedVideo = newSelection;
-							downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+				if(ad->selectedVideo != ad->playlist.count-1) {
+					if(gui->button("->")) {
+						if(ad->selectedVideo != -1) {
+							int newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
+							if(newSelection != ad->selectedVideo) {
+								ad->selectedVideo = newSelection;
+								downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+							}
 						}
 					}
+				} else {
+					gui->empty();
 				}
 
 				// Fixes top info text flickering.
-				gui->button("sdf");
+				gui->button("");
+				gui->button("");
 
 				gui->endStatic();
 			}
@@ -2573,7 +2564,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					removePlaylistFile(playlist);
 					ad->playlistFolderCount = 0;
 					loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-					gui->activeId = 0;
 				}
 			}
 
@@ -2604,10 +2594,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				ad->downloadPlaylist.count = strToInt(getJSONInt(buffer, "totalResults"));
 			}
 
-			gui->div(vec2(0,0));
+			gui->div(vec3(0,0,0));
 			if(gui->button("Download and Save.")) {
 				ad->startDownload = true;
-				gui->activeId = 0;
+				ad->startLoadFile = true;
 			}
 			// if(gui->button("Save to file.")) {
 			// 	savePlaylistToFile(&ad->playlist, ad->videos, ad->playlist.count);
@@ -2616,6 +2606,11 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			// 	loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 			// }
 			if(gui->button("Load from file.")) ad->startLoadFile = true;
+
+			if(gui->button("Update.")) {
+				ad->startDownload = true;
+				ad->update = true;
+			}
 
 			gui->empty();
 
