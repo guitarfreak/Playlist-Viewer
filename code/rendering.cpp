@@ -123,7 +123,6 @@ char* fillString(char* text, ...) {
 	return buffer;
 }
 
-
 //
 // CommandList.
 //

@@ -6,13 +6,20 @@
 #include "rt_hotload.cpp"
 #include "rt_misc_win32.cpp"
 
+#include "external\curl\curl.h"
 
+typedef CURLcode curl_global_initFunction(long flags);
+curl_global_initFunction* curl_global_initX;
 
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLine, int showCode) {
 	HotloadDll hotloadDll;
 	initDll(&hotloadDll, "app.dll", "appTemp.dll", "lock.tmp");
 
 	WindowsData wData = windowsData(instance, prevInstance, commandLine, showCode);
+
+	HMODULE curlDll = LoadLibraryA("libcurl.dll");
+	curl_global_initX = (curl_global_initFunction*)GetProcAddress(curlDll, "curl_global_init");
+	curl_global_initX(CURL_GLOBAL_ALL);
 
 	ThreadQueue threadQueue;
 	threadInit(&threadQueue, 7);
