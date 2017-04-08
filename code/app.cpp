@@ -36,6 +36,9 @@
 	* Mouse Selection only updating when inside graph rects.
 	* Change video title length to something like 110 chars to support a few unicode chars 
 	  and then clamp the rest of the title if it's too much.
+	* Make screenshot function.
+	* Comments not solid.
+	* Get playlist count != playlist search.
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
 	- Dithering.
@@ -57,16 +60,16 @@
 	- Filter -> percentage of views.
 	- Make stress test playlist file with 100k videos.
 
-	- Get playlist count != playlist search.
 	- Enhance performance.
 
-	- Comments not solid.
 	- Replace bubble sort.
 	- Bug: Duplicates if you download long enough.
 	- Clamp cam based on viewport.
 
-	- Make screenshot function.
 	- We dont multisample in 2d framebuffer right now.
+
+	- Make it so downloading spawns a thread that shows progress and a cancel button.
+	  Shuld be more reasonable than what we have now.
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
