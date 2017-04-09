@@ -923,27 +923,154 @@ void drawRect(Rect r, Vec4 color, Rect uv = rect(0,0,1,1), int texture = -1, flo
 	glDrawArraysInstancedBaseInstance(GL_TRIANGLE_STRIP, 0, 4, 1, 0);
 }
 
+void scissorTest(Rect r) {
+	Rect sr = r;
+	Vec2 dim = rectGetDim(sr);
+	glScissor(sr.min.x, sr.min.y, dim.x, dim.y);
+}
+
+void scissorTest(Rect r, float screenHeight) {
+	Rect sr = scissorRectScreenSpace(r, screenHeight);
+	Vec2 dim = rectGetDim(sr);
+	glScissor(sr.min.x, sr.min.y, dim.x, dim.y);
+}
+
+void drawRectNew(Rect r, Vec4 color, Rect uv, int texture, float z = 0) {	
+	if(texture == -1) texture = getTexture(TEXTURE_WHITE)->id;
+
+	glBindTexture(GL_TEXTURE_2D, texture);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_QUADS);
+		glTexCoord2f(uv.left,  uv.top); glVertex3f(r.left, r.bottom, z);
+		glTexCoord2f(uv.left,  uv.bottom); glVertex3f(r.left, r.top, z);
+		glTexCoord2f(uv.right, uv.bottom); glVertex3f(r.right, r.top, z);
+		glTexCoord2f(uv.right, uv.top); glVertex3f(r.right, r.bottom, z);
+	glEnd();
+}
+
+void drawRectNew(Rect r, Rect uv, int texture, float z = 0) {
+	drawRectNew(r, vec4(1,1), uv, texture, z);
+}
+
+void drawRectNew(Rect r, Vec4 color, float z = 0) {	
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_QUADS);
+		glVertex3f(r.left, r.bottom, z);
+		glVertex3f(r.left, r.top, z);
+		glVertex3f(r.right, r.top, z);
+		glVertex3f(r.right, r.bottom, z);
+	glEnd();
+}
+
+void drawRectNewColored(Rect r, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3) {	
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 cs0 = colorSRGB(c0);
+	Vec4 cs1 = colorSRGB(c1);
+	Vec4 cs2 = colorSRGB(c2);
+	Vec4 cs3 = colorSRGB(c3);
+
+	glColor4f(1,1,1,1);
+	glBegin(GL_QUADS);
+		glColor4f(cs0.r, cs0.g, cs0.b, cs0.a); glVertex3f(r.left, r.bottom, 0.0);
+		glColor4f(cs1.r, cs1.g, cs1.b, cs1.a); glVertex3f(r.left, r.top, 0.0);
+		glColor4f(cs2.r, cs2.g, cs2.b, cs2.a); glVertex3f(r.right, r.top, 0.0);
+		glColor4f(cs3.r, cs3.g, cs3.b, cs3.a); glVertex3f(r.right, r.bottom, 0.0);
+	glEnd();
+}
+
+void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
+	if(steps == 0) steps = 6;
+	float s = size;
+
+	drawRectNew(rect(r.min.x+s, r.min.y, r.max.x-s, r.max.y), color);
+	drawRectNew(rect(r.min.x, r.min.y+s, r.max.x, r.max.y-s), color);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_TRIANGLE_FAN);
+
+	Rect rc = rectExpand(r, -vec2(s,s)*2);
+	Vec2 corners[] = {rc.max, vec2(rc.max.x, rc.min.y), rc.min, vec2(rc.min.x, rc.max.y)};
+	for(int cornerIndex = 0; cornerIndex < 4; cornerIndex++) {
+
+		Vec2 corner = corners[cornerIndex];
+		float round = s;
+		float start = M_PI_2*cornerIndex;
+
+		glVertex3f(corner.x, corner.y, 0.0);
+
+		for(int i = 0; i < steps; i++) {
+			float angle = start + i*(M_PI_2/(steps-1));
+			Vec2 v = vec2(sin(angle), cos(angle));
+			Vec2 vv = corner + v*round;
+
+			glVertex3f(vv.x, vv.y, 0.0);
+		}
+	}
+	glEnd();
+};
+
+void drawLineHeader(Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINES);
+}
+
+void drawLineStripHeader(Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINE_STRIP);
+}
+
+inline void pushVecs(Vec2 p0, Vec2 p1) {
+	glVertex3f(p0.x, p0.y, 0.0f);
+	glVertex3f(p1.x, p1.y, 0.0f);
+}
+
+inline void pushVec(Vec2 p0) {
+	glVertex3f(p0.x, p0.y, 0.0f);
+}
+
+inline void pushColor(Vec4 c) {
+	glColor4f(c.r, c.g, c.b, c.a);
+}
+
+void drawLineNew(Vec2 p0, Vec2 p1, Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINES);
+		glVertex3f(p0.x, p0.y, 0.0f);
+		glVertex3f(p1.x, p1.y, 0.0f);
+	glEnd();
+}
+
+void drawLineNewOff(Vec2 p0, Vec2 p1, Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINES);
+		glVertex3f(p0.x, p0.y, 0.0f);
+		glVertex3f(p0.x + p1.x, p0.y + p1.y, 0.0f);
+	glEnd();
+}
+
 void ortho(Rect r) {
 	r = rectGetCenDim(r);
 
 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_CAMERA, r.e);
 }
-
-// void lookAt(Vec3 pos, Vec3 look, Vec3 up, Vec3 right) {
-// 	Mat4 view;
-// 	viewMatrix(&view, pos, look, up, right);
-
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_VIEW, view.e);
-// }
-
-// void perspective(float fov, float aspect, float n, float f) {
-// 	Mat4 proj;
-// 	projMatrix(&proj, fov, aspect, n, f);
-
-// 	pushUniform(SHADER_CUBE, 0, CUBE_UNIFORM_PROJ, proj.e);
-// }
-
-
 
 
 enum TextStatus {
@@ -1179,6 +1306,87 @@ void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = v
 		if(text[ti.index] == '\n') continue;
 
 		drawRect(ti.r, color, ti.uv, font->tex.id);
+	}
+}
+
+void drawTextNew(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
+
+	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
+	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+
+	glBindTexture(GL_TEXTURE_2D, font->tex.id);
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_QUADS);
+
+	TextSimInfo tsi = initTextSimInfo(startPos);
+	while(true) {
+		TextInfo ti;
+		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
+		if(text[ti.index] == '\n') continue;
+
+		glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(ti.r.left, ti.r.bottom, 0.0);
+		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, 0.0);
+		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, 0.0);
+		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, 0.0);
+	}
+	
+	glEnd();
+}
+
+void drawTextNew(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align, int wrapWidth, int shadow, Vec4 shadowColor = vec4(0,1)) {
+
+	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
+	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+
+	Vec4 c, sc;
+	glBindTexture(GL_TEXTURE_2D, font->tex.id);
+	c = colorSRGB(color);
+	sc = colorSRGB(shadowColor);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_QUADS);
+
+	TextSimInfo tsi = initTextSimInfo(startPos);
+	while(true) {
+		TextInfo ti;
+		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
+		if(text[ti.index] == '\n') continue;
+
+		if(shadow > 0) {
+			glColor4f(sc.r, sc.g, sc.b, sc.a);
+
+			Rect r = rectAddOffset(ti.r, vec2(shadow,-shadow));
+			glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(r.left, r.bottom, 0.0);
+			glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(r.left, r.top, 0.0);
+			glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(r.right, r.top, 0.0);
+			glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(r.right, r.bottom, 0.0);
+
+			glColor4f(c.r, c.g, c.b, c.a);
+		}
+
+		glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(ti.r.left, ti.r.bottom, 0.0);
+		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, 0.0);
+		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, 0.0);
+		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, 0.0);
+		
+	}
+
+	glEnd();
+}
+
+void drawTextLineCulledNew(char* text, Font* font, Vec2 startPos, float width, Vec4 color, Vec2i align = vec2i(-1,1)) {
+	startPos = testgetTextStartPos(text, font, startPos, align, 0);
+	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+
+	TextSimInfo tsi = initTextSimInfo(startPos);
+	while(true) {
+		TextInfo ti;
+		if(!textSim(text, font, &tsi, &ti, startPos, 0)) break;
+		if(text[ti.index] == '\n') continue;
+
+		if(ti.pos.x > startPos.x + width) break;
+
+		drawRectNew(ti.r, color, ti.uv, font->tex.id);
 	}
 }
 

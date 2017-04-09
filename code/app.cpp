@@ -17,34 +17,11 @@
 	- Gui textbox returns true only on new value when hitting enter.
 
 
-	* Add gradient.
-	* Fix curser selection to go to nearest.
-	* Multiple charts stacked.
-	* Click on point and open chrome to youtube video.
-	* Scale jpg with size.
-	* Save title in video struct and maybe duration as well.
-	* Clipboard messed up when app is running.
-	* Sort playlist by date after download.
-	* Cant copy in chrome when switching from app.
-	* Download playlists fron channel.
-	* Get playlists from channel.
-	* Averages and statistics.
-	* Stop and continue downloading playlist.
-	* Search key words to remove certain items in playlist.
-	  * A Video has to have a certain word, or should not have a certain keyword.
-	* Unicode for comments.
-	* Mouse Selection only updating when inside graph rects.
-	* Change video title length to something like 110 chars to support a few unicode chars 
-	  and then clamp the rest of the title if it's too much.
-	* Make screenshot function.
-	* Comments not solid.
-	* Get playlist count != playlist search.
+
 	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
-	- Dithering.
 	- Date timeline.
 	- Abstract timeline.
-	- Mouse hover, show specific data.
 	- Debug gui stuff should disable app input when needed. (Mouse dragging, for example.)
 
 	- Gui when scrollsection gets initialized, put in the current window height to avoid one frame jumping.
@@ -65,8 +42,6 @@
 	- Replace bubble sort.
 	- Bug: Duplicates if you download long enough.
 	- Clamp cam based on viewport.
-
-	- We dont multisample in 2d framebuffer right now.
 
 	- Make it so downloading spawns a thread that shows progress and a cancel button.
 	  Shuld be more reasonable than what we have now.
@@ -124,6 +99,8 @@ DebugState* globalDebugState;
 Timer* globalTimer;
 
 // Internal.
+
+#define TIMER_BLOCKS_ENABLED
 
 #include "rt_types.cpp"
 #include "rt_timer.cpp"
@@ -1266,6 +1243,25 @@ void downloadVideos(void* data) {
 #define Graph_Zoom_Min 60*60*4
 
 
+struct NewGui {
+	int activeId;
+	int hotId;
+
+	int contenderId;
+	int contenderIdZ;
+
+	int id;
+};
+
+void newGuiBegin(NewGui* gui) {
+	gui->id = 0;
+	gui->contenderId = -1;
+	gui->contenderIdZ = -10;
+}
+
+void newGuiEnd(NewGui* gui) {
+	gui->hotId = gui->contenderId;
+}
 
 struct AppData {
 	// General.
@@ -1320,6 +1316,10 @@ struct AppData {
 
 	bool activeDownload;
 	DownloadInfo dInfo;
+
+	//
+
+	NewGui newGui;
 
 	//
 
@@ -1480,9 +1480,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->showMenu = false;
 		ds->showStats = false;
 		ds->showConsole = false;
-		ds->showHud = true;
+		ds->showHud = false;
 		// ds->guiAlpha = 0.95f;
 		ds->guiAlpha = 1;
+		ds->noCollating = false;
 
 		for(int i = 0; i < arrayCount(ds->notificationStack); i++) {
 			ds->notificationStack[i] = getPStringDebug(DEBUG_NOTE_LENGTH+1);
@@ -1572,7 +1573,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		//
 
 		ad->fieldOfView = 60;
-		ad->msaaSamples = 4;
+		ad->msaaSamples = 8;
 		ad->fboRes = vec2i(0, 120);
 		ad->useNativeRes = true;
 		ad->nearPlane = 0.1f;
@@ -1589,12 +1590,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 				initFrameBuffer(fb);
 			}
 
-			attachToFrameBuffer(FRAMEBUFFER_2d, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
+			attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0, ad->msaaSamples);
+			attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_DEPTH, GL_DEPTH_COMPONENT32F, 0, 0, ad->msaaSamples);
+			attachToFrameBuffer(FRAMEBUFFER_2dNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0);
 
 			attachToFrameBuffer(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0, ad->msaaSamples);
 			attachToFrameBuffer(FRAMEBUFFER_DebugNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
 
-			attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8_ALPHA8, 0, 0);
+			// attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8_ALPHA8, 0, 0);
+			attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8, 0, 0);
 
 			ad->updateFrameBuffers = true;
 		}
@@ -1869,7 +1873,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec2i s = ad->cur3dBufferRes;
 		Vec2 reflectionRes = vec2(s);
 
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2d, ws->currentRes.w, ws->currentRes.h);
+		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, ws->currentRes.w, ws->currentRes.h);
+		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, ws->currentRes.w, ws->currentRes.h);
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, ws->currentRes.w, ws->currentRes.h);
 		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, ws->currentRes.w, ws->currentRes.h);
 
@@ -1915,26 +1920,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 		glClearColor(0,0,0,0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-		bindFrameBuffer(FRAMEBUFFER_2d);
+		bindFrameBuffer(FRAMEBUFFER_2dMsaa);
 		glClearColor(0,0,0,0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
 		glClearColor(0,0,0,0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-		bindFrameBuffer(FRAMEBUFFER_DebugNoMsaa);
-		glClearColor(0,0,0,0);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 	}
 
 	// Setup opengl.
 	{
-		// glEnable(GL_DITHER);
+		glEnable(GL_DITHER);
 
 		// glDepthRange(-1.0,1.0);
 		glFrontFace(GL_CW);
-		glEnable(GL_DEPTH_TEST);
+		// glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
 		glDisable(GL_SCISSOR_TEST);
 		// glEnable(GL_LINE_SMOOTH);
@@ -1949,13 +1950,30 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// glDepthFunc(GL_LESS);
 		// glClearDepth(1);
 		// glDepthMask(GL_TRUE);
-		glEnable(GL_MULTISAMPLE);
+		// glEnable(GL_MULTISAMPLE);
 		// glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
 
 		// glViewport(0,0, ad->cur3dBufferRes.x, ad->cur3dBufferRes.y);
+
+
+		bindFrameBuffer(FRAMEBUFFER_2dMsaa);
+		// glBindTexture(GL_TEXTURE_2D, getFrameBuffer(FRAMEBUFFER_2dMsaa)->colorSlot[0]->id);
+		// glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		glDisable(GL_DEPTH_TEST);
+
+		glUseProgram(0);
+		glBindProgramPipeline(0);
+		glBindVertexArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		Vec2 res = vec2(ws->currentRes);
+		glLoadIdentity();
+		glViewport(0,0, ws->currentRes.x, ws->currentRes.y);
+		glOrtho(0, ws->currentRes.w, -ws->currentRes.h, 0, -10,10);
 	}
 
 	TIMER_BLOCK_END(openglInit);
@@ -1964,6 +1982,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 	// @AppLoop.
+
+	TIMER_BLOCK_BEGIN_NAMED(appMain, "App Main");
 
 	if(ad->startDownload) { 
 		ad->dInfo = {};
@@ -2344,17 +2364,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 		rLeftText2 = rect(rChart.left, rBottomText.top, rGraph2.left, rLeftText.bottom);
 
 		float g = 0.15f;
-		dcRect(screenRect, vec4(0.4f,g,g,1));
+		// drawRectNew(screenRect, vec4(0.4f,g,g,1));
+		Vec4 c1 = vec4(0.45f,g,g,1);
+		Vec4 c2 = vec4(0.4f,g,g,1);
+		drawRectNewColored(screenRect, c1,c2,c2,c1);
+
 		Vec4 graphColor2 = vec4(0.1f, 0.1f, 0.2f, 1);
 		Vec4 graphColor1 = vec4(0.2f, 0.1f, 0.4f, 1);
-		dcPrimitive2d(rGraph.min, rectGetUL(rGraph), rGraph.max, rectGetDR(rGraph), 
-		              graphColor1, graphColor2, graphColor2, graphColor1);
+		drawRectNewColored(rGraph, graphColor1, graphColor2, graphColor2, graphColor1);
+		drawRectNewColored(rGraph2, graphColor1, graphColor2, graphColor2, graphColor1);
 
-		dcPrimitive2d(rGraph2.min, rectGetUL(rGraph2), rGraph2.max, rectGetDR(rGraph2), 
-		              graphColor1, graphColor2, graphColor2, graphColor1);
-
-		// dcRect(rGraph2, vec4(0,1,0,1));
-		// dcRect(rLeftText2, vec4(0,1,1,1));
 
 		rGraphs = rect(rGraph2.min, rGraph.max);
 
@@ -2427,8 +2446,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			int subDiv = 4;
 			float splitSizePixels = font->height*3;
 
-			dcState(STATE_LINEWIDTH, 2);
-			dcEnable(STATE_SCISSOR);
+			glLineWidth(1);
+			glEnable(GL_SCISSOR_TEST);
 
 			{
 				float maxTextWidth = 0;
@@ -2444,14 +2463,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 					float y = graphCamMapY(cam, p);
 
 					// Horizontal line.
-					dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
-					dcLine2d(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
-					dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+					scissorTest(cam->viewPort, res.h);
+					drawLineNew(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
+					scissorTest(scaleRect, res.h);
 
 					// Base markers.
-					dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
+					drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
 					char* text = fillString("%i.",(int)p);
-					dcText(text, font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+					drawTextNew(text, font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
 					
 					float textWidth = getTextDim(text, font).w;
 					maxTextWidth = max(maxTextWidth, textWidth + markLength+fontMargin + 2);
@@ -2459,8 +2478,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					// Semi markers.
 					for(int i = 1; i < subDiv; i++) {
 						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
-						dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
-						dcText(fillString("%i.",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+						drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
+						drawTextNew(fillString("%i.",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
 					}
 
 					p += stepSize;
@@ -2481,26 +2500,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 					float y = graphCamMapY(cam, p);
 
 					// Horizontal line.
-					dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
-					dcLine2d(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
-					dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+					scissorTest(cam->viewPort, res.h);
+					drawLineNew(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
+					scissorTest(scaleRect, res.h);
 
 					// Base markers.
-					dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
-					dcText(fillString("%i.",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+					drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
+					drawTextNew(fillString("%i.",(int)p), font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
 
 					// Semi markers.
 					for(int i = 1; i < subDiv; i++) {
 						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
-						dcLine2dOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
-						dcText(fillString("%i.",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+						drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
+						drawTextNew(fillString("%i.",(int)(stepSize/subDiv)), font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
 					}
 
 					p += stepSize;
 				}
 			}
 
-			dcDisable(STATE_SCISSOR);
+			glDisable(GL_SCISSOR_TEST);
 		}
 
 		// Draw bottom text.
@@ -2513,8 +2532,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float div = 10;
 			float splitSizePixels = 200;
 
-			dcState(STATE_LINEWIDTH, 2);
-			dcEnable(STATE_SCISSOR);
+			glLineWidth(1);
+			glEnable(GL_SCISSOR_TEST);
 
 			Rect scaleRect = rBottomText;
 			double splitSize = splitSizePixels * (cam->w / rectGetW(cam->viewPort));
@@ -2523,25 +2542,25 @@ extern "C" APPMAINFUNCTION(appMain) {
 			int i = 0;
 			double p = roundModDown(cam->left, stepSize);
 			while(p < cam->right + stepSize) {
-				dcScissor(scissorRectScreenSpace(rect(rGraph2.min, rGraph.max), res.h));
+				scissorTest(rect(rGraph2.min, rGraph.max), res.h);
 
 				// Vertical lines.
 				{
 					double x = graphCamMapX(cam, p);
-					dcLine2d(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
+					drawLineNew(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
 				}
 
-				dcScissor(scissorRectScreenSpace(scaleRect, res.h));
+				scissorTest(scaleRect, res.h);
 
 				// Base markers.
 				{
 					double x = graphCamMapX(cam, p);
-					dcLine2dOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
+					drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
 
 					Date d;
 					intToDate(p, &d);
 					char* dateString = fillString("%i..%i..%i", d.day, d.month, d.year);
-					dcText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+					drawTextNew(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
 				}
 
 				// Semi markers.
@@ -2560,12 +2579,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 						else if(date.seconds != 0) dateString = fillString("%isec", date.seconds);
 						else dateString = fillString("0");
 
-						dcText(dateString, font, vec2(x, scaleRect.top), semiColor, vec2i(0,1));
+						drawTextNew(dateString, font, vec2(x, scaleRect.top), semiColor, vec2i(0,1));
 
 						if(i == 0) continue;
 						{
 							double x = graphCamMapX(cam, p+i*(stepSize/d));
-							dcLine2dOff(vec2(x, scaleRect.top), vec2(0, -markLength*0.5f), semiColor); 
+							drawLineNewOff(vec2(x, scaleRect.top), vec2(0, -markLength*0.5f), semiColor); 
 						}
 					}
 				}
@@ -2573,7 +2592,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				p += stepSize;
 			}
 
-			dcDisable(STATE_SCISSOR);
+			glDisable(GL_SCISSOR_TEST);
 		}
 
 		YoutubeVideo* vids = ad->videos;
@@ -2594,20 +2613,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 					float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.num) + 1 : x + 1000000;
 
 					if(input->mousePos.x < x + (x2-x)/2) {
-						dcScissor(scissorRectScreenSpace(rGraphs, res.h));
-						dcEnable(STATE_SCISSOR);
+						scissorTest(rGraphs, res.h);
+						glEnable(GL_SCISSOR_TEST);
 
 						if(input->mousePos.x >= ad->camLikes.viewPort.left)
-							dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
+							drawLineNew(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.2f));
 
 						Font* font = getFont(FONT_CALIBRI, 20);
 						Vec4 c = vec4(1.0f,0.5f,0,1);
 						Vec2 p = rChart.max - vec2(5);
-						dcText(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1)); p.y -= font->height;
-						dcText(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1)); p.y -= font->height;
-						dcText(fillString("%i", i), font, p, c, vec2i(1,1)); p.y -= font->height;
+						drawTextNew(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
+						drawTextNew(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
+						drawTextNew(fillString("%i", i), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
 		
-						dcDisable(STATE_SCISSOR);
+						glDisable(GL_SCISSOR_TEST);
 
 						if(input->mouseButtonPressed[2]) {
 							if(i != ad->selectedVideo) {
@@ -2623,49 +2642,58 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 		}
 
-		dcState(STATE_LINEWIDTH, 2);
-		dcEnable(STATE_SCISSOR);
+		glLineWidth(1);
+		glEnable(GL_SCISSOR_TEST);
 
 		for(int graphIndex = 0; graphIndex < 2; graphIndex++) {
+			Vec4 c1 = vec4(0,0.7f,1,1);
+			Vec4 c2 = vec4(0.9f,0.5f,1,1);
+
 			GraphCam* cam;
 			if(graphIndex == 0) cam = &ad->cam;
 			else cam = &ad->camLikes;
 
-			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
+			scissorTest(cam->viewPort, res.h);
 
-			for(int i = 0; i < vidCount-1; i++) {
+			if(graphIndex == 0) drawLineStripHeader(c1);
+			else drawLineStripHeader(c2);
+
+			for(int i = 0; i < vidCount; i++) {
 				if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
 
 				float x = graphCamMapX(cam, vids[i].date.num) + 1;
-				float x2 = graphCamMapX(cam, vids[i+1].date.num) + 1;
 
 				if(graphIndex == 0) {
-					dcLine2d(vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec2(x2, graphCamMapY(cam, vids[i+1].viewCount)), vec4(0,0.7f,1,1));
-
-					// dcLine2d(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].viewCount)), vec4(0,0.7f,1,1));
+					pushVec(vec2(x, graphCamMapY(cam, vids[i].viewCount)));
 
 				} else if(graphIndex == 1) {
 					double div1 = divZero(vids[i].likeCount, (vids[i].likeCount + vids[i].dislikeCount));
-					double div2 = divZero(vids[i+1].likeCount, (vids[i+1].likeCount + vids[i+1].dislikeCount));
-
 					if(div1 == 0) div1 = 1;
-					if(div2 == 0) div2 = 1;
 
-					dcLine2d(vec2(x, mapRangeDouble(div1,0,1,cam->viewPort.bottom,cam->viewPort.top)), vec2(x2, mapRangeDouble(div2,0,1,cam->viewPort.bottom,cam->viewPort.top)), vec4(0.9f,0.5f,1,1));
+					pushVec(vec2(x, mapRangeDouble(div1,0,1,cam->viewPort.bottom,cam->viewPort.top)));
 				}
 
-				// dcLine2d(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
-				// dcLine2d(vec2(x, graphCamMapY(cam, vids[i].favoriteCount)), vec2(x2, graphCamMapY(cam, vids[i+1].favoriteCount)), vec4(1,1,1,1));
-				// dcLine2d(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
+				// drawLineNew(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
+				// drawLineNew(vec2(x, graphCamMapY(cam, vids[i].favoriteCount)), vec2(x2, graphCamMapY(cam, vids[i+1].favoriteCount)), vec4(1,1,1,1));
+				// drawLineNew(vec2(x, graphCamMapY(cam, vids[i].commentCount)), vec2(x2, graphCamMapY(cam, vids[i+1].commentCount)), vec4(1,0.3f,0.8f,1));
 			}
+
+			glEnd();
 		}
 
 		{
 			int lineWidth = 3;
-			dcState(STATE_LINEWIDTH, lineWidth*2);
+			glLineWidth(lineWidth);
 
 			GraphCam* cam = &ad->camLikes;
-			dcScissor(scissorRectScreenSpace(cam->viewPort, res.h));
+			scissorTest(cam->viewPort, res.h);
+
+			Vec4 lc1 = vec4(0.0f,0.7f,1,1);
+			Vec4 lc2 = vec4(0.7f,0.3f,1,1);
+
+			drawLineHeader(lc1);
+			Vec4 slc1 = colorSRGB(lc1);
+			Vec4 slc2 = colorSRGB(lc2);
 
 			for(int i = 0; i < vidCount; i++) {
 				if(vids[i].date.num < cam->left-lineWidth || vids[i].date.num > cam->right+lineWidth) continue;
@@ -2674,63 +2702,71 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(i == 0) x += lineWidth/2;
 				else if(i == vidCount-1) x -= lineWidth/2;
 
-				dcLine2d(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec4(0.0f,0.7f,1,1));
-				dcLine2d(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x, graphCamMapY(cam, vids[i].dislikeCount + vids[i].likeCount)), vec4(0.7f,0.3f,1,1));
+				pushColor(slc1);
+				pushVecs(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].likeCount)));
+				pushColor(slc2);
+				pushVecs(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x, graphCamMapY(cam, vids[i].dislikeCount + vids[i].likeCount)));
 			}
-		}
 
-		dcState(STATE_LINEWIDTH, 2);
-		dcEnable(STATE_SCISSOR);
+			glEnd();
+		}
 
 		// Average line.
 		{
+			glEnable(GL_SCISSOR_TEST);
+
 			GraphCam* cam = &ad->cam;
 			GraphCam* camLikes = &ad->camLikes;
 	
-			dcState(STATE_LINEWIDTH, 4);
+			glLineWidth(1);
 
 			double avgStartX = ad->videos[0].date.num;
 			double avgWidth = monthsToInt(ad->statWidth);
 			double avgTimeSpan = monthsToInt(ad->statTimeSpan);
 
-			dcScissor(scissorRectScreenSpace(rGraph, res.h));
+			scissorTest(rGraph, res.h);
 
+			Vec4 c = vec4(0,0.9f,0.3f,0.8f);
+
+			drawLineStripHeader(c);
 			double xPos = avgStartX;
-			for(int i = 0; i < ad->avgPointsCount-1; i++) {
-				if(xPos + avgWidth < cam->left || xPos > cam->right) {
+			for(int i = 0; i < ad->avgPointsCount; i++) {
+				if(xPos + avgWidth < cam->left) {
 					xPos += avgWidth;
 					continue;
 				}
+				if(xPos - avgWidth > cam->right) break;
 
 				float x1 = clampMax(xPos, ad->camMaxWithoutMargin);
-				float x2 = clampMax(xPos + avgWidth, ad->camMaxWithoutMargin);
-				dcLine2d(graphCamMap(cam, x1, ad->avgPoints[i]), graphCamMap(cam, x2, ad->avgPoints[i+1]), vec4(0,1,0,0.3f));
+				pushVec(graphCamMap(cam, x1, ad->avgPoints[i]));
 
 				xPos += avgWidth;
 			}
+			glEnd();
 			
-			dcScissor(scissorRectScreenSpace(rGraph2, res.h));
+			scissorTest(rGraph2, res.h);
 			
+			drawLineStripHeader(c);
 			xPos = avgStartX;
-			for(int i = 0; i < ad->avgPointsCount-1; i++) {
-				if(xPos + avgWidth < cam->left || xPos > cam->right) {
+			for(int i = 0; i < ad->avgPointsCount; i++) {
+				if(xPos + avgWidth < cam->left) {
 					xPos += avgWidth;
 					continue;
 				}
+				if(xPos - avgWidth > cam->right) break;
 
 				float x1 = graphCamMapX(camLikes, clampMax(xPos, ad->camMaxWithoutMargin));
-				float x2 = graphCamMapX(camLikes, clampMax(xPos + avgWidth, ad->camMaxWithoutMargin));
 				float y1 = mapRangeDouble(ad->avgPointsLikes[i], 0, 1, camLikes->viewPort.bottom, camLikes->viewPort.top);
-				float y2 = mapRangeDouble(ad->avgPointsLikes[i+1], 0, 1, camLikes->viewPort.bottom, camLikes->viewPort.top);
-				dcLine2d(vec2(x1,y1), vec2(x2,y2), vec4(0,1,0,0.3f));
+				pushVec(vec2(x1,y1));
 
 				xPos += avgWidth;
 			}
+			glEnd();
+		
+			glLineWidth(1);
 
-			dcState(STATE_LINEWIDTH, 2);
+			glDisable(GL_SCISSOR_TEST);
 		}
-
-		dcDisable(STATE_SCISSOR);
 
 		Font* titleFont = getFont(FONT_CALIBRI, 30);
 		// Vec2 tp0 = vec2(rectGetCen(rGraph).x, rGraph.top - 10);
@@ -2739,8 +2775,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec2 tp0 = rectGetUL(rGraph) + vec2(20,-10);
 		Vec2 tp1 = rectGetUL(rGraph2) + vec2(20,-10);;
 
-		dcText("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
-		dcText("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
+		drawTextNew("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
+		drawTextNew("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
 
 		if(init) {
 			ad->snippetGui.init(rectCenDim(400,-400,600,200), -1);
@@ -2750,11 +2786,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			// Graph selection line.
 			{
 				float x = graphCamMapX(cam, ad->videos[ad->selectedVideo].date.num) + 1;
-				dcLine2d(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.1f));
+				drawLineNew(vec2(x, ad->camLikes.viewPort.bottom), vec2(x,ad->cam.viewPort.top), vec4(1,0,0,0.1f));
 			}
 
 			// infoRect = rectExpand(infoRect, -vec2(20,20));
-			dcRect(infoRect, vec4(0,0.9f));
+			drawRectNew(infoRect, vec4(0,0.9f));
 
 			float border = 20;
 			infoRect = rectExpand(infoRect, -vec2(border,border));
@@ -2821,22 +2857,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			yPos -= font->height + 8;
 
-			dcEnable(STATE_SCISSOR);
-			dcScissor(scissorRectScreenSpace(infoRect, res.h));
+			glEnable(GL_SCISSOR_TEST);
+			scissorTest(infoRect, res.h);
 
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
 			VideoSnippet* sn = &ad->videoSnippet;
 
-			dcText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			drawTextNew(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
 
 			yPos -= font->height;
 
-			// dcRect(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
+			// drawRectNew(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
 			Rect imageRect = rect(infoRect.left, yPos - rectGetW(infoRect)*(sn->thumbnailTexture.dim.h/(float)sn->thumbnailTexture.dim.w), infoRect.right, yPos);
-			dcRect(imageRect, rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
+			drawRectNew(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
 			yPos -= rectGetH(imageRect);
 
-			dcText(sv->title, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
+			drawTextNew(sv->title, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
 			yPos -= getTextHeight(sv->title, font, vec2(xMid, yPos), width);
 			yPos -= font->height;
 
@@ -2847,23 +2883,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 			char* comments = fillString("Comments: %i", sv->commentCount);
 			char* favorites = fillString("Favorites: %i", sv->favoriteCount);
 			char* s = fillString("%s, %s\n%s\n%s\n%s\n%s", date, time, views, likes, comments, favorites);
-			dcText(s, font, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1));
+			drawTextNew(s, font, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1));
 			yPos -= getTextHeight(s, font);
 			yPos -= font->height;
 
-			dcText("Comments", font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			drawTextNew("Comments", font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
 			yPos -= font->height;
 
 			for(int i = 0; i < sn->selectedCommentCount; i++) {
-				dcText(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
+				drawTextNew(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
 				// drawText(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
 				yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), width);
-				dcText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(infoRect.right, yPos), vec4(0.7f,1), vec2i(1,1), width);
+				drawTextNew(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(infoRect.right, yPos), vec4(0.7f,1), vec2i(1,1), width);
 				yPos -= font2->height;
 				// yPos -= font2->height*0.5f;
 			}
 
-			dcDisable(STATE_SCISSOR);
+			glDisable(GL_SCISSOR_TEST);
 		}
 
 
@@ -2906,96 +2942,163 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Border.
 		// Vec4 borderColor = vec4(0.5f,1);
-		// dcLine2d(vec2(screenRect.left+1, screenRect.bottom), vec2(screenRect.left+1, screenRect.top), borderColor);
-		// dcLine2d(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
-		// dcLine2d(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
-		// dcLine2d(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
-
+		// drawLineNew(vec2(screenRect.left+1, screenRect.bottom), vec2(screenRect.left+1, screenRect.top), borderColor);
+		// drawLineNew(vec2(screenRect.left, screenRect.top), vec2(screenRect.right, screenRect.top), borderColor);
+		// drawLineNew(vec2(screenRect.right, screenRect.top), vec2(screenRect.right, screenRect.bottom), borderColor);
+		// drawLineNew(vec2(screenRect.right, screenRect.bottom+1), vec2(screenRect.left, screenRect.bottom+1), borderColor);
 	}
 
+	TIMER_BLOCK_END(appMain);
 
 	endOfMainLabel:
 
 
-	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
+	{
+		glEnable(GL_DEPTH_TEST);
 
+		if(init) {
+			ad->newGui.activeId = -1;
+		}
+
+		NewGui* gui = &ad->newGui;
+		newGuiBegin(gui);
+
+
+		{
+			Rect br = rectCenDim(300,-300,200,40);
+			Vec4 c = vec4(0.5f,0,0,1);
+
+			int id = gui->id++;
+			float z = 1;
+
+			if(id == gui->activeId) {
+				gui->activeId = -1;
+			}
+
+			if(input->mouseButtonPressed[0] && gui->hotId == id) {
+				gui->activeId = id;
+			}
+
+			if(gui->activeId == -1 && pointInRect(input->mousePosNegative, br)) {
+				if(z > gui->contenderIdZ) {
+					gui->contenderId = id;
+					gui->contenderIdZ = z;
+				} else {
+					if(z == gui->contenderIdZ) {
+						gui->contenderId = max(id, gui->contenderId);
+					}
+				}
+			}
+
+			if(id == gui->hotId) c += vec4(0.1f,0); 
+			if(id == gui->activeId) c += vec4(0.2f,0); 
+
+			drawRectNew(br, c, z);
+
+			if(id == gui->activeId) {
+				addDebugNote(fillString("Id: %i", id));
+			}
+		}
+
+
+		{
+			Rect br = rectCenDim(330,-320,200,40);
+			Vec4 c = vec4(0,0.5f,0,1);
+
+			int id = gui->id++;
+			float z = 0;
+
+			if(id == gui->activeId) {
+				gui->activeId = -1;
+			}
+
+			if(input->mouseButtonPressed[0] && gui->hotId == id) {
+				gui->activeId = id;
+			}
+
+			if(gui->activeId == -1 && pointInRect(input->mousePosNegative, br)) {
+				if(z > gui->contenderIdZ) {
+					gui->contenderId = id;
+					gui->contenderIdZ = z;
+				} else {
+					if(z == gui->contenderIdZ) {
+						gui->contenderId = max(id, gui->contenderId);
+					}
+				}
+			}
+
+			if(id == gui->hotId) c += vec4(0.1f,0); 
+			if(id == gui->activeId) c += vec4(0.2f,0); 
+
+			drawRectNew(br, c, z);
+
+			if(id == gui->activeId) {
+				addDebugNote(fillString("Id: %i", id));
+			}
+		}
+
+
+
+		newGuiEnd(gui);
+
+		glDisable(GL_DEPTH_TEST);
+	}
+
+
+	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
 	// Render.
 	{
 		TIMER_BLOCK_NAMED("Render");
 
-		bindShader(SHADER_QUAD);
-		glDisable(GL_DEPTH_TEST);
-
-		ortho(rect(0, -ws->currentRes.h, ws->currentRes.w, 0));
-		glViewport(0,0, ws->currentRes.x, ws->currentRes.y);
-
-		bindFrameBuffer(FRAMEBUFFER_2d);
-
-		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-
-		bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
-		executeCommandList(&ad->commandList2d);
-
-		double timeStamp = timerInit();
-			executeCommandList(&ds->commandListDebug, false, reload);
-		static double tempTime = 0;
-		tempTime += ds->dt;
-		if(tempTime >= 1) {
-			ds->debugRenderTime = timerUpdate(timeStamp);
-			tempTime = 0;
-		}
-
 		blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+		blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
 
 		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
-
-		bindFrameBuffer(FRAMEBUFFER_2d);
-		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1,1,ds->guiAlpha), rect(0,1,1,0), 
-		         getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
-
+		bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
+		// glBindTexture(GL_TEXTURE_2D, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+		drawRectNew(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1,1,ds->guiAlpha), rect(0,1,1,0), getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
+
 
 		#if USE_SRGB 
 			glEnable(GL_FRAMEBUFFER_SRGB);
 		#endif 
 
-			if(ad->screenShotMode) {
-				ds->showMenu = true;
+		if(ad->screenShotMode) {
+			ds->showMenu = true;
 
-				bindFrameBuffer(FRAMEBUFFER_ScreenShot);
-				glClearColor(0,0,0,0);
-				glClear(GL_COLOR_BUFFER_BIT);
+			bindFrameBuffer(FRAMEBUFFER_ScreenShot);
+			glClearColor(0,0,0,1);
+			glClear(GL_COLOR_BUFFER_BIT);
 
-				drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1), rect(0,0,1,1), 
-				         getFrameBuffer(FRAMEBUFFER_2d)->colorSlot[0]->id);
+			glDisable(GL_BLEND);
+			drawRectNew(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), rect(0,0,1,1), getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+			glEnable(GL_BLEND);
 
-				int w = ws->currentRes.w;
-				int h = ws->currentRes.h;
+			int w = ws->currentRes.w;
+			int h = ws->currentRes.h;
 
-				// char* buffer = (char*)malloc(w*h*4);
-				// glReadPixels(0,0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+			char* buffer = (char*)malloc(w*h*4);
+			int texId = getFrameBuffer(FRAMEBUFFER_ScreenShot)->colorSlot[0]->id;
+			glGetTextureSubImage(texId, 0, 0, 0, 0, w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, w*h*4, buffer);
 
-				char* buffer = (char*)malloc(w*h*4);
-				// int texId = getFrameBuffer(FRAMEBUFFER_2d)->colorSlot[0]->id;
-				int texId = getFrameBuffer(FRAMEBUFFER_ScreenShot)->colorSlot[0]->id;
-				glGetTextureSubImage(texId, 0, 0, 0, 0, w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, w*h*4, buffer);
+			int result = stbi_write_png(ad->screenShotFilePath, w, h, 4, buffer, w*4);
 
-				int result = stbi_write_png(ad->screenShotFilePath, w, h, 4, buffer, w*4);
-
-				free(buffer);
-			}
+			free(buffer);
+		}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1), rect(0,1,1,0), 
-		         getFrameBuffer(FRAMEBUFFER_2d)->colorSlot[0]->id);
+		Vec2 res = vec2(ws->currentRes);
+		drawRectNew(rect(0, -res.h, res.w, 0), rect(0,1,1,0), getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
 
 		#if USE_SRGB
 			glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
+
 	}
 
 	// Swap window background buffer.
@@ -3027,16 +3130,20 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 	#define PVEC2(v) v.x, v.y
 
 	globalMemory->debugMode = true;
-
+	clearTMemoryDebug();
 	i64 timeStamp = timerInit();
+
+
 
 	Input* input = ds->input;
 	WindowSettings* ws = &ad->wSettings;
 
-	clearTMemoryDebug();
-
 	ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[1];
 	ExtendibleMemoryArray* pMemory = globalMemory->pMemory;
+
+	bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+	glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 
 	int clSize = megaBytes(2);
 	drawCommandListInit(&ds->commandListDebug, (char*)getTMemoryDebug(clSize), clSize);
@@ -3365,7 +3472,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 	// Timer update.
 	{
-
 		if(!ds->noCollating) {
 			zeroMemory(timings, timer->timerInfoCount*sizeof(Timings));
 			zeroMemory(statistics, timer->timerInfoCount*sizeof(Statistic));
@@ -3443,7 +3549,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 	if(threadsFinished) {
 		timer->bufferIndex = 0;
-		ds->lastBufferIndex = 0;
+	ds->lastBufferIndex = 0;
 	}
 
 	assert(timer->bufferIndex < timer->bufferSize);
@@ -3545,7 +3651,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				// if(highlightedIndex == i) {
 				// 	Rect r = gui->getCurrentRegion();
 				// 	Rect line = rect(r.min, vec2(textSectionEnd,r.min.y + fontHeight));
-				// 	dcRect(line, highlightColor);
+				// 	drawRectNew(line, highlightColor);
 				// }
 
 				gui->label(fillString("%s", tInfo->file + 21),0);
@@ -3561,7 +3667,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				gui->label(fillString("%.3f%%", ((float)timing->cycles/cyclesPerFrame)*100),2);
 
 				// Bar graphs.
-				dcState(STATE_LINEWIDTH, barWidth);
+				glLineWidth(barWidth);
 
 				gui->empty();
 				Rect r = gui->getCurrentRegion();
@@ -3576,8 +3682,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					float height = mapRangeClamp(coh, stat->min, stat->max, 1, rheight);
 					Vec2 rmin = r.min + vec2(xOffset, fontBaseOffset);
 					float colorOffset = mapRange(coh, stat->min, stat->max, 0, 1);
-					// dcRect(rectMinDim(rmin, vec2(barWidth, height)), vec4(colorOffset,1-colorOffset,0,1));
-					dcLine2d(rmin, rmin+vec2(0,height), vec4(colorOffset,1-colorOffset,0,1));
+					// drawRectNew(rectMinDim(rmin, vec2(barWidth, height)), vec4(colorOffset,1-colorOffset,0,1));
+					drawLineNew(rmin, rmin+vec2(0,height), vec4(colorOffset,1-colorOffset,0,1));
 
 					xOffset += barWidth;
 				}
@@ -3663,10 +3769,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 			// Header.
 			{
-				dcRect(cyclesRect, gui->colors.sectionColor);
+				drawRectNew(cyclesRect, gui->colors.sectionColor);
 				Vec2 cyclesDim = rectGetDim(cyclesRect);
 
-				dcRect(headerRect, vec4(1,1,1,0.1f));
+				drawRectNew(headerRect, vec4(1,1,1,0.1f));
 				Vec2 headerDim = rectGetDim(headerRect);
 
 				{
@@ -3681,7 +3787,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						viewAreaRight = viewMid + viewMinSize*0.5;
 					}
 
-					dcRect(rect(viewAreaLeft, cyclesRect.min.y, viewAreaRight, cyclesRect.max.y), vec4(1,1,1,0.03f));
+					drawRectNew(rect(viewAreaLeft, cyclesRect.min.y, viewAreaRight, cyclesRect.max.y), vec4(1,1,1,0.03f));
 				}
 
 				float g = 0.7f;
@@ -3697,7 +3803,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 				clampMax(&heightMod, 1);
 
-				dcState(STATE_LINEWIDTH, 3);
+				glLineWidth(3);
 				double startPos = roundModDouble(orthoLeft, timelineSection) - timelineSection;
 				double pos = startPos;
 				while(pos < orthoRight + timelineSection) {
@@ -3706,7 +3812,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					// Big line.
 					{
 						float h = headerDim.h*heightMod;
-						dcLine2d(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
+						drawLineNew(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
 					}
 
 					// Text
@@ -3725,12 +3831,12 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						if(valueBetween(bgRect.min.x, textPos.x - tw/2, textPos.x + tw/2)) textPos.x = bgRect.min.x + tw/2;
 						if(valueBetween(bgRect.max.x, textPos.x - tw/2, textPos.x + tw/2)) textPos.x = bgRect.max.x - tw/2;
 
-						dcText(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, 1, gui->colors.shadowColor);
+						drawTextNew(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, 1, gui->colors.shadowColor);
 					}
 
 					pos += timelineSection;
 				}
-				dcState(STATE_LINEWIDTH, 1);
+				glLineWidth(1);
 
 				pos = startPos;
 				timelineSection /= div;
@@ -3742,7 +3848,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					if((index%(int)div) != 0) {
 						double p = mapRangeDouble(pos, orthoLeft, orthoRight, bgRect.min.x, bgRect.max.x);
 						float h = headerDim.h*heightMod;
-						dcLine2d(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
+						drawLineNew(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
 					}
 
 					// Cycle text.
@@ -3758,7 +3864,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						else if(cycles < 1000000000000) s = fillString("%.1fbc", cycles/1000000000);
 						else s = fillString("INF");
 
-						dcText(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, gui->settings.textShadow, gui->colors.shadowColor);
+						drawTextNew(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, gui->settings.textShadow, gui->colors.shadowColor);
 					}
 
 					pos += timelineSection;
@@ -3767,7 +3873,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				}
 			}
 
-			dcState(STATE_LINEWIDTH, 1);
+			glLineWidth(1);
 
 			bool mouseHighlight = false;
 			Rect hRect;
@@ -3786,7 +3892,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				if(threadIndex > 0) {
 					Vec2 p = startPos + vec2(0,lineHeight);
 					float g = 0.8f;
-					dcLine2d(p, vec2(bgRect.max.x, p.y), vec4(g,g,g,1));
+					drawLineNew(p, vec2(bgRect.max.x, p.y), vec4(g,g,g,1));
 				}
 
 				for(int i = 0; i < bufferCount; ++i) {
@@ -3805,7 +3911,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					// Draw vertical line at swap boundaries.
 					if(slot->timerIndex == swapTimerIndex) {
 						float g = 0.8f;
-						dcLine2d(vec2(barRight, bgRect.min.y), vec2(barRight, bgRect.max.y), vec4(g,g,g,1));
+						drawLineNew(vec2(barRight, bgRect.min.y), vec2(barRight, bgRect.max.y), vec4(g,g,g,1));
 					}
 
 					// Bar min size is 1.
@@ -3878,7 +3984,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		// Line graph.
 		if(ds->mode == 1)
 		{
-			dcState(STATE_LINEWIDTH, 1);
+			glLineWidth(1);
 
 			// Get longest function name string.
 			float timerInfoMaxStringSize = 0;
@@ -3954,8 +4060,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					p += timelineSection;
 					y = mapRange(p, orthoBottom, orthoTop, rBottom, rTop);
 
-					dcLine2d(vec2(rectNumbers.min.x, y), vec2(rectNumbers.min.x + length, y), vec4(1,1,1,1)); 
-					dcText(fillString("%i64.c",(i64)p), gui->font, vec2(rectNumbers.min.x + length + 4, y), vec4(1,1,1,1), vec2i(-1,0));
+					drawLineNew(vec2(rectNumbers.min.x, y), vec2(rectNumbers.min.x + length, y), vec4(1,1,1,1)); 
+					drawTextNew(fillString("%i64.c",(i64)p), gui->font, vec2(rectNumbers.min.x + length + 4, y), vec4(1,1,1,1), vec2i(-1,0));
 				}
 
 				gui->scissorPop();
@@ -3985,13 +4091,13 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 				Rect rectNamesAndLines = rect(rectNames.min, rectLines.max);
 				gui->scissorPush(rectNamesAndLines);
-				dcLine2d(vec2(rectLines.min.x - textWidth - 2, yAvg), vec2(rectLines.max.x, yAvg), color);
+				drawLineNew(vec2(rectLines.min.x - textWidth - 2, yAvg), vec2(rectLines.max.x, yAvg), color);
 				gui->scissorPop();
 
 				gui->scissorPush(rectLines);
 
-				if(timerIndex == ds->lineGraphHighlight) dcState(STATE_LINEWIDTH, 3);
-				else dcState(STATE_LINEWIDTH, 1);
+				if(timerIndex == ds->lineGraphHighlight) glLineWidth(3);
+				else glLineWidth(1);
 
 				bool firstEmpty = ds->timings[0][timerIndex].cyclesOverHits == 0;
 				Vec2 p = vec2(rectLines.min.x, 0);
@@ -4012,11 +4118,11 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 					if(lastElementEmpty) np.y = yAvg;
 
-					dcLine2d(p, np, color);
+					drawLineNew(p, np, color);
 					p = np;
 				}
 
-				dcState(STATE_LINEWIDTH, 1);
+				glLineWidth(1);
 
 				gui->scissorPop();
 			}
@@ -4036,7 +4142,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 				Vec4 color = vec4(info->color[0], info->color[1], info->color[2], 1);
 				Vec2 pos = vec2(r.min.x + sw+width/2 + i*(width+sw), rc.y);
-				dcRect(rectCenDim(pos, vec2(width, height)), color);
+				drawRectNew(rectCenDim(pos, vec2(width, height)), color);
 			}
 
 		}
@@ -4073,7 +4179,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		float y = -fontSize/2;
 		for(int i = 0; i < ds->notificationCount; i++) {
 			char* note = ds->notificationStack[i];
-			dcText(note, font, vec2(ws->currentRes.w/2, y), color, vec2i(0,0), 0, 2);
+			drawTextNew(note, font, vec2(ws->currentRes.w/2, y), color, vec2i(0,0), 0, 2);
 			y -= fontSize;
 		}
 	}
@@ -4102,12 +4208,12 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			timer = 0;
 		}
 
-		// dcText(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
-		// dcText(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
-		// dcText(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+		// drawTextNew(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+		// drawTextNew(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+		// drawTextNew(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 
 		for(int i = 0; i < ds->infoStackCount; i++) {
-			dcText(fillString("%s", ds->infoStack[i]), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+			drawTextNew(fillString("%s", ds->infoStack[i]), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		}
 		ds->infoStackCount = 0;
 	}

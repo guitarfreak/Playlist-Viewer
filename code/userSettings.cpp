@@ -145,7 +145,8 @@ enum SamplerType {
 //
 
 enum FrameBufferType {
-	FRAMEBUFFER_2d = 0,
+	FRAMEBUFFER_2dMsaa = 0,
+	FRAMEBUFFER_2dNoMsaa,
 
 	FRAMEBUFFER_DebugMsaa,
 	FRAMEBUFFER_DebugNoMsaa,

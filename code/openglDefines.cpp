@@ -59,6 +59,13 @@ typedef char GLchar;
 typedef ptrdiff_t GLsizeiptr;
 typedef ptrdiff_t GLintptr;
 
+#define GL_RGBA32F                        0x8814
+#define GL_RGB32F                         0x8815
+#define GL_RGBA16F                        0x881A
+#define GL_RGB16F                         0x881B
+#define GL_SRGB8                          0x8C41
+#define GL_DEPTH_COMPONENT32F             0x8CAC
+
 
 #define makeGLFunction(returnType, name, ...) \
 	typedef returnType name##Function(__VA_ARGS__); \

@@ -109,6 +109,14 @@ struct TimerBlock {
 	}
 };
 
+
+#define TIMER_BLOCK()
+#define TIMER_BLOCK_NAMED(name)
+#define TIMER_BLOCK_BEGIN(ID)
+#define TIMER_BLOCK_BEGIN_NAMED(ID, name)
+#define TIMER_BLOCK_END(ID)
+
+#ifdef TIMER_BLOCKS_ENABLED
 #define TIMER_BLOCK() \
 	TimerBlock timerBlock##__LINE__(__COUNTER__, __FILE__, __FUNCTION__, __LINE__);
 
@@ -125,3 +133,4 @@ struct TimerBlock {
 
 #define TIMER_BLOCK_END(ID) \
 	addTimerSlot(timerCounter##ID, TIMER_TYPE_END);
+#endif
