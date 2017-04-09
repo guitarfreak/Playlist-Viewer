@@ -15,7 +15,7 @@
 	- Gui textbox clipboard.
 	- Fixed getClipboard, added closeClipboard.
 	- Gui textbox returns true only on new value when hitting enter.
-
+	- Fixed bug in debugNotifications.
 
 
 	- Change draggin in gui to match the winapi method.
@@ -1240,28 +1240,160 @@ void downloadVideos(void* data) {
 
 
 
-#define Graph_Zoom_Min 60*60*4
 
+enum GuiFocus {
+	Gui_Focus_MLeft = 0,
+	Gui_Focus_MRight,
+	Gui_Focus_MMiddle,
+	Gui_Focus_MWheel,
+
+	Gui_Focus_Size,
+};
 
 struct NewGui {
-	int activeId;
-	int hotId;
-
-	int contenderId;
-	int contenderIdZ;
-
 	int id;
+
+	int activeId;
+	int gotActiveId;
+	int lostActiveId;
+	
+	int hotId[Gui_Focus_Size];
+	int contenderId[Gui_Focus_Size];
+	int contenderIdZ[Gui_Focus_Size];
 };
 
 void newGuiBegin(NewGui* gui) {
-	gui->id = 0;
-	gui->contenderId = -1;
-	gui->contenderIdZ = -10;
+	gui->id = 1;
+	gui->gotActiveId = 0;
+	gui->lostActiveId = 0;
+
+	for(int i = 0; i < Gui_Focus_Size; i++) {
+		gui->contenderId[i] = 0;
+		gui->contenderIdZ[i] = 0;
+	}
+
+	if(gui->activeId != 0) {
+		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = 0;
+	}
 }
 
 void newGuiEnd(NewGui* gui) {
-	gui->hotId = gui->contenderId;
+	for(int i = 0; i < Gui_Focus_Size; i++) {
+		gui->hotId[i] = gui->contenderId[i];
+	}
 }
+
+int newGuiIncrementId(NewGui* gui) {
+	return gui->id++;
+}
+
+bool newGuiIsHot(NewGui* gui, int id, int focus = 0) {
+	return id == gui->hotId[focus];
+}
+
+bool newGuiIsActive(NewGui* gui, int id) {
+	return id == gui->activeId;
+}
+
+bool newGuiGotActive(NewGui* gui, int id) {
+	return id == gui->gotActiveId;
+}
+
+void newGuiClearActive(NewGui* gui) {
+	gui->activeId = 0;
+}
+
+bool newGuiSomeoneActive(NewGui* gui) {
+	return gui->activeId != 0;
+}
+
+void newGuiSetNotActiveWhenActive(NewGui* gui, int id) {
+	if(newGuiIsActive(gui, id)) newGuiClearActive(gui);
+}
+
+void newGuiSetActive(NewGui* gui, int id, bool input, int focus = 0) {
+	if(input && newGuiIsHot(gui, id, focus)) {
+		gui->activeId = id;
+		gui->gotActiveId = id;
+	}
+}
+
+void newGuiSetHotMouseOver(NewGui* gui, int id, Vec2 mousePos, Rect r, float z, int focus = 0) {
+	if(!newGuiSomeoneActive(gui) && pointInRect(mousePos, r)) {
+		if(z > gui->contenderIdZ[focus]) {
+			gui->contenderId[focus] = id;
+			gui->contenderIdZ[focus] = z;
+		} else {
+			if(z == gui->contenderIdZ[focus]) {
+				gui->contenderId[focus] = max(id, gui->contenderId[focus]);
+			}
+		}
+	}
+}
+
+int newGuiButtonAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, int focus = 0) {
+	newGuiSetActive(gui, id, input, focus);
+	newGuiSetNotActiveWhenActive(gui, id);
+	newGuiSetHotMouseOver(gui, id, mousePos, r, z, focus);
+
+	return id;
+}
+
+int newGuiButtonAction(NewGui* gui, Rect r, float z, Vec2 mousePos, bool input, int focus = 0) {
+	return newGuiButtonAction(gui, newGuiIncrementId(gui), r, z, mousePos, input, focus);
+}
+
+int newGuiDragAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, bool inputRelease, int focus = 0) {
+	newGuiSetActive(gui, id, input, focus);
+	if(inputRelease) newGuiClearActive(gui);
+	newGuiSetHotMouseOver(gui, id, mousePos, r, z, focus);
+
+	return id;
+}
+
+int newGuiDragAction(NewGui* gui, Rect r, float z, Vec2 mousePos, bool input, bool inputRelease, int focus = 0) {
+	return newGuiDragAction(gui, newGuiIncrementId(gui), r, z, mousePos, input, inputRelease, focus);
+}
+
+Vec4 newGuiHotActiveColorMod(bool isHot, bool isActive) {
+	Vec4 colorMod = vec4(0,0,0,0);
+	if(isHot) colorMod = vec4(0.1f,0); 
+	if(isActive) colorMod = vec4(0.2f,0); 
+
+	return colorMod;
+}
+
+Vec4 newGuiHotActiveColorMod(NewGui* gui, int id, int focus = 0) {
+	Vec4 colorMod = vec4(0,0,0,0);
+	if(newGuiIsHot(gui, id, focus)) colorMod = vec4(0.1f,0); 
+	if(newGuiIsActive(gui, id)) colorMod = vec4(0.2f,0); 
+
+	return colorMod;
+}
+
+Rect newGuiCalcSlider(float value, Rect br, float size, bool vertical) {
+	if(vertical) {
+		float sliderPos = mapRange(value, 0, 1, br.min.x + size/2, br.max.x - size/2);
+		Rect slider = rectCenDim(sliderPos, rectGetCen(br).y, size, rectGetH(br));
+		return slider;
+	} else {
+		float sliderPos = mapRange(value, 0, 1, br.min.y + size/2, br.max.y - size/2);
+		Rect slider = rectCenDim(rectGetCen(br).x, sliderPos, rectGetW(br), size);
+		return slider;
+	}
+}
+
+float newGuiSliderGetValue(Vec2 sliderCenter, Rect br, float size, bool vertical) {
+	if(vertical) {
+		float sliderValue = mapRangeClamp(sliderCenter.x, br.min.x + size/2, br.max.x - size/2, 0, 1);
+		return sliderValue;
+	} else {
+		float sliderValue = mapRangeClamp(sliderCenter.y, br.min.y + size/2, br.max.y - size/2, 0, 1);
+		return sliderValue;
+	}
+}
+
+#define Graph_Zoom_Min 60*60*4
 
 struct AppData {
 	// General.
@@ -1298,6 +1430,11 @@ struct AppData {
 	bool dragMode;
 	int dragOffsetX, dragOffsetY;
 	int resizeOffsetX, resizeOffsetY;
+
+	bool updateWindow;
+	int updateWindowX, updateWindowY;
+	int updateWidth, updateHeight;
+
 	bool screenShotMode;
 
 	// App.
@@ -1696,6 +1833,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->time = ds->time;
 
 		ad->frameCount++;
+
+		newGuiBegin(&ad->newGui);
 	}
 
 	// Handle recording.
@@ -1727,127 +1866,109 @@ extern "C" APPMAINFUNCTION(appMain) {
     	*isRunning = false;
     }
 
+
+	// Window drag.
 	{
-		SetCursor(LoadCursor(0, IDC_ARROW));
+    	ad->updateWindow = false;
+    	ad->dragMode = false;
+
+	    NewGui* gui = &ad->newGui;
+
+		static Vec2i mouseAnchor;
+		static bool ctrlMode;
+
+		bool resize = false;
+		bool setupResize = false;
+		int mode = -1;
 
 	    Vec2i res = ws->currentRes;
-	    float w = 20;
 	    Rect screenRect = rect(0, -res.h, res.w, 0);
-	    Rect moveRect = rectExpand(screenRect, -vec2(w*2,w*2));
-		Rect resizeRight = rect(res.w-w, -res.h+w, res.w, 0);
-		Rect resizeBottom = rect(0, -res.h, res.w-w, -res.h+w);
-		Rect resizeDR = rect(resizeBottom.right, resizeBottom.bottom, resizeRight.right, resizeRight.bottom);
+	    int id = newGuiDragAction(gui, screenRect, 0, input->mousePosNegative, input->mouseButtonPressed[1], input->mouseButtonReleased[1], Gui_Focus_MRight);
 
-		if(pointInRect(input->mousePosNegative, resizeRight)) {
-			SetCursor(LoadCursor(0, IDC_SIZEWE));
-		} else if(pointInRect(input->mousePosNegative, resizeBottom)) {
-			SetCursor(LoadCursor(0, IDC_SIZENS));
-		} else if(pointInRect(input->mousePosNegative, resizeDR)) {
-			SetCursor(LoadCursor(0, IDC_SIZENWSE));
-		}
+	    if(newGuiGotActive(gui, id)) {
+	    	if(!input->keysDown[KEYCODE_CTRL]) {
+	    		ctrlMode = false;
+		    	POINT p;
+		    	GetCursorPos(&p);
+		    	ScreenToClient(windowHandle, &p);
 
-		if(input->mouseButtonPressed[1]) {
+	    		mouseAnchor = vec2i(p.x+1, p.y+1);
+	    	} else {
+	    		ctrlMode = true;
+	    		setupResize = true;
+	    	}
+	    }
+
+	    if(newGuiIsActive(gui, id)) {
+	    	POINT p; 
+	    	GetCursorPos(&p);
+	    	RECT r; 
+	    	GetWindowRect(windowHandle, &r);
+
+	    	if(!ctrlMode) {
+		    	MoveWindow(windowHandle, p.x - mouseAnchor.x, p.y - mouseAnchor.y, r.right-r.left, r.bottom-r.top, true);
+	    	} else {
+	    		resize = true;
+	    	}
+	    }
+
+	    float w = 20;
+    	Rect resizeRight = rect(res.w-w, -res.h+w, res.w, 0);
+    	Rect resizeBottom = rect(0, -res.h, res.w-w, -res.h+w);
+    	Rect resizeDR = rect(resizeBottom.right, resizeBottom.bottom, resizeRight.right, resizeRight.bottom);
+
+	    int idResizeRight = newGuiDragAction(gui, resizeRight, 0, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0], Gui_Focus_MLeft);
+	    int idResizeBottom = newGuiDragAction(gui, resizeBottom, 0, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0], Gui_Focus_MLeft);
+	    int idResizeDR = newGuiDragAction(gui, resizeDR, 0, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0], Gui_Focus_MLeft);
+
+	    if(newGuiGotActive(gui, idResizeRight) || newGuiGotActive(gui, idResizeBottom) || newGuiGotActive(gui, idResizeDR)) setupResize = true;
+	    if(newGuiIsActive(gui, idResizeRight) || newGuiIsActive(gui, idResizeBottom) || newGuiIsActive(gui, idResizeDR)) resize = true;
+
+        if(newGuiIsActive(gui, idResizeRight)) mode = 0;
+		if(newGuiIsActive(gui, idResizeBottom)) mode = 1;
+		if(newGuiIsActive(gui, idResizeDR)) mode = 2;
+
+
+
+		if(setupResize) {
 			POINT p;
 			GetCursorPos(&p);
 			ScreenToClient(windowHandle, &p);
-			ad->dragOffsetX = p.x + 1; // Border size.
-			ad->dragOffsetY = p.y + 1;
-
 			RECT r;
 			GetWindowRect(windowHandle, &r);
-			ad->resizeOffsetX = (r.right - r.left) - p.x;
-			ad->resizeOffsetY = (r.bottom - r.top) - p.y;
 
-			// if(input->keysDown[KEYCODE_CTRL]) {
-			// 	ad->resizeMode = true;
-			// } else {
-			// 	ad->dragMode = true;
-			// }
-
-			if(pointInRect(input->mousePosNegative, resizeRight)) {
-				ad->resizeMode = 1;
-			} else if(pointInRect(input->mousePosNegative, resizeBottom)) {
-				ad->resizeMode = 2;
-			} else if(pointInRect(input->mousePosNegative, resizeDR)) {
-				ad->resizeMode = 3;
-			} else if(pointInRect(input->mousePosNegative, moveRect)) {
-				ad->dragMode = true;
-			}
-
-			if(input->keysDown[KEYCODE_CTRL]) {
-				ad->resizeMode = 3;
-				ad->dragMode = false;
-			}
-		} 
-	}
-
-	if(input->mouseButtonReleased[1]) {
-		ad->resizeMode = 0;
-		ad->dragMode = false;
-	}
-
-	bool updateWindow = false;
-	int updateWindowX = 0;
-	int updateWindowY = 0;
-	int updateWidth = 0;
-	int updateHeight = 0;
-
-	if(ad->resizeMode) {
-		POINT ps;
-		GetCursorPos(&ps);
-		ScreenToClient(windowHandle, &ps);
-
-		RECT r;
-		GetWindowRect(windowHandle, &r);
-
-		int newWidth = clampMin(ps.x + ad->resizeOffsetX, 300);
-		int newHeight = clampMin(ps.y + ad->resizeOffsetY, 300);
-
-		if(ad->resizeMode == 1) {
-			SetCursor(LoadCursor(0, IDC_SIZEWE));
-			newHeight = r.bottom - r.top;
-		} else if(ad->resizeMode == 2) {
-			SetCursor(LoadCursor(0, IDC_SIZENS));
-			newWidth = r.right - r.left;
-		} else if(ad->resizeMode == 3) {
-			SetCursor(LoadCursor(0, IDC_SIZENWSE));
+			mouseAnchor = vec2i((r.right - r.left) - p.x, (r.bottom - r.top) - p.y);
 		}
 
-		updateWindow = true;
+        if(resize) {
+        	POINT p; 
+        	GetCursorPos(&p);
+        	RECT r; 
+        	GetWindowRect(windowHandle, &r);
 
-		updateWindowX = r.left;
-		updateWindowY = r.top;
-		updateWidth = newWidth;
-		updateHeight = newHeight;
+	    	ScreenToClient(windowHandle, &p);
 
-		ws->currentRes.w = newWidth-2;
-		ws->currentRes.h = newHeight-2;
-		ws->aspectRatio = ws->currentRes.x / (float)ws->currentRes.y;
+	    	int newWidth = mode == 1 ? r.right - r.left : clampMin(p.x + mouseAnchor.x, 300);
+	    	int newHeight = mode == 0 ? r.bottom - r.top : clampMin(p.y + mouseAnchor.y, 300);
 
-		ad->updateFrameBuffers = true;
-	}
+	    	ad->updateWindow = true;
 
-	if(ad->dragMode) {
-		POINT p;
-		GetCursorPos(&p);
+	    	ad->updateWindowX = r.left;
+	    	ad->updateWindowY = r.top;
+	    	ad->updateWidth = newWidth;
+	    	ad->updateHeight = newHeight;
 
-		RECT r;
-		GetWindowRect(windowHandle, &r);
+	    	ws->currentRes.w = newWidth-2;
+	    	ws->currentRes.h = newHeight-2;
+	    	ws->aspectRatio = ws->currentRes.x / (float)ws->currentRes.y;
 
-		MoveWindow(windowHandle, p.x - ad->dragOffsetX, p.y - ad->dragOffsetY, r.right-r.left, r.bottom-r.top, true);
-	}
+	    	ad->updateFrameBuffers = true;	
+        }
+	}	
 
-	if(!updateWindow) {
-		if(windowSizeChanged(windowHandle, ws)) {
-			if(!windowIsMinimized(windowHandle)) {
-				updateResolution(windowHandle, ws);
-				ad->updateFrameBuffers = true;
-			}
-		}
-	}
+
 
 	ad->screenShotMode = false;
-	// if(input->keysPressed[KEYCODE_F9]) ad->screenShotMode = true;
 	if(ad->startScreenShot) {
 		ad->startScreenShot = false;
 		ad->screenShotMode = true;
@@ -2952,98 +3073,173 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	endOfMainLabel:
 
-
+	// if(false)
 	{
 		glEnable(GL_DEPTH_TEST);
 
 		if(init) {
 			ad->newGui.activeId = -1;
+			ad->newGui.gotActiveId = -1;
+			ad->newGui.lostActiveId = -1;
 		}
 
 		NewGui* gui = &ad->newGui;
-		newGuiBegin(gui);
 
+		/*
+			zoom/move graphs
+			zoom/move left side
+			move window right click everywhere
+			resize ctrl right click everywhere
+			resize right/bottom left click
+
+			debug window blocks everything else
+		*/
+
+		// {
+		// 	Rect br = rectCenDim(300,-300,200,40);
+		// 	Vec4 c = vec4(0.5f,0,0,1);
+		// 	float z = 1;
+
+		// 	int id = newGuiIncrementId(gui);
+		// 	newGuiButtonAction(gui, id, br, z, input->mousePosNegative, input->mouseButtonPressed[0]);
+		// 	newGuiButtonAction(gui, id, br, z, input->mousePosNegative, input->mouseWheel != 0, Gui_Focus_MWheel);
+
+		// 	drawRectNew(br, c, z);
+		// 	if(newGuiGotActive(gui, id)) addDebugNote(fillString("Id: %i", id));
+		// }
+
+		// {
+		// 	Rect br = rectCenDim(330,-320,200,40);
+		// 	Vec4 c = vec4(0,0.5f,0,1);
+		// 	float z = 0;
+
+		// 	int id = newGuiButtonAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0]);
+		// 	bool active = newGuiGotActive(gui, id);
+
+		// 	drawRectNew(br, c + newGuiHotActiveColorMod(newGuiIsHot(gui, id), active), z);
+
+		// 	if(active) {
+		// 		addDebugNote(fillString("Id: %i", id));
+		// 	}
+		// }
+
+		static Vec2 mouseAnchor;
+		static bool mode;
 
 		{
-			Rect br = rectCenDim(300,-300,200,40);
-			Vec4 c = vec4(0.5f,0,0,1);
+			static Rect br = rectCenDim(330,-320,80,400);
+			Vec4 c = vec4(0,0.5f,0.5f,1);
+			float z = 2;
 
-			int id = gui->id++;
-			float z = 1;
+			int id = newGuiDragAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
 
-			if(id == gui->activeId) {
-				gui->activeId = -1;
-			}
+			if(newGuiGotActive(gui, id)) {
+				if(input->keysDown[KEYCODE_CTRL]) mode = 1;
+				else mode = 0;
 
-			if(input->mouseButtonPressed[0] && gui->hotId == id) {
-				gui->activeId = id;
-			}
-
-			if(gui->activeId == -1 && pointInRect(input->mousePosNegative, br)) {
-				if(z > gui->contenderIdZ) {
-					gui->contenderId = id;
-					gui->contenderIdZ = z;
+				if(mode == 0) {
+					mouseAnchor = input->mousePosNegative - rectGetCen(br);
 				} else {
-					if(z == gui->contenderIdZ) {
-						gui->contenderId = max(id, gui->contenderId);
-					}
+					mouseAnchor = input->mousePosNegative - rectGetDR(br);
 				}
 			}
 
-			if(id == gui->hotId) c += vec4(0.1f,0); 
-			if(id == gui->activeId) c += vec4(0.2f,0); 
-
-			drawRectNew(br, c, z);
-
-			if(id == gui->activeId) {
-				addDebugNote(fillString("Id: %i", id));
-			}
-		}
-
-
-		{
-			Rect br = rectCenDim(330,-320,200,40);
-			Vec4 c = vec4(0,0.5f,0,1);
-
-			int id = gui->id++;
-			float z = 0;
-
-			if(id == gui->activeId) {
-				gui->activeId = -1;
-			}
-
-			if(input->mouseButtonPressed[0] && gui->hotId == id) {
-				gui->activeId = id;
-			}
-
-			if(gui->activeId == -1 && pointInRect(input->mousePosNegative, br)) {
-				if(z > gui->contenderIdZ) {
-					gui->contenderId = id;
-					gui->contenderIdZ = z;
+			if(newGuiIsActive(gui, id)) {
+				if(mode == 0) {
+					br = rectCenDim(input->mousePosNegative - mouseAnchor, rectGetDim(br));
 				} else {
-					if(z == gui->contenderIdZ) {
-						gui->contenderId = max(id, gui->contenderId);
-					}
+					Vec2 dr = input->mousePosNegative - mouseAnchor;
+					br.bottom = br.top - clampMin(br.top - dr.y, 100);
+					br.right = br.left + clampMin(dr.x - br.left, 100);
 				}
 			}
 
-			if(id == gui->hotId) c += vec4(0.1f,0); 
-			if(id == gui->activeId) c += vec4(0.2f,0); 
-
-			drawRectNew(br, c, z);
-
-			if(id == gui->activeId) {
-				addDebugNote(fillString("Id: %i", id));
-			}
+			drawRectNew(br, c + newGuiHotActiveColorMod(newGuiIsHot(gui, id), false), z);
 		}
 
+		// static float sliderValue = 0;
+		// {
+		// 	static Vec2 mouseAnchor;
+	
+		// 	static Rect br = rectCenDim(630,-320,30,300);
+		// 	float sliderSize = 30;
+		// 	Vec4 c = vec4(0.5f,0.0f,0.5f,1);
+		// 	Vec4 c2 = vec4(0.7f,0.0f,0.5f,1);
+		// 	float z = 3;
+
+		// 	Rect slider = newGuiCalcSlider(sliderValue, br, sliderSize, false);
+		// 	int id = newGuiDragAction(gui, slider, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
+
+		// 	if(newGuiGotActive(gui, id)) mouseAnchor = input->mousePosNegative - rectGetCen(slider);
+		// 	if(newGuiIsActive(gui, id)) {
+		// 		sliderValue = newGuiSliderGetValue(input->mousePosNegative - mouseAnchor, br, sliderSize, false);
+		// 		Rect slider = newGuiCalcSlider(sliderValue, br, sliderSize, false);
+		// 	}
+
+		// 	drawRectNew(br, c, z);
+		// 	drawRectNew(rectExpand(slider, vec2(-7,-7)), c2 + newGuiHotActiveColorMod(gui, id), z+1);
+		// }
 
 
-		newGuiEnd(gui);
+
+		{
+			// bool buttonActive = false;
+			// {
+			// 	Rect br = rectCenDim(300,-300,200,60);
+			// 	float z = 0;
+
+			// 	bool active;
+			// 	int id = newGuiButtonAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0], &active);
+
+			// 	drawRectNew(br, vec4(0.6f,0.5f,0,1) + newGuiHotActiveColorMod(newGuiIsHot(gui, id), active), z);
+
+			// 	if(active) {
+			// 		addDebugNote(fillString("Id: %i", id));
+			// 		buttonActive = true;
+			// 	}
+			// }
+
+			// static bool dropBoxEnabled = false;
+
+			// if(buttonActive) {
+			// 	dropBoxEnabled = true;
+			// 	input->mouseButtonPressed[0] = false;
+			// }
+
+			// if(dropBoxEnabled) 
+			// {
+			// 	Rect br = rectCenDim(350,-300,80,500);
+			// 	float z = 3;
+
+			// 	if(input->mouseButtonPressed[0] && !pointInRect(input->mousePosNegative, br)) {
+			// 		dropBoxEnabled = false;
+			// 	}
+
+			// 	int id = newGuiIncrementId(gui);
+			// 	// bool active = newGuiSetActiveLeftMouseClick(gui, id, input->mouseButtonPressed[0]);
+			// 	// newGuiSetNotActiveWhenActive(gui, id);
+			// 	newGuiSetHotMouseOver(gui, id, input->mousePosNegative, br, z);
+
+			// 	Vec4 c = vec4(0.6f,0.5f,0,1);
+
+			// 	// if(newGuiIsHot(gui, id)) c += vec4(0.1f,0); 
+			// 	// if(active) c += vec4(0.2f,0); 
+
+			// 	// if(newGuiIsActive(gui, id)) 
+			// 	drawRectNew(br, c, z);
+
+			// 	// if(active) {
+			// 		// addDebugNote(fillString("Id: %i", id));
+			// 		// buttonActive = true;
+			// 	// }
+			// }
+		}
 
 		glDisable(GL_DEPTH_TEST);
 	}
 
+
+	newGuiEnd(&ad->newGui);
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
@@ -3104,7 +3300,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// Swap window background buffer.
 	{
 		TIMER_BLOCK_NAMED("Swap");
-		if(updateWindow) MoveWindow(windowHandle, updateWindowX, updateWindowY, updateWidth, updateHeight, true);
+		if(ad->updateWindow) MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
 		swapBuffers(&ad->systemData);
 		glFinish();
 
@@ -4165,7 +4361,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		// Delete expired notes.
 		if(deletionCount > 0) {
 			for(int i = 0; i < ds->notificationCount-deletionCount; i++) {
-				ds->notificationStack[i] = ds->notificationStack[i+deletionCount];
+				strCpy(ds->notificationStack[i], ds->notificationStack[i+deletionCount]);
 				ds->notificationTimes[i] = ds->notificationTimes[i+deletionCount];
 			}
 			ds->notificationCount -= deletionCount;
