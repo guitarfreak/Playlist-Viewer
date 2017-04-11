@@ -701,6 +701,10 @@ void swapBuffers(SystemData* systemData) {
     SwapBuffers(systemData->deviceContext);
 }
 
+Rect getScreenRect(WindowSettings* ws) {
+	return rect(0, -ws->currentRes.h, ws->currentRes.w, 0);
+}
+
 void captureMouse(HWND windowHandle, bool t) {
 	if(t) {
 		int w,h;

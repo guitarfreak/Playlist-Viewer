@@ -3221,6 +3221,22 @@ void graphCamTrans(GraphCam* cam, double xTrans, double yTrans) {
 	graphCamUpdateSides(cam);
 }
 
+double graphCamScreenToCamSpaceX(GraphCam* cam, float v) {
+	return v * (cam->w/(rectGetW(cam->viewPort)));
+}
+
+double graphCamScreenToCamSpaceY(GraphCam* cam, float v) {
+	return v * (cam->h/(rectGetH(cam->viewPort)));
+}
+
+float graphCamCamToScreenSpaceX(GraphCam* cam, double v) {
+	return v * ((rectGetW(cam->viewPort))/cam->w);
+}
+
+float graphCamCamToScreenSpaceY(GraphCam* cam, double v) {
+	return v * ((rectGetH(cam->viewPort))/cam->h);
+}
+
 // Maps camera space to view/screenspace.
 inline float graphCamMapX(GraphCam* cam, double v) {
 	float x = mapRangeDouble(v, cam->left, cam->right, cam->viewPort.left, cam->viewPort.right);

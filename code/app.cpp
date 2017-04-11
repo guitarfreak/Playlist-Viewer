@@ -1260,9 +1260,16 @@ struct NewGui {
 	int hotId[Gui_Focus_Size];
 	int contenderId[Gui_Focus_Size];
 	int contenderIdZ[Gui_Focus_Size];
+
+	Input* input;
+
+	// Temp vars for convenience.
+
+	Vec2 mouseAnchor;
+	int mode;
 };
 
-void newGuiBegin(NewGui* gui) {
+void newGuiBegin(NewGui* gui, Input* input = 0) {
 	gui->id = 1;
 	gui->gotActiveId = 0;
 	gui->lostActiveId = 0;
@@ -1275,6 +1282,8 @@ void newGuiBegin(NewGui* gui) {
 	if(gui->activeId != 0) {
 		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = 0;
 	}
+
+	gui->input = input;
 }
 
 void newGuiEnd(NewGui* gui) {
@@ -1318,8 +1327,8 @@ void newGuiSetActive(NewGui* gui, int id, bool input, int focus = 0) {
 	}
 }
 
-void newGuiSetHotMouseOver(NewGui* gui, int id, Vec2 mousePos, Rect r, float z, int focus = 0) {
-	if(!newGuiSomeoneActive(gui) && pointInRect(mousePos, r)) {
+void newGuiSetHot(NewGui* gui, int id, float z, int focus = 0) {
+	if(!newGuiSomeoneActive(gui)) {
 		if(z > gui->contenderIdZ[focus]) {
 			gui->contenderId[focus] = id;
 			gui->contenderIdZ[focus] = z;
@@ -1330,6 +1339,43 @@ void newGuiSetHotMouseOver(NewGui* gui, int id, Vec2 mousePos, Rect r, float z, 
 		}
 	}
 }
+
+void newGuiSetHotAll(NewGui* gui, int id, float z) {
+	for(int i = 0; i < Gui_Focus_Size; i++) {
+		newGuiSetHot(gui, id, z, i);
+	}
+}
+
+void newGuiSetHotAll(NewGui* gui, float z) {
+	return newGuiSetHotAll(gui, newGuiIncrementId(gui), z);
+}
+
+void newGuiSetHotAllMouseOver(NewGui* gui, int id, Rect r, float z) {
+	if(pointInRect(gui->input->mousePosNegative, r)) return newGuiSetHotAll(gui, id, z);
+}
+
+void newGuiSetHotAllMouseOver(NewGui* gui, Rect r, float z) {
+	return newGuiSetHotAllMouseOver(gui, newGuiIncrementId(gui), r, z);
+}
+
+void newGuiSetHotMouseOver(NewGui* gui, int id, Vec2 mousePos, Rect r, float z, int focus = 0) {
+	if(pointInRect(mousePos, r)) {
+		newGuiSetHot(gui, id, z, focus);
+	}
+}
+
+int newGuiInputFromFocus(Input* input, int focus, bool press = true) {
+	switch(focus) {
+		case Gui_Focus_MLeft: return press?input->mouseButtonPressed[0]:input->mouseButtonReleased[0];
+		case Gui_Focus_MRight: return press?input->mouseButtonPressed[1]:input->mouseButtonReleased[1];
+		case Gui_Focus_MMiddle: return press?input->mouseButtonPressed[2]:input->mouseButtonReleased[2];
+
+		case Gui_Focus_MWheel: return input->mouseWheel != 0;
+		default: return -1;
+	}
+}
+
+
 
 int newGuiButtonAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, int focus = 0) {
 	newGuiSetActive(gui, id, input, focus);
@@ -1343,9 +1389,32 @@ int newGuiButtonAction(NewGui* gui, Rect r, float z, Vec2 mousePos, bool input, 
 	return newGuiButtonAction(gui, newGuiIncrementId(gui), r, z, mousePos, input, focus);
 }
 
+int newGuiButtonAction(NewGui* gui, int id, Rect r, float z, int focus = 0) {
+	bool input = newGuiInputFromFocus(gui->input, focus, true);
+	return newGuiButtonAction(gui, id, r, z, gui->input->mousePosNegative, input, focus);
+}
+
+int newGuiButtonAction(NewGui* gui, Rect r, float z, int focus = 0) {
+	return newGuiButtonAction(gui, newGuiIncrementId(gui), r, z, focus);
+}
+
+
+bool newGuiGoButtonAction(NewGui* gui, Rect r, float z, int focus = 0) {
+	int id = newGuiButtonAction(gui, r, z, focus);
+	bool gotActive = newGuiGotActive(gui, id);
+	return gotActive;
+}
+
+bool newGuiGoButtonAction(NewGui* gui, int id, Rect r, float z, int focus = 0) {
+	id = newGuiButtonAction(gui, id, r, z, focus);
+	bool gotActive = newGuiGotActive(gui, id);
+	return gotActive;
+}
+
+
 int newGuiDragAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, bool inputRelease, int focus = 0) {
 	newGuiSetActive(gui, id, input, focus);
-	if(inputRelease) newGuiClearActive(gui);
+	if(newGuiIsActive(gui, id) && inputRelease) newGuiClearActive(gui);
 	newGuiSetHotMouseOver(gui, id, mousePos, r, z, focus);
 
 	return id;
@@ -1355,20 +1424,33 @@ int newGuiDragAction(NewGui* gui, Rect r, float z, Vec2 mousePos, bool input, bo
 	return newGuiDragAction(gui, newGuiIncrementId(gui), r, z, mousePos, input, inputRelease, focus);
 }
 
+int newGuiDragAction(NewGui* gui, Rect r, float z, int focus = 0) {
+	bool input = newGuiInputFromFocus(gui->input, focus, true);
+	bool inputRelease = newGuiInputFromFocus(gui->input, focus, false);
+	return newGuiDragAction(gui, newGuiIncrementId(gui), r, z, gui->input->mousePosNegative, input, inputRelease, focus);
+}
+
+int newGuiGoDragAction(NewGui* gui, Rect r, float z, int focus = 0) {
+	int id = newGuiDragAction(gui, r, z, focus);
+	if(newGuiGotActive(gui, id)) return 1;
+	if(newGuiIsActive(gui, id)) return 2;
+	return 0;
+}
+
 Vec4 newGuiHotActiveColorMod(bool isHot, bool isActive) {
 	Vec4 colorMod = vec4(0,0,0,0);
-	if(isHot) colorMod = vec4(0.1f,0); 
-	if(isActive) colorMod = vec4(0.2f,0); 
+	if(isHot) colorMod = vec4(0.08f,0); 
+	if(isActive) colorMod = vec4(0.17f,0); 
 
 	return colorMod;
 }
 
 Vec4 newGuiHotActiveColorMod(NewGui* gui, int id, int focus = 0) {
-	Vec4 colorMod = vec4(0,0,0,0);
-	if(newGuiIsHot(gui, id, focus)) colorMod = vec4(0.1f,0); 
-	if(newGuiIsActive(gui, id)) colorMod = vec4(0.2f,0); 
+	return newGuiHotActiveColorMod(newGuiIsHot(gui, id, focus), newGuiIsActive(gui, id));
+}
 
-	return colorMod;
+Vec4 newGuiHotGotActiveColorMod(NewGui* gui, int id, int focus = 0) {
+	return newGuiHotActiveColorMod(newGuiIsHot(gui, id, focus), newGuiGotActive(gui, id));
 }
 
 Rect newGuiCalcSlider(float value, Rect br, float size, bool vertical) {
@@ -1392,6 +1474,52 @@ float newGuiSliderGetValue(Vec2 sliderCenter, Rect br, float size, bool vertical
 		return sliderValue;
 	}
 }
+
+void newGuiDiv(float width, float offset, float* c, int size) {
+	float dynamicSum = 0;
+	int flowCount = 0;
+	float staticSum = 0;
+	int staticCount = 0;
+	for(int i = 0; i < size; i++) {
+		float val = c[i];
+		
+		if(val == 0) flowCount++; 			 // float element
+		else if(val <= 1) dynamicSum += val; // dynamic element
+		else { 								 // static element
+			staticSum += val;
+			staticCount++;
+		}
+	}
+
+	if(flowCount) {
+		float flowVal = abs(dynamicSum-1)/(float)flowCount;
+		for(int i = 0; i < size; i++)
+			if(c[i] == 0) c[i] = flowVal;
+	}
+
+	float totalWidth = width - staticSum - offset*(size-1);
+	for(int i = 0; i < size; i++) {
+		float val = c[i];
+		if(val <= 1) {
+			if(totalWidth > 0) c[i] = val * totalWidth;
+			else c[i] = 0;
+		} else c[i] = val;
+	}
+}
+
+void newGuiRectsFromWidths(Rect r, float* widths, int size, Rect* rects) {
+	float yPos = rectGetCen(r).y;
+	float h = rectGetH(r);
+	float sum = 0;
+	for(int i = 0; i < size; i++) {
+		float xPos = r.left + sum + widths[i]/2;
+		rects[i] = rectCenDim(xPos, yPos, widths[i], h);
+
+		sum += widths[i];
+	}
+}
+
+
 
 #define Graph_Zoom_Min 60*60*4
 
@@ -1426,11 +1554,6 @@ struct AppData {
 
 	// Window.
 
-	int resizeMode;
-	bool dragMode;
-	int dragOffsetX, dragOffsetY;
-	int resizeOffsetX, resizeOffsetY;
-
 	bool updateWindow;
 	int updateWindowX, updateWindowY;
 	int updateWidth, updateHeight;
@@ -1457,6 +1580,7 @@ struct AppData {
 	//
 
 	NewGui newGui;
+	NewGui* gui;
 
 	//
 
@@ -1617,7 +1741,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->showMenu = false;
 		ds->showStats = false;
 		ds->showConsole = false;
-		ds->showHud = false;
+		ds->showHud = true;
 		// ds->guiAlpha = 0.95f;
 		ds->guiAlpha = 1;
 		ds->noCollating = false;
@@ -1834,7 +1958,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->frameCount++;
 
-		newGuiBegin(&ad->newGui);
+		ad->gui = &ad->newGui;
+		newGuiBegin(&ad->newGui, input);
 	}
 
 	// Handle recording.
@@ -1869,32 +1994,27 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Window drag.
 	{
-    	ad->updateWindow = false;
-    	ad->dragMode = false;
-
 	    NewGui* gui = &ad->newGui;
 
-		static Vec2i mouseAnchor;
-		static bool ctrlMode;
+	    float z = 1;
 
 		bool resize = false;
 		bool setupResize = false;
-		int mode = -1;
 
 	    Vec2i res = ws->currentRes;
-	    Rect screenRect = rect(0, -res.h, res.w, 0);
-	    int id = newGuiDragAction(gui, screenRect, 0, input->mousePosNegative, input->mouseButtonPressed[1], input->mouseButtonReleased[1], Gui_Focus_MRight);
+	    Rect screenRect = getScreenRect(ws);
+	    int id = newGuiDragAction(gui, screenRect, z, Gui_Focus_MRight);
 
 	    if(newGuiGotActive(gui, id)) {
 	    	if(!input->keysDown[KEYCODE_CTRL]) {
-	    		ctrlMode = false;
+	    		gui->mode = 0;
 		    	POINT p;
 		    	GetCursorPos(&p);
 		    	ScreenToClient(windowHandle, &p);
 
-	    		mouseAnchor = vec2i(p.x+1, p.y+1);
+	    		gui->mouseAnchor = vec2(p.x+1, p.y+1);
 	    	} else {
-	    		ctrlMode = true;
+	    		gui->mode = 1;
 	    		setupResize = true;
 	    	}
 	    }
@@ -1905,8 +2025,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	RECT r; 
 	    	GetWindowRect(windowHandle, &r);
 
-	    	if(!ctrlMode) {
-		    	MoveWindow(windowHandle, p.x - mouseAnchor.x, p.y - mouseAnchor.y, r.right-r.left, r.bottom-r.top, true);
+	    	if(!gui->mode) {
+		    	MoveWindow(windowHandle, p.x - gui->mouseAnchor.x, p.y - gui->mouseAnchor.y, r.right-r.left, r.bottom-r.top, true);
 	    	} else {
 	    		resize = true;
 	    	}
@@ -1917,18 +2037,17 @@ extern "C" APPMAINFUNCTION(appMain) {
     	Rect resizeBottom = rect(0, -res.h, res.w-w, -res.h+w);
     	Rect resizeDR = rect(resizeBottom.right, resizeBottom.bottom, resizeRight.right, resizeRight.bottom);
 
-	    int idResizeRight = newGuiDragAction(gui, resizeRight, 0, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0], Gui_Focus_MLeft);
-	    int idResizeBottom = newGuiDragAction(gui, resizeBottom, 0, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0], Gui_Focus_MLeft);
-	    int idResizeDR = newGuiDragAction(gui, resizeDR, 0, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0], Gui_Focus_MLeft);
+	    int idResizeRight = newGuiDragAction(gui, resizeRight, z, Gui_Focus_MLeft);
+	    int idResizeBottom = newGuiDragAction(gui, resizeBottom, z, Gui_Focus_MLeft);
+	    int idResizeDR = newGuiDragAction(gui, resizeDR, z, Gui_Focus_MLeft);
 
 	    if(newGuiGotActive(gui, idResizeRight) || newGuiGotActive(gui, idResizeBottom) || newGuiGotActive(gui, idResizeDR)) setupResize = true;
 	    if(newGuiIsActive(gui, idResizeRight) || newGuiIsActive(gui, idResizeBottom) || newGuiIsActive(gui, idResizeDR)) resize = true;
 
+		int mode = -1;
         if(newGuiIsActive(gui, idResizeRight)) mode = 0;
 		if(newGuiIsActive(gui, idResizeBottom)) mode = 1;
 		if(newGuiIsActive(gui, idResizeDR)) mode = 2;
-
-
 
 		if(setupResize) {
 			POINT p;
@@ -1937,7 +2056,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			RECT r;
 			GetWindowRect(windowHandle, &r);
 
-			mouseAnchor = vec2i((r.right - r.left) - p.x, (r.bottom - r.top) - p.y);
+			gui->mouseAnchor = vec2((r.right - r.left) - p.x, (r.bottom - r.top) - p.y);
 		}
 
         if(resize) {
@@ -1948,8 +2067,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	    	ScreenToClient(windowHandle, &p);
 
-	    	int newWidth = mode == 1 ? r.right - r.left : clampMin(p.x + mouseAnchor.x, 300);
-	    	int newHeight = mode == 0 ? r.bottom - r.top : clampMin(p.y + mouseAnchor.y, 300);
+	    	int newWidth = mode == 1 ? r.right - r.left : clampMin(p.x + gui->mouseAnchor.x, 300);
+	    	int newHeight = mode == 0 ? r.bottom - r.top : clampMin(p.y + gui->mouseAnchor.y, 300);
 
 	    	ad->updateWindow = true;
 
@@ -2499,55 +2618,59 @@ extern "C" APPMAINFUNCTION(appMain) {
 		rGraphs = rect(rGraph2.min, rGraph.max);
 
 		{
-			bool mouseCaputuredByDebugWindow = pointInRect(input->mousePosNegative, ds->gui->getPanelBackgroundRect()) && ds->showMenu;
-
-			if(mouseCaputuredByDebugWindow) {
-				input->mouseWheel = 0;
-				input->mouseButtonPressed[0] = false;
-			}
-
 			GraphCam* cam = &ad->cam;
 			GraphCam* camLikes = &ad->camLikes;
 
 			graphCamSetViewPort(cam, rGraph);
 			graphCamSetViewPort(camLikes, rGraph2);
 
-			if(input->mouseWheel != 0) {
-				if(pointInRect(input->mousePosNegative, rLeftText))
-					graphCamScaleToPos(cam, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
-				if(pointInRect(input->mousePosNegative, rLeftText2))
+			{
+				float z = 0;
+				if(newGuiGoButtonAction(ad->gui, rLeftText, z, Gui_Focus_MWheel)) 
+	    			graphCamScaleToPos(cam, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
+
+				if(newGuiGoButtonAction(ad->gui, rLeftText2, z, Gui_Focus_MWheel)) 
 					graphCamScaleToPos(camLikes, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
-				if(pointInRect(input->mousePosNegative, rGraphs)) {
+
+				if(newGuiGoButtonAction(ad->gui, rGraphs, z, Gui_Focus_MWheel)) {
 					graphCamScaleToPos(cam, -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
 					graphCamScaleToPos(camLikes, -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
 				}
+
 			}
 
 			graphCamSizeClamp(cam, Graph_Zoom_Min, 1000);
 			graphCamSizeClamp(camLikes, Graph_Zoom_Min, 100);
 
-			if(input->mouseButtonPressed[0]) {
-				if(pointInRect(input->mousePosNegative, rLeftText)) ad->heightMoveMode = 0;
-				else if(pointInRect(input->mousePosNegative, rLeftText2)) ad->heightMoveMode = 1;
-				else if(pointInRect(input->mousePosNegative, rGraphs)) ad->widthMove = 1;
-			}
+			{
+				NewGui* gui = &ad->newGui;
+				float z = 0;
+				int event;
 
-			if(input->mouseButtonReleased[0]) {
-				ad->heightMoveMode = -1;
-				ad->widthMove = 0;
-			}
-
-			if(input->mouseDelta != vec2(0,0)) {
-				if(ad->heightMoveMode == 0) {
-					graphCamTrans(cam, 0, input->mouseDelta.y);
-				} else if(ad->heightMoveMode == 1) {
-					graphCamTrans(camLikes, 0, input->mouseDelta.y);
+	    		event = newGuiGoDragAction(gui, rGraphs, z, Gui_Focus_MLeft);
+	    		if(event == 1) gui->mouseAnchor.x = -input->mousePosNegative.x - graphCamCamToScreenSpaceX(cam, cam->x);
+	    		if(event > 0) {
+					cam->x = graphCamScreenToCamSpaceX(cam, -input->mousePosNegative.x - gui->mouseAnchor.x);
+					camLikes->x = cam->x;
+					
+					graphCamUpdateSides(cam);
+					graphCamUpdateSides(camLikes);
 				}
 
-				if(ad->widthMove) {
-					graphCamTrans(cam, -input->mouseDelta.x, 0);
-					graphCamTrans(camLikes, -input->mouseDelta.x, 0);
+				event = newGuiGoDragAction(gui, rLeftText, z, Gui_Focus_MLeft);
+				if(event == 1) gui->mouseAnchor.y = -input->mousePosNegative.y - graphCamCamToScreenSpaceY(cam, cam->y);
+				if(event > 0) {
+					cam->y = graphCamScreenToCamSpaceY(cam, -input->mousePosNegative.y - gui->mouseAnchor.y);
+					graphCamUpdateSides(cam);
 				}
+
+				event = newGuiGoDragAction(gui, rLeftText2, z, Gui_Focus_MLeft);
+				if(event == 1) gui->mouseAnchor.y = -input->mousePosNegative.y - graphCamCamToScreenSpaceY(camLikes, camLikes->y);
+				if(event > 0) {
+					camLikes->y = graphCamScreenToCamSpaceY(camLikes, -input->mousePosNegative.y - gui->mouseAnchor.y);
+					graphCamUpdateSides(camLikes);
+				}
+
 			}
 
 			graphCamPosClamp(cam);
@@ -2721,6 +2844,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Mouse hover.
 		{
+			int id = newGuiIncrementId(ad->gui);
+
 			if(pointInRect(input->mousePosNegative, rGraphs)) {
 
 				GraphCam* cam = &ad->cam;
@@ -2749,7 +2874,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		
 						glDisable(GL_SCISSOR_TEST);
 
-						if(input->mouseButtonPressed[2]) {
+						if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
 							if(i != ad->selectedVideo) {
 								ad->selectedVideo = i;
 								downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
@@ -2920,22 +3045,31 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float xMid = rectGetCen(infoRect).x;
 			float width = rectGetW(infoRect);
 			float yPos = infoRect.top;
+			Vec4 fc = vec4(0.9f,1);
 
 			Rect infoPanelTop = infoRect;
 			infoPanelTop.min.y = infoPanelTop.top - font->height - 4;
 
 			// Top gui.
 			{
-				Gui* gui = &ad->snippetGui;
-				gui->settings.border = vec2i(2,-2);
-				gui->settings.fontOffset = 0.0f;
-				gui->startStatic(ad->guiInput, font, infoPanelTop, ws->currentRes);
+				glEnable(GL_SCISSOR_TEST);
 
-				bool updateStats = false;
+				// drawRectNew(infoPanelTop, vec4(0.4f,0,0,1));
 
-				gui->div(0.1f,0,0,0.1f);
+				float divs[4] = {40,0,0,40};
+				newGuiDiv(rectGetW(infoPanelTop), 0, divs, arrayCount(divs));
+
+				Rect buttons[arrayCount(divs)];
+				newGuiRectsFromWidths(infoPanelTop, divs, arrayCount(divs), buttons);
+
+				float z = 1;
+				Vec4 buttonColor = vec4(0.2f,0.1f,0,1);
+				float buttonMargin = 2;
+
 				if(ad->selectedVideo > 0) {
-					if(gui->button("<-")) {
+					Rect r = buttons[0];
+					int id = newGuiButtonAction(ad->gui, r, z);
+					if(newGuiGotActive(ad->gui, id)) {
 						if(ad->selectedVideo != -1) {
 							int newSelection = clampMin(ad->selectedVideo - 1, 0);
 							if(newSelection != ad->selectedVideo) {
@@ -2944,19 +3078,46 @@ extern "C" APPMAINFUNCTION(appMain) {
 							}
 						}
 					}
-				} else {
-					gui->empty();
+
+					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
+					r = rectExpand(r, -vec2(buttonMargin, 0));
+					scissorTest(r, ws->currentRes.h);
+					drawRectNew(r, c);
+					drawTextNew("<-", font, rectGetCen(r), fc, vec2i(0,0));
 				}
 
-				if(gui->button("Open in Chrome.")) {
-					shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+				{
+					Rect r = buttons[1];
+					int id = newGuiButtonAction(ad->gui, r, z);
+					if(newGuiGotActive(ad->gui, id)) {
+						shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+					}
+
+					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
+					r = rectExpand(r, -vec2(buttonMargin, 0));
+					scissorTest(r, ws->currentRes.h);
+					drawRectNew(r, c);
+					drawTextNew("Open in Chrome.", font, rectGetCen(r), fc, vec2i(0,0));
 				}
-				if(gui->button("Open in Firefox.")) {
-					shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+
+				{
+					Rect r = buttons[2];
+					int id = newGuiButtonAction(ad->gui, r, z);
+					if(newGuiGotActive(ad->gui, id)) {
+						shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+					}
+
+					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
+					r = rectExpand(r, -vec2(buttonMargin, 0));
+					scissorTest(r, ws->currentRes.h);
+					drawRectNew(r, c);
+					drawTextNew("Open in Firefox.", font, rectGetCen(r), fc, vec2i(0,0));
 				}
 
 				if(ad->selectedVideo != ad->playlist.count-1) {
-					if(gui->button("->")) {
+					Rect r = buttons[3];
+					int id = newGuiButtonAction(ad->gui, r, z);
+					if(newGuiGotActive(ad->gui, id)) {
 						if(ad->selectedVideo != -1) {
 							int newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
 							if(newSelection != ad->selectedVideo) {
@@ -2965,16 +3126,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 							}
 						}
 					}
-				} else {
-					gui->empty();
+
+					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
+					r = r;
+					scissorTest(r, ws->currentRes.h);
+					drawRectNew(rectExpand(r, -vec2(buttonMargin, 0)), c);
+					drawTextNew("->", font, rectGetCen(r), fc, vec2i(0,0));
 				}
 
-				// Fixes top info text flickering.
-				gui->button("");
-				gui->button("");
-
-				gui->endStatic();
+				int stop = 234; 
 			}
+
+
+
 
 			yPos -= font->height + 8;
 
@@ -2984,16 +3148,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
 			VideoSnippet* sn = &ad->videoSnippet;
 
-			drawTextNew(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			drawTextNew(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), fc, vec2i(0,1));
 
 			yPos -= font->height;
 
-			// drawRectNew(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), vec4(1,1), sn->thumbnailTexture.id);
+			// drawRectNew(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), fc, sn->thumbnailTexture.id);
 			Rect imageRect = rect(infoRect.left, yPos - rectGetW(infoRect)*(sn->thumbnailTexture.dim.h/(float)sn->thumbnailTexture.dim.w), infoRect.right, yPos);
 			drawRectNew(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
 			yPos -= rectGetH(imageRect);
 
-			drawTextNew(sv->title, font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1), width);
+			drawTextNew(sv->title, font, vec2(xMid, yPos), fc, vec2i(0,1), width);
 			yPos -= getTextHeight(sv->title, font, vec2(xMid, yPos), width);
 			yPos -= font->height;
 
@@ -3004,20 +3168,78 @@ extern "C" APPMAINFUNCTION(appMain) {
 			char* comments = fillString("Comments: %i", sv->commentCount);
 			char* favorites = fillString("Favorites: %i", sv->favoriteCount);
 			char* s = fillString("%s, %s\n%s\n%s\n%s\n%s", date, time, views, likes, comments, favorites);
-			drawTextNew(s, font, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1));
+			drawTextNew(s, font, vec2(infoRect.left, yPos), fc, vec2i(-1,1));
 			yPos -= getTextHeight(s, font);
 			yPos -= font->height;
 
-			drawTextNew("Comments", font, vec2(xMid, yPos), vec4(1,1), vec2i(0,1));
+			drawTextNew("Comments", font, vec2(xMid, yPos), fc, vec2i(0,1));
 			yPos -= font->height;
 
-			for(int i = 0; i < sn->selectedCommentCount; i++) {
-				drawTextNew(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
-				// drawText(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), vec4(1,1), vec2i(-1,1), width);
-				yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), width);
-				drawTextNew(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(infoRect.right, yPos), vec4(0.7f,1), vec2i(1,1), width);
-				yPos -= font2->height;
-				// yPos -= font2->height*0.5f;
+			{
+				static float commentHeight = 300;
+				bool hasScrollbar = commentHeight > 0;
+
+				float scrollBarWidth = hasScrollbar?20:0;
+				Rect commentScrollRect = rect(infoRect.left, infoRect.bottom, infoRect.right, yPos);
+				Rect commentRect = rect(infoRect.left, infoRect.bottom, infoRect.right-scrollBarWidth, yPos);
+				Rect scrollBarRect = rect(infoRect.right - scrollBarWidth, infoRect.bottom, infoRect.right, yPos);
+
+				Vec4 screenColor = vec4(0.1f,0,0,1);
+
+				drawRectNew(commentRect, screenColor + vec4(0.1f,0.1f,0,0));
+				drawRectNew(scrollBarRect, screenColor + vec4(0.1f,0.1f,0,0));
+				Vec4 scrollBarColor = screenColor + vec4(0.2f,0.15f,0,0);
+
+				static float scrollValue = 0.0f;
+				static Vec2 mouseAnchor;
+		
+
+				float sliderSize = (rectGetH(scrollBarRect) / (rectGetH(commentRect)+commentHeight)) * rectGetH(scrollBarRect);
+
+				float z = 1;
+				int id = newGuiButtonAction(&ad->newGui, commentScrollRect, z, input->mousePosNegative, input->mouseWheel != 0, Gui_Focus_MWheel);
+				if(newGuiGotActive(&ad->newGui, id)) {
+					float scrollAmount = font->height;
+					if(input->keysDown[KEYCODE_SHIFT]) scrollAmount *= 2;
+					scrollValue = clamp(scrollValue + -input->mouseWheel*(scrollAmount/commentHeight), 0, 1);
+				}
+
+				z = 1;
+				Rect slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, false);
+				id = newGuiDragAction(&ad->newGui, slider, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
+				if(newGuiGotActive(&ad->newGui, id)) mouseAnchor = input->mousePosNegative - rectGetCen(slider);
+				if(newGuiIsActive(&ad->newGui, id)) {
+					scrollValue = 1-newGuiSliderGetValue(input->mousePosNegative - mouseAnchor, scrollBarRect, sliderSize, false);
+					slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, false);
+				}
+
+				// Scroll with left mouse.
+				{
+					int id = newGuiDragAction(&ad->newGui, commentRect, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
+					if(newGuiGotActive(&ad->newGui, id)) mouseAnchor.y = input->mousePosNegative.y - (scrollValue*commentHeight);
+					if(newGuiIsActive(&ad->newGui, id)) {
+						scrollValue = (input->mousePosNegative.y - mouseAnchor.y)/commentHeight;
+						clamp(&scrollValue, 0, 1);
+					}
+				}
+
+				if(hasScrollbar) drawRectNew(rectExpand(slider, vec2(-7,-7)), scrollBarColor + newGuiHotActiveColorMod(&ad->newGui, id), z+1);
+
+				float startYPos = yPos + scrollValue*commentHeight;
+				if(hasScrollbar) yPos = startYPos;
+
+
+				scissorTest(commentRect, res.h);
+				float wrapWidth = rectGetW(commentRect);
+				for(int i = 0; i < sn->selectedCommentCount; i++) {
+					drawTextNew(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), fc, vec2i(-1,1), wrapWidth);
+					yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), wrapWidth);
+					
+					drawTextNew(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(commentRect.right, yPos), vec4(0.7f,1), vec2i(1,1), wrapWidth);
+					yPos -= font2->height;
+				}
+
+				commentHeight = startYPos - yPos - (rectGetH(commentRect));
 			}
 
 			glDisable(GL_SCISSOR_TEST);
@@ -3061,6 +3283,50 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
 		}
 
+		{
+			NewGui* gui = &ad->newGui;
+
+			static bool popupPanel = false;
+
+			float buttonWidth = 150;
+			Rect br = rFilters;
+			br.left += 150;
+			br.right = br.left + buttonWidth;
+
+			float z = 0;
+
+			int id = newGuiButtonAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0]);
+			if(newGuiGotActive(gui, id)) popupPanel = true;
+			drawRectNew(br, vec4(0.3f,0.2f,0.7f,1) + newGuiHotGotActiveColorMod(gui, id));
+
+			if(popupPanel) {
+				float pWidth = 200;
+				float pHeight = 500;
+				Vec2 pCenter = vec2(rectGetCen(br).x, rectGetCen(br).y-rectGetH(br)/2 - pHeight/2);
+				Rect pr = rectCenDim(pCenter, vec2(pWidth, pHeight));
+
+				float z = 5;
+				int id;
+
+				Rect screenRect = getScreenRect(ws);
+				newGuiSetHotAll(gui, z);
+				id = newGuiButtonAction(gui, screenRect, z, input->mousePosNegative, input->mouseButtonPressed[0]);
+				if(newGuiGotActive(gui, id)) popupPanel = false;
+
+				id = newGuiButtonAction(gui, pr, z, input->mousePosNegative, input->mouseButtonPressed[0]);
+				// if(newGuiGotActive(gui, id)) popupPanel = false;
+				if(newGuiGotActive(gui, id)) addDebugNote(fillString("sdf"));
+
+
+				// int id = newGuiButtonAction(gui, pr, z, input->mousePosNegative, input->mouseButtonPressed[0]);
+				// if(newGuiGotActive(gui, id)) popupPanel = true;
+				// drawRectNew(pr, vec4(0.3f,0.2f,0.7f,1) + newGuiHotGotActiveColorMod(gui, id));
+
+				drawRectNew(pr, vec4(0.2f,0.4f,0.7f,1));
+			}
+
+		}
+
 		// Border.
 		// Vec4 borderColor = vec4(0.5f,1);
 		// drawLineNew(vec2(screenRect.left+1, screenRect.bottom), vec2(screenRect.left+1, screenRect.top), borderColor);
@@ -3077,11 +3343,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		glEnable(GL_DEPTH_TEST);
 
-		if(init) {
-			ad->newGui.activeId = -1;
-			ad->newGui.gotActiveId = -1;
-			ad->newGui.lostActiveId = -1;
-		}
+		// if(init) {
+		// 	ad->newGui.activeId = -1;
+		// 	ad->newGui.gotActiveId = -1;
+		// 	ad->newGui.lostActiveId = -1;
+		// }
 
 		NewGui* gui = &ad->newGui;
 
@@ -3123,39 +3389,39 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// 	}
 		// }
 
-		static Vec2 mouseAnchor;
-		static bool mode;
+		// static Vec2 mouseAnchor;
+		// static bool mode;
 
-		{
-			static Rect br = rectCenDim(330,-320,80,400);
-			Vec4 c = vec4(0,0.5f,0.5f,1);
-			float z = 2;
+		// {
+		// 	static Rect br = rectCenDim(330,-320,80,400);
+		// 	Vec4 c = vec4(0,0.5f,0.5f,1);
+		// 	float z = 2;
 
-			int id = newGuiDragAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
+		// 	int id = newGuiDragAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
 
-			if(newGuiGotActive(gui, id)) {
-				if(input->keysDown[KEYCODE_CTRL]) mode = 1;
-				else mode = 0;
+		// 	if(newGuiGotActive(gui, id)) {
+		// 		if(input->keysDown[KEYCODE_CTRL]) mode = 1;
+		// 		else mode = 0;
 
-				if(mode == 0) {
-					mouseAnchor = input->mousePosNegative - rectGetCen(br);
-				} else {
-					mouseAnchor = input->mousePosNegative - rectGetDR(br);
-				}
-			}
+		// 		if(mode == 0) {
+		// 			mouseAnchor = input->mousePosNegative - rectGetCen(br);
+		// 		} else {
+		// 			mouseAnchor = input->mousePosNegative - rectGetDR(br);
+		// 		}
+		// 	}
 
-			if(newGuiIsActive(gui, id)) {
-				if(mode == 0) {
-					br = rectCenDim(input->mousePosNegative - mouseAnchor, rectGetDim(br));
-				} else {
-					Vec2 dr = input->mousePosNegative - mouseAnchor;
-					br.bottom = br.top - clampMin(br.top - dr.y, 100);
-					br.right = br.left + clampMin(dr.x - br.left, 100);
-				}
-			}
+		// 	if(newGuiIsActive(gui, id)) {
+		// 		if(mode == 0) {
+		// 			br = rectCenDim(input->mousePosNegative - mouseAnchor, rectGetDim(br));
+		// 		} else {
+		// 			Vec2 dr = input->mousePosNegative - mouseAnchor;
+		// 			br.bottom = br.top - clampMin(br.top - dr.y, 100);
+		// 			br.right = br.left + clampMin(dr.x - br.left, 100);
+		// 		}
+		// 	}
 
-			drawRectNew(br, c + newGuiHotActiveColorMod(newGuiIsHot(gui, id), false), z);
-		}
+		// 	drawRectNew(br, c + newGuiHotActiveColorMod(newGuiIsHot(gui, id), false), z);
+		// }
 
 		// static float sliderValue = 0;
 		// {
@@ -3239,6 +3505,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
 
+	{
+		int id = newGuiIncrementId(&ad->newGui);
+		if(ds->showMenu) {
+			newGuiSetHotAllMouseOver(&ad->newGui, id, ds->gui->getPanelBackgroundRect(), 5);
+		}
+	}
+
 	newGuiEnd(&ad->newGui);
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
@@ -3300,7 +3573,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// Swap window background buffer.
 	{
 		TIMER_BLOCK_NAMED("Swap");
-		if(ad->updateWindow) MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
+		if(ad->updateWindow) {
+			MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
+			ad->updateWindow = false;
+		}
 		swapBuffers(&ad->systemData);
 		glFinish();
 
@@ -4411,6 +4687,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		for(int i = 0; i < ds->infoStackCount; i++) {
 			drawTextNew(fillString("%s", ds->infoStack[i]), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		}
+
 		ds->infoStackCount = 0;
 	}
 

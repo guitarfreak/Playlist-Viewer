@@ -904,24 +904,24 @@ void getUniform(uint shaderId, int shaderStage, uint uniformId, float* data) {
 
 
 
-void drawRect(Rect r, Vec4 color, Rect uv = rect(0,0,1,1), int texture = -1, float texZ = -1) {	
-	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_PRIMITIVE_MODE, 0);
+// void drawRect(Rect r, Vec4 color, Rect uv = rect(0,0,1,1), int texture = -1, float texZ = -1) {	
+// 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_PRIMITIVE_MODE, 0);
 
-	Rect cd = rectGetCenDim(r);
+// 	Rect cd = rectGetCenDim(r);
 
-	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_MOD, cd.e);
-	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_UV, uv.min.x, uv.max.x, uv.max.y, uv.min.y);
-	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_COLOR, colorSRGB(color).e);
-	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_TEXZ, texZ);
+// 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_MOD, cd.e);
+// 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_UV, uv.min.x, uv.max.x, uv.max.y, uv.min.y);
+// 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_COLOR, colorSRGB(color).e);
+// 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_TEXZ, texZ);
 
-	if(texture == -1) texture = getTexture(TEXTURE_WHITE)->id;
+// 	if(texture == -1) texture = getTexture(TEXTURE_WHITE)->id;
 
-	uint tex[2] = {texture, texture};
-	glBindTextures(0,2,tex);
-	glBindSamplers(0, 1, globalGraphicsState->samplers);
+// 	uint tex[2] = {texture, texture};
+// 	glBindTextures(0,2,tex);
+// 	glBindSamplers(0, 1, globalGraphicsState->samplers);
 
-	glDrawArraysInstancedBaseInstance(GL_TRIANGLE_STRIP, 0, 4, 1, 0);
-}
+// 	glDrawArraysInstancedBaseInstance(GL_TRIANGLE_STRIP, 0, 4, 1, 0);
+// }
 
 void scissorTest(Rect r) {
 	Rect sr = r;
@@ -1294,20 +1294,20 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 	return r;
 }
 
-void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
+// void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
 
-	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
-	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+// 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
+// 	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
-		TextInfo ti;
-		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
-		if(text[ti.index] == '\n') continue;
+// 	TextSimInfo tsi = initTextSimInfo(startPos);
+// 	while(true) {
+// 		TextInfo ti;
+// 		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
+// 		if(text[ti.index] == '\n') continue;
 
-		drawRect(ti.r, color, ti.uv, font->tex.id);
-	}
-}
+// 		drawRect(ti.r, color, ti.uv, font->tex.id);
+// 	}
+// }
 
 void drawTextNew(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
 
@@ -1390,21 +1390,21 @@ void drawTextLineCulledNew(char* text, Font* font, Vec2 startPos, float width, V
 	}
 }
 
-void drawTextLineCulled(char* text, Font* font, Vec2 startPos, float width, Vec4 color, Vec2i align = vec2i(-1,1)) {
-	startPos = testgetTextStartPos(text, font, startPos, align, 0);
-	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+// void drawTextLineCulled(char* text, Font* font, Vec2 startPos, float width, Vec4 color, Vec2i align = vec2i(-1,1)) {
+// 	startPos = testgetTextStartPos(text, font, startPos, align, 0);
+// 	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
-		TextInfo ti;
-		if(!textSim(text, font, &tsi, &ti, startPos, 0)) break;
-		if(text[ti.index] == '\n') continue;
+// 	TextSimInfo tsi = initTextSimInfo(startPos);
+// 	while(true) {
+// 		TextInfo ti;
+// 		if(!textSim(text, font, &tsi, &ti, startPos, 0)) break;
+// 		if(text[ti.index] == '\n') continue;
 
-		if(ti.pos.x > startPos.x + width) break;
+// 		if(ti.pos.x > startPos.x + width) break;
 
-		drawRect(ti.r, color, ti.uv, font->tex.id);
-	}
-}
+// 		drawRect(ti.r, color, ti.uv, font->tex.id);
+// 	}
+// }
 
 Vec2 textIndexToPos(char* text, Font* font, Vec2 startPos, int index, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
@@ -1618,7 +1618,7 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 			case Draw_Command_Rect_Type: {
 				dcGetStructAndIncrement(Rect);
 				int texture = dc.texture == -1 ? getTexture(TEXTURE_WHITE)->id : dc.texture;
-				drawRect(dc.r, dc.color, dc.uv, texture, dc.texZ-1);
+				// drawRect(dc.r, dc.color, dc.uv, texture, dc.texZ-1);
 			} break;
 
 			case Draw_Command_RoundedRect_Type: {
@@ -1628,8 +1628,8 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 
 				float s = dc.size;
 				Rect r = dc.r;
-				drawRect(rect(r.min.x+s, r.min.y, r.max.x-s, r.max.y), dc.color);
-				drawRect(rect(r.min.x, r.min.y+s, r.max.x, r.max.y-s), dc.color);
+				// drawRect(rect(r.min.x+s, r.min.y, r.max.x-s, r.max.y), dc.color);
+				// drawRect(rect(r.min.x, r.min.y+s, r.max.x, r.max.y-s), dc.color);
 
 				Vec2 verts[10];
 
@@ -1695,14 +1695,14 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 				if(skipStrings) break;
 
 				if(dc.cullWidth == -1) {
-					if(dc.shadow != 0) 
-						drawText(dc.text, dc.font, dc.pos + vec2(dc.shadow,-dc.shadow), dc.shadowColor, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
+					// if(dc.shadow != 0) 
+						// drawText(dc.text, dc.font, dc.pos + vec2(dc.shadow,-dc.shadow), dc.shadowColor, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
 
-					drawText(dc.text, dc.font, dc.pos, dc.color, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
+					// drawText(dc.text, dc.font, dc.pos, dc.color, vec2i(dc.vAlign, dc.hAlign), dc.wrapWidth);
 				} else {
-					if(dc.shadow != 0) 
-						drawTextLineCulled(dc.text, dc.font, dc.pos + vec2(dc.shadow,-dc.shadow), dc.cullWidth, dc.shadowColor, vec2i(dc.vAlign, dc.hAlign));
-					drawTextLineCulled(dc.text, dc.font, dc.pos, dc.cullWidth, dc.color, vec2i(dc.vAlign, dc.hAlign));
+					// if(dc.shadow != 0) 
+						// drawTextLineCulled(dc.text, dc.font, dc.pos + vec2(dc.shadow,-dc.shadow), dc.cullWidth, dc.shadowColor, vec2i(dc.vAlign, dc.hAlign));
+					// drawTextLineCulled(dc.text, dc.font, dc.pos, dc.cullWidth, dc.color, vec2i(dc.vAlign, dc.hAlign));
 				}
 
 			} break;
