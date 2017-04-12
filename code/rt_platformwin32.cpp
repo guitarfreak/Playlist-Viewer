@@ -326,8 +326,8 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	int wx, wy;
 	{
 		MonitorData* md = ws->monitors + monitor;
-		wx = rectGetCen(md->workRect).x - res.w/2;
-		wy = rectGetCen(md->workRect).y - res.h/2;
+		wx = rectCen(md->workRect).x - res.w/2;
+		wy = rectCen(md->workRect).y - res.h/2;
 	}
 	ws->res = vec2i(ww, wh);
 

@@ -2349,6 +2349,13 @@ Mat4 modelMatrix(Vec3 trans, Vec3 scale, float degrees = 0, Vec3 rot = vec3(0,0,
 //
 //
 
+inline Rect rect(float left, float bottom, float right, float top) {
+	Rect r;
+	r.min = vec2(left, bottom);
+	r.max = vec2(right, top);
+	return r;
+}
+
 inline Rect rect(Vec2 min, Vec2 max) {
 	Rect r;
 	r.min = min;
@@ -2357,86 +2364,38 @@ inline Rect rect(Vec2 min, Vec2 max) {
 	return r;
 }
 
-inline Rect rect(float left, float bottom, float right, float top) {
-	Rect r;
-	r.min = vec2(left, bottom);
-	r.max = vec2(right, top);
-	return r;
+inline Rect rectSides(float left, float right, float bottom, float top) { return rect(left, bottom, right, top); }
+inline Rect rectDLDim(Vec2 a, Vec2 d) { return rect(a, a+d); };
+inline Rect rectULDim(Vec2 a, Vec2 d) { return rect(a.x, a.y-d.h, a.x+d.w, a.y); };
+inline Rect rectURDim(Vec2 a, Vec2 d) { return rect(a-d, a); };
+inline Rect rectDRDim(Vec2 a, Vec2 d) { return rect(a.x-d.w, a.y, a.x, a.y+d.h); };
+inline Rect rectCenDim(Vec2 a, Vec2 d) {
+	float w2 = d.w/2;
+	float h2 = d.h/2;
+	return rect(a.x-w2, a.y - h2, a.x + w2, a.y + h2);
 }
+inline Rect rectDLDim(float x, float y, float w, float h) { return rectDLDim(vec2(x,y), vec2(w,h)); };
+inline Rect rectULDim(float x, float y, float w, float h) { return rectULDim(vec2(x,y), vec2(w,h)); };
+inline Rect rectURDim(float x, float y, float w, float h) { return rectURDim(vec2(x,y), vec2(w,h)); };
+inline Rect rectDRDim(float x, float y, float w, float h) { return rectDRDim(vec2(x,y), vec2(w,h)); };
+inline Rect rectCenDim(float x, float y, float w, float h) { return rectCenDim(vec2(x,y), vec2(w,h)); };
 
-inline Rect rectSides(float left, float right, float bottom, float top) {
-	Rect r = rect(left, bottom, right, top);
-	return r;
-}
+inline float rectW(Rect r)    { return r.right - r.left; };
+inline float rectH(Rect r)    { return r.top - r.bottom; };
+inline float rectCenX(Rect r) { return r.left + rectW(r)/2; };
+inline float rectCenY(Rect r) { return r.bottom + rectH(r)/2; };
+inline Vec2  rectDim(Rect r)  { return r.max - r.min; };
+inline Vec2  rectCen(Rect r)  { return r.min + rectDim(r)/2; };
+inline Vec2  rectDL(Rect r)   { return r.min; }
+inline Vec2  rectL(Rect r)    { return vec2(r.left, rectCen(r).y); }
+inline Vec2  rectUL(Rect r)   { return vec2(r.left, r.top); }
+inline Vec2  rectU(Rect r)    { return vec2(rectCen(r).x, r.top); }
+inline Vec2  rectUR(Rect r)   { return r.max; }
+inline Vec2  rectR(Rect r)    { return vec2(r.right, rectCen(r).y); }
+inline Vec2  rectDR(Rect r)   { return vec2(r.right, r.bottom); }
+inline Vec2  rectD(Rect r)    { return vec2(rectCen(r).x, r.bottom); }
 
-inline Rect rectMinDim(Vec2 min, Vec2 dim) {
-	Rect r;
-	r.min = min;
-	r.max = min + dim;
-
-	return r;
-}
-
-inline Rect rectULDim(float ulx, float uly, float dimw, float dimh) {
-	Rect r;
-	r.min = vec2(ulx, uly - dimh);
-	r.max = r.min + vec2(dimw, dimh);
-
-	return r;
-}
-
-inline Rect rectULDim(Vec2 ul, Vec2 dim) {
-	Rect r;
-	r.min = vec2(ul.x, ul.y - dim.h);
-	r.max = r.min + dim;
-
-	return r;
-}
-
-inline Rect rectCenDim(Vec2 cen, Vec2 dim) {
-	float w2 = dim.w/2;
-	float h2 = dim.h/2;
-	Rect r;
-	r.min = vec2(cen.x - w2, cen.y - h2);
-	r.max = vec2(cen.x + w2, cen.y + h2);
-
-	return r;
-}
-
-// NOTE: really?
-inline Rect rectCenDim(float x, float y, float w, float h) {
-	Rect r;
-	r.min = vec2(x - w/2, y - h/2);
-	r.max = vec2(x + w/2, y + h/2);
-
-	return r;
-}
-
-inline Vec2 rectGetDim(Rect r) {
-	Vec2 v;
-	v = r.max - r.min;
-	return v;
-}
-
-inline float rectGetW(Rect r) {
-	float w = r.max.x - r.min.x;
-	return w;
-}
-
-inline float rectGetH(Rect r) {
-	float h = r.max.y - r.min.y;
-	return h;
-}
-
-inline Vec2 rectGetCen(Rect r) {
-	Vec2 dim;
-	dim = rectGetDim(r);
-	Vec2 v;
-	v = r.min + dim/2;
-	return v;
-}
-
-inline Rect rectGetCenDim(Rect r) {
+inline Rect rectCenDim(Rect r) {
 	Rect newR;
 	newR.dim = r.max - r.min;
 	newR.cen = r.min + newR.dim/2;
@@ -2451,16 +2410,6 @@ inline Rect rectGetMinMax(Rect r) {
 	newR.max = r.cen + halfDim;
 
 	return newR;
-}
-
-inline Vec2 rectGetUL(Rect r) {
-	Vec2 result = vec2(r.min.x, r.max.y);
-	return result;
-}
-
-inline Vec2 rectGetDR(Rect r) {
-	Vec2 result = vec2(r.max.x, r.min.y);
-	return result;
 }
 
 inline bool operator==(Rect r1, Rect r2) {
@@ -2510,7 +2459,7 @@ Rect rectAddOffset(Rect r, Vec2 offset) {
 }
 
 Rect rectExpand(Rect r, Rect rExpand) {
-	Vec2 dim = rectGetDim(rExpand);
+	Vec2 dim = rectDim(rExpand);
 	r.min -= dim/2;
 	r.max += dim/2;
 
@@ -2589,7 +2538,7 @@ inline Rect3 rect3CenDim(Vec3 cen, Vec3 dim) {
 }
 
 // Rect rectExpand(Rect r, Rect rExpand) {
-// 	Vec2 dim = rectGetDim(rExpand);
+// 	Vec2 dim = rectDim(rExpand);
 // 	r.min -= dim/2;
 // 	r.max += dim/2;
 
@@ -2740,7 +2689,7 @@ void whiteNoise(Rect region, int sampleCount, Vec2* samples) {
 }
 
 int blueNoise(Rect region, float radius, Vec2** noiseSamples, int numOfSamples = 0) {
-	Vec2 regionDim = rectGetDim(region);
+	Vec2 regionDim = rectDim(region);
 	if(numOfSamples > 0) {
 		radius = (regionDim.w*regionDim.h*(float)M_SQRT2) / (2*numOfSamples);
 	}
@@ -3215,26 +3164,26 @@ void graphCamPosClamp(GraphCam* cam) {
 }
 
 void graphCamTrans(GraphCam* cam, double xTrans, double yTrans) {
-	cam->x += xTrans * (cam->w/(rectGetW(cam->viewPort)));
-	cam->y += yTrans * (cam->h/(rectGetH(cam->viewPort)));
+	cam->x += xTrans * (cam->w/(rectW(cam->viewPort)));
+	cam->y += yTrans * (cam->h/(rectH(cam->viewPort)));
 
 	graphCamUpdateSides(cam);
 }
 
 double graphCamScreenToCamSpaceX(GraphCam* cam, float v) {
-	return v * (cam->w/(rectGetW(cam->viewPort)));
+	return v * (cam->w/(rectW(cam->viewPort)));
 }
 
 double graphCamScreenToCamSpaceY(GraphCam* cam, float v) {
-	return v * (cam->h/(rectGetH(cam->viewPort)));
+	return v * (cam->h/(rectH(cam->viewPort)));
 }
 
 float graphCamCamToScreenSpaceX(GraphCam* cam, double v) {
-	return v * ((rectGetW(cam->viewPort))/cam->w);
+	return v * ((rectW(cam->viewPort))/cam->w);
 }
 
 float graphCamCamToScreenSpaceY(GraphCam* cam, double v) {
-	return v * ((rectGetH(cam->viewPort))/cam->h);
+	return v * ((rectH(cam->viewPort))/cam->h);
 }
 
 // Maps camera space to view/screenspace.

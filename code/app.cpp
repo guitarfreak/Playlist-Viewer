@@ -16,6 +16,7 @@
 	- Fixed getClipboard, added closeClipboard.
 	- Gui textbox returns true only on new value when hitting enter.
 	- Fixed bug in debugNotifications.
+	- Massive changes in rect functions.
 
 
 	- Change draggin in gui to match the winapi method.
@@ -1255,7 +1256,7 @@ struct NewGui {
 
 	int activeId;
 	int gotActiveId;
-	int lostActiveId;
+	int wasActiveId;
 	
 	int hotId[Gui_Focus_Size];
 	int contenderId[Gui_Focus_Size];
@@ -1263,16 +1264,24 @@ struct NewGui {
 
 	Input* input;
 
+	TextEditVars editVars;
+
 	// Temp vars for convenience.
 
 	Vec2 mouseAnchor;
 	int mode;
+
+	char editText[100];
+	int editInt;
+	float editFloat;
+	int editMaxSize;
+
 };
 
 void newGuiBegin(NewGui* gui, Input* input = 0) {
 	gui->id = 1;
 	gui->gotActiveId = 0;
-	gui->lostActiveId = 0;
+	gui->wasActiveId = 0;
 
 	for(int i = 0; i < Gui_Focus_Size; i++) {
 		gui->contenderId[i] = 0;
@@ -1296,6 +1305,10 @@ int newGuiIncrementId(NewGui* gui) {
 	return gui->id++;
 }
 
+int newGuiId(NewGui* gui) {
+	return gui->id-1;
+}
+
 bool newGuiIsHot(NewGui* gui, int id, int focus = 0) {
 	return id == gui->hotId[focus];
 }
@@ -1308,8 +1321,17 @@ bool newGuiGotActive(NewGui* gui, int id) {
 	return id == gui->gotActiveId;
 }
 
+bool newGuiWasActive(NewGui* gui, int id) {
+	return id == gui->wasActiveId;
+}
+
 void newGuiClearActive(NewGui* gui) {
 	gui->activeId = 0;
+}
+
+void newGuiSetNotActive(NewGui* gui, int id) {
+	newGuiClearActive(gui);
+	gui->wasActiveId = id;
 }
 
 bool newGuiSomeoneActive(NewGui* gui) {
@@ -1379,7 +1401,7 @@ int newGuiInputFromFocus(Input* input, int focus, bool press = true) {
 
 int newGuiButtonAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, int focus = 0) {
 	newGuiSetActive(gui, id, input, focus);
-	newGuiSetNotActiveWhenActive(gui, id);
+	if(newGuiIsActive(gui, id)) newGuiSetNotActive(gui, id);
 	newGuiSetHotMouseOver(gui, id, mousePos, r, z, focus);
 
 	return id;
@@ -1404,7 +1426,6 @@ bool newGuiGoButtonAction(NewGui* gui, Rect r, float z, int focus = 0) {
 	bool gotActive = newGuiGotActive(gui, id);
 	return gotActive;
 }
-
 bool newGuiGoButtonAction(NewGui* gui, int id, Rect r, float z, int focus = 0) {
 	id = newGuiButtonAction(gui, id, r, z, focus);
 	bool gotActive = newGuiGotActive(gui, id);
@@ -1414,7 +1435,7 @@ bool newGuiGoButtonAction(NewGui* gui, int id, Rect r, float z, int focus = 0) {
 
 int newGuiDragAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, bool inputRelease, int focus = 0) {
 	newGuiSetActive(gui, id, input, focus);
-	if(newGuiIsActive(gui, id) && inputRelease) newGuiClearActive(gui);
+	if(newGuiIsActive(gui, id) && inputRelease) newGuiSetNotActive(gui, id);
 	newGuiSetHotMouseOver(gui, id, mousePos, r, z, focus);
 
 	return id;
@@ -1430,12 +1451,21 @@ int newGuiDragAction(NewGui* gui, Rect r, float z, int focus = 0) {
 	return newGuiDragAction(gui, newGuiIncrementId(gui), r, z, gui->input->mousePosNegative, input, inputRelease, focus);
 }
 
-int newGuiGoDragAction(NewGui* gui, Rect r, float z, int focus = 0) {
-	int id = newGuiDragAction(gui, r, z, focus);
+int newGuiGoDragAction(NewGui* gui, Rect r, float z, bool input, bool inputRelease, int focus = 0) {
+	int id = newGuiDragAction(gui, r, z, gui->input->mousePosNegative, input, inputRelease, focus);
 	if(newGuiGotActive(gui, id)) return 1;
 	if(newGuiIsActive(gui, id)) return 2;
+	if(newGuiWasActive(gui, id)) return 3;
+	
 	return 0;
 }
+int newGuiGoDragAction(NewGui* gui, Rect r, float z, int focus = 0) {
+	bool input = newGuiInputFromFocus(gui->input, focus, true);
+	bool inputRelease = newGuiInputFromFocus(gui->input, focus, false);
+	return newGuiGoDragAction(gui, r, z, input, inputRelease, focus);
+}
+
+
 
 Vec4 newGuiHotActiveColorMod(bool isHot, bool isActive) {
 	Vec4 colorMod = vec4(0,0,0,0);
@@ -1444,23 +1474,72 @@ Vec4 newGuiHotActiveColorMod(bool isHot, bool isActive) {
 
 	return colorMod;
 }
-
-Vec4 newGuiHotActiveColorMod(NewGui* gui, int id, int focus = 0) {
+// We assume you got an id first before calling this.
+Vec4 newGuiColorModId(NewGui* gui, int id, int focus = 0) {
 	return newGuiHotActiveColorMod(newGuiIsHot(gui, id, focus), newGuiIsActive(gui, id));
 }
-
-Vec4 newGuiHotGotActiveColorMod(NewGui* gui, int id, int focus = 0) {
+Vec4 newGuiColorModBId(NewGui* gui, int id, int focus = 0) {
 	return newGuiHotActiveColorMod(newGuiIsHot(gui, id, focus), newGuiGotActive(gui, id));
 }
+Vec4 newGuiColorMod(NewGui* gui, int focus = 0) {
+	return newGuiColorModId(gui, newGuiId(gui), focus);
+}
+Vec4 newGuiColorModB(NewGui* gui, int focus = 0) {
+	return newGuiColorModBId(gui, newGuiId(gui), focus);
+}
+
+
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font, TextEditSettings editSettings, TextEditVars* editVars, int maxTextSize, int mode) {
+	Input* input = gui->input;
+
+	maxTextSize = min(maxTextSize, arrayCount(gui->editText));
+
+	bool leftMouse = input->mouseButtonPressed[0] && !pointInRect(input->mousePosNegative, textRect);
+	bool enter = input->keysPressed[KEYCODE_RETURN];
+	bool escape = input->keysPressed[KEYCODE_ESCAPE];
+
+	bool releaseEvent = leftMouse || enter || escape;
+
+	int event = newGuiGoDragAction(gui, textRect, z, input->mouseButtonPressed[0], releaseEvent, Gui_Focus_MLeft);
+
+	if(event == 1) {
+		if(mode == 0)      strCpy(gui->editText, (char*)var);
+		else if(mode == 1) strCpy(gui->editText, fillString("%i", *((int*)var)));
+		else if(mode == 2) strCpy(gui->editText, fillString("%f", *((float*)var)));
+	}
+
+	if(event == 3 && (leftMouse || enter)) {
+		if(mode == 0)      strCpy((char*)var, gui->editText);
+		else if(mode == 1) *((int*)var) = strToInt(gui->editText);
+		else if(mode == 2) *((float*)var) = strToFloat(gui->editText);
+	}
+
+	if(event == 1 || event == 2) {
+		textEditBox(gui->editText, maxTextSize, font, textRect, input, vec2i(-1,1), editSettings, editVars);
+	}
+
+	return event;
+}
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, char* text, Font* font, TextEditSettings editSettings, int maxTextSize) {
+	return newGuiGoTextEdit(gui, textRect, z, text, font, editSettings, &gui->editVars, maxTextSize, 0);
+}
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, int* number, Font* font, TextEditSettings editSettings) {
+	return newGuiGoTextEdit(gui, textRect, z, number, font, editSettings, &gui->editVars, arrayCount(gui->editText), 1);
+}
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, float* number, Font* font, TextEditSettings editSettings) {
+	return newGuiGoTextEdit(gui, textRect, z, number, font, editSettings, &gui->editVars, arrayCount(gui->editText), 2);
+}
+
+
 
 Rect newGuiCalcSlider(float value, Rect br, float size, bool vertical) {
 	if(vertical) {
 		float sliderPos = mapRange(value, 0, 1, br.min.x + size/2, br.max.x - size/2);
-		Rect slider = rectCenDim(sliderPos, rectGetCen(br).y, size, rectGetH(br));
+		Rect slider = rectCenDim(sliderPos, rectCen(br).y, size, rectH(br));
 		return slider;
 	} else {
 		float sliderPos = mapRange(value, 0, 1, br.min.y + size/2, br.max.y - size/2);
-		Rect slider = rectCenDim(rectGetCen(br).x, sliderPos, rectGetW(br), size);
+		Rect slider = rectCenDim(rectCen(br).x, sliderPos, rectW(br), size);
 		return slider;
 	}
 }
@@ -1475,7 +1554,7 @@ float newGuiSliderGetValue(Vec2 sliderCenter, Rect br, float size, bool vertical
 	}
 }
 
-void newGuiDiv(float width, float offset, float* c, int size) {
+void newGuiDiv(float width, float* c, int size, float offset = 0) {
 	float dynamicSum = 0;
 	int flowCount = 0;
 	float staticSum = 0;
@@ -1507,19 +1586,75 @@ void newGuiDiv(float width, float offset, float* c, int size) {
 	}
 }
 
-void newGuiRectsFromWidths(Rect r, float* widths, int size, Rect* rects) {
-	float yPos = rectGetCen(r).y;
-	float h = rectGetH(r);
+void newGuiRectsFromWidths(Rect r, float* widths, int size, Rect* rects, float offset = 0) {
+	float yPos = rectCen(r).y;
+	float h = rectH(r);
 	float sum = 0;
 	for(int i = 0; i < size; i++) {
 		float xPos = r.left + sum + widths[i]/2;
 		rects[i] = rectCenDim(xPos, yPos, widths[i], h);
 
-		sum += widths[i];
+		sum += widths[i] + offset;
 	}
 }
 
+void newGuiTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc, Vec2i align, float sHeight) {
+	drawRectNew(r, bc);
 
+	glEnable(GL_SCISSOR_TEST);
+	scissorTest(rectExpand(r, vec2(-1,-1)), sHeight);
+
+	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
+	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
+
+	drawTextNew(text, font, vec2(xPos, yPos), tc, align);
+
+	glDisable(GL_SCISSOR_TEST);
+}
+void newGuiTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc, float sHeight) {
+	newGuiTextBox(r, bc, text, font, tc, vec2i(0,0), sHeight);
+}
+
+void newGuiTextEditBox(char* text, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active) {
+	Vec2 startPos = rectL(textRect) + editVars.scrollOffset;
+
+	// Background.
+	drawRectNew(textRect, editSettings.colorBackground);
+
+	glEnable(GL_SCISSOR_TEST);
+	scissorTest(textRect, editSettings.screenHeight);
+
+	Vec2i align = vec2i(-1,0);
+	if(active) {
+		// Selection.
+		drawTextSelectionNew(text, font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
+	}
+
+	// Text.
+	drawTextNew(text, font, startPos, editSettings.colorText, align);
+
+	if(active) {
+		// Cursor.
+		Vec2 cPos = textIndexToPos(text, font, startPos, editVars.cursorIndex, align);
+		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, font->height));
+		if(editVars.cursorIndex == 0) cRect = rectAddOffset(cRect, vec2(editSettings.cursorWidth/2));
+		drawRectNew(cRect, editSettings.colorCursor);
+	}
+
+	glDisable(GL_SCISSOR_TEST);
+}
+void newGuiTextEditBox(char* textBuffer, char* text, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active) {
+	char* t = active ? textBuffer : text;
+	newGuiTextEditBox(t, font, textRect, editVars, editSettings, active);
+}
+void newGuiTextEditBox(char* textBuffer, int number, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active) {
+	char* t = active ? textBuffer : fillString("%i", number);
+	newGuiTextEditBox(t, font, textRect, editVars, editSettings, active);
+}
+void newGuiTextEditBox(char* textBuffer, float number, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active) {
+	char* t = active ? textBuffer : fillString("%f", number);
+	newGuiTextEditBox(t, font, textRect, editVars, editSettings, active);
+}
 
 #define Graph_Zoom_Min 60*60*4
 
@@ -1959,7 +2094,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->frameCount++;
 
 		ad->gui = &ad->newGui;
-		newGuiBegin(&ad->newGui, input);
+		newGuiBegin(ad->gui, input);
 	}
 
 	// Handle recording.
@@ -1988,17 +2123,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
     if(input->keysPressed[KEYCODE_ESCAPE]) {
-    	*isRunning = false;
+    	if(!ad->gui->activeId)
+    		*isRunning = false;
     }
 
 
+	bool resize = false;
 	// Window drag.
 	{
-	    NewGui* gui = &ad->newGui;
+	    NewGui* gui = ad->gui;
 
 	    float z = 1;
 
-		bool resize = false;
 		bool setupResize = false;
 
 	    Vec2i res = ws->currentRes;
@@ -2085,7 +2221,14 @@ extern "C" APPMAINFUNCTION(appMain) {
         }
 	}	
 
-
+	if(!resize) {
+		if(windowSizeChanged(windowHandle, ws)) {
+			if(!windowIsMinimized(windowHandle)) {
+				updateResolution(windowHandle, ws);
+				ad->updateFrameBuffers = true;
+			}
+		}
+	}
 
 	ad->screenShotMode = false;
 	if(ad->startScreenShot) {
@@ -2578,15 +2721,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Rect screenRect, rChart, rFilters, rGraph, rGraph2, rLeftText, rLeftText2, rBottomText, infoRect, rGraphs;
 
 		screenRect = rect(0, -res.h, res.w, 0);
-		float sidePanelWidth = rectGetW(screenRect)*0.25f;
+		float sidePanelWidth = rectW(screenRect)*0.25f;
 
 		rChart = ad->selectedVideo!=-1 ? rect(screenRect.min, screenRect.max - vec2(sidePanelWidth,0)) : screenRect;
 		rFilters = rChart;
 		float filtersHeight = font->height - ad->filtersGui.settings.border.h*2 + ad->filtersGui.settings.offsets.y;
 		rFilters.min.y = rFilters.top - filtersHeight;
 		rChart.max.y -= filtersHeight;
-		// rFilters = rectExpand(rFilters, vec2(-2,-2));
-		rFilters = rectAddOffset(rFilters, vec2(0,-1));
 
 		float leftTextMargin = ad->leftTextWidth==0?100:ad->leftTextWidth;
 
@@ -2594,13 +2735,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 		rGraph.min += vec2(leftTextMargin,font->height*2);
 		rLeftText = rect(rChart.left,rGraph.bottom,rGraph.left,rChart.top);
 		rBottomText = rect(rGraph.left,rChart.bottom,rChart.right,rGraph.bottom);
-		infoRect = rect(screenRect.min + vec2(rectGetW(screenRect)-sidePanelWidth, 0), screenRect.max);
+		infoRect = rect(screenRect.min + vec2(rectW(screenRect)-sidePanelWidth, 0), screenRect.max);
 
-		float graphHeight = rectGetH(rGraph);
+		float graphHeight = rectH(rGraph);
 		rGraph.min.y += graphHeight/2;
 		rLeftText.min.y += graphHeight/2;
 
-		rGraph2 = rect(rectGetUL(rBottomText), rectGetDR(rGraph));
+		rGraph2 = rect(rectUL(rBottomText), rectDR(rGraph));
 		rLeftText2 = rect(rChart.left, rBottomText.top, rGraph2.left, rLeftText.bottom);
 
 		float g = 0.15f;
@@ -2643,7 +2784,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			graphCamSizeClamp(camLikes, Graph_Zoom_Min, 100);
 
 			{
-				NewGui* gui = &ad->newGui;
+				NewGui* gui = ad->gui;
 				float z = 0;
 				int event;
 
@@ -2698,9 +2839,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				GraphCam* cam = &ad->cam;
 				Rect scaleRect = rLeftText;
-				float splitSize = splitSizePixels * (cam->h / rectGetH(cam->viewPort));
+				float splitSize = splitSizePixels * (cam->h / rectH(cam->viewPort));
 				float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-				// float subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
+				// float subSplitSize = font->height * (cam->h / rectH(cam->viewPort));
 				int i = 0;
 				float p = roundModDown(cam->bottom, stepSize);
 				while(p < cam->top + stepSize) {
@@ -2735,9 +2876,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			{
 				GraphCam* cam = &ad->camLikes;
 				Rect scaleRect = rLeftText2;
-				float splitSize = splitSizePixels * (cam->h / rectGetH(cam->viewPort));
+				float splitSize = splitSizePixels * (cam->h / rectH(cam->viewPort));
 				float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-				// float subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
+				// float subSplitSize = font->height * (cam->h / rectH(cam->viewPort));
 				int i = 0;
 				float p = roundModDown(cam->bottom, stepSize);
 				while(p < cam->top + stepSize) {
@@ -2780,9 +2921,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			glEnable(GL_SCISSOR_TEST);
 
 			Rect scaleRect = rBottomText;
-			double splitSize = splitSizePixels * (cam->w / rectGetW(cam->viewPort));
+			double splitSize = splitSizePixels * (cam->w / rectW(cam->viewPort));
 			double stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-			// double subSplitSize = font->height * (cam->h / rectGetH(cam->viewPort));
+			// double subSplitSize = font->height * (cam->h / rectH(cam->viewPort));
 			int i = 0;
 			double p = roundModDown(cam->left, stepSize);
 			while(p < cam->right + stepSize) {
@@ -3015,11 +3156,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		Font* titleFont = getFont(FONT_CALIBRI, 30);
-		// Vec2 tp0 = vec2(rectGetCen(rGraph).x, rGraph.top - 10);
-		// Vec2 tp1 = vec2(rectGetCen(rGraph2).x, rGraph2.top - 10);
+		// Vec2 tp0 = vec2(rectCen(rGraph).x, rGraph.top - 10);
+		// Vec2 tp1 = vec2(rectCen(rGraph2).x, rGraph2.top - 10);
 
-		Vec2 tp0 = rectGetUL(rGraph) + vec2(20,-10);
-		Vec2 tp1 = rectGetUL(rGraph2) + vec2(20,-10);;
+		Vec2 tp0 = rectUL(rGraph) + vec2(20,-10);
+		Vec2 tp1 = rectUL(rGraph2) + vec2(20,-10);;
 
 		drawTextNew("Views", titleFont, tp0, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
 		drawTextNew("Likes", titleFont, tp1, vec4(0.9f,0.9f,0.9f,1), vec2i(-1,1), 0, 2, vec4(0,0,0,1));
@@ -3042,8 +3183,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			infoRect = rectExpand(infoRect, -vec2(border,border));
 			Font* font = getFont(FONT_CALIBRI, 20);
 			Font* font2 = getFont(FONT_SOURCESANS_PRO, 20);
-			float xMid = rectGetCen(infoRect).x;
-			float width = rectGetW(infoRect);
+			float xMid = rectCen(infoRect).x;
+			float width = rectW(infoRect);
 			float yPos = infoRect.top;
 			Vec4 fc = vec4(0.9f,1);
 
@@ -3052,24 +3193,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			// Top gui.
 			{
-				glEnable(GL_SCISSOR_TEST);
-
-				// drawRectNew(infoPanelTop, vec4(0.4f,0,0,1));
-
-				float divs[4] = {40,0,0,40};
-				newGuiDiv(rectGetW(infoPanelTop), 0, divs, arrayCount(divs));
-
+				float offset = 4;
+				float divs[] = {40,0,0,40, 30};
 				Rect buttons[arrayCount(divs)];
-				newGuiRectsFromWidths(infoPanelTop, divs, arrayCount(divs), buttons);
+				newGuiDiv(rectW(infoPanelTop), divs, arrayCount(divs), offset);
+				newGuiRectsFromWidths(infoPanelTop, divs, arrayCount(divs), buttons, offset);
 
 				float z = 1;
-				Vec4 buttonColor = vec4(0.2f,0.1f,0,1);
-				float buttonMargin = 2;
+				Vec4 buttonColor = vec4(0.3f,0.1f,0,1);
 
 				if(ad->selectedVideo > 0) {
 					Rect r = buttons[0];
-					int id = newGuiButtonAction(ad->gui, r, z);
-					if(newGuiGotActive(ad->gui, id)) {
+
+					if(newGuiGoButtonAction(ad->gui, r, z)) {
 						if(ad->selectedVideo != -1) {
 							int newSelection = clampMin(ad->selectedVideo - 1, 0);
 							if(newSelection != ad->selectedVideo) {
@@ -3079,45 +3215,30 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 					}
 
-					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
-					r = rectExpand(r, -vec2(buttonMargin, 0));
-					scissorTest(r, ws->currentRes.h);
-					drawRectNew(r, c);
-					drawTextNew("<-", font, rectGetCen(r), fc, vec2i(0,0));
+					newGuiTextBox(r, buttonColor + newGuiColorModB(ad->gui), "<-", font, fc, vec2i(0,0), ws->currentRes.h);
 				}
 
 				{
 					Rect r = buttons[1];
-					int id = newGuiButtonAction(ad->gui, r, z);
-					if(newGuiGotActive(ad->gui, id)) {
+					if(newGuiGoButtonAction(ad->gui, r, z)) {
 						shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
 					}
 
-					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
-					r = rectExpand(r, -vec2(buttonMargin, 0));
-					scissorTest(r, ws->currentRes.h);
-					drawRectNew(r, c);
-					drawTextNew("Open in Chrome.", font, rectGetCen(r), fc, vec2i(0,0));
+					newGuiTextBox(r, buttonColor + newGuiColorModB(ad->gui), "Open in Chrome.", font, fc, vec2i(0,0), ws->currentRes.h);
 				}
 
 				{
 					Rect r = buttons[2];
-					int id = newGuiButtonAction(ad->gui, r, z);
-					if(newGuiGotActive(ad->gui, id)) {
+					if(newGuiGoButtonAction(ad->gui, r, z)) {
 						shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
 					}
 
-					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
-					r = rectExpand(r, -vec2(buttonMargin, 0));
-					scissorTest(r, ws->currentRes.h);
-					drawRectNew(r, c);
-					drawTextNew("Open in Firefox.", font, rectGetCen(r), fc, vec2i(0,0));
+					newGuiTextBox(r, buttonColor + newGuiColorModB(ad->gui), "Open in Firefox.", font, fc, vec2i(0,0), ws->currentRes.h);
 				}
 
 				if(ad->selectedVideo != ad->playlist.count-1) {
 					Rect r = buttons[3];
-					int id = newGuiButtonAction(ad->gui, r, z);
-					if(newGuiGotActive(ad->gui, id)) {
+					if(newGuiGoButtonAction(ad->gui, r, z)) {
 						if(ad->selectedVideo != -1) {
 							int newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
 							if(newSelection != ad->selectedVideo) {
@@ -3127,14 +3248,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 					}
 
-					Vec4 c = buttonColor + newGuiHotGotActiveColorMod(ad->gui, id);
-					r = r;
-					scissorTest(r, ws->currentRes.h);
-					drawRectNew(rectExpand(r, -vec2(buttonMargin, 0)), c);
-					drawTextNew("->", font, rectGetCen(r), fc, vec2i(0,0));
+					newGuiTextBox(r, buttonColor + newGuiColorModB(ad->gui), "->", font, fc, vec2i(0,0), ws->currentRes.h);
 				}
 
-				int stop = 234; 
+				{
+					Rect r = buttons[4];
+					if(newGuiGoButtonAction(ad->gui, r, z)) {
+						ad->selectedVideo = -1;
+					}
+
+					newGuiTextBox(r, buttonColor + newGuiColorModB(ad->gui), "x", font, fc, vec2i(0,1), ws->currentRes.h);
+				}
 			}
 
 
@@ -3153,9 +3277,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			yPos -= font->height;
 
 			// drawRectNew(rectCenDim(xMid, yPos - sn->thumbnailHeight/2, sn->thumbnailWidth, sn->thumbnailHeight), rect(0,0,1,1), fc, sn->thumbnailTexture.id);
-			Rect imageRect = rect(infoRect.left, yPos - rectGetW(infoRect)*(sn->thumbnailTexture.dim.h/(float)sn->thumbnailTexture.dim.w), infoRect.right, yPos);
+			Rect imageRect = rect(infoRect.left, yPos - rectW(infoRect)*(sn->thumbnailTexture.dim.h/(float)sn->thumbnailTexture.dim.w), infoRect.right, yPos);
 			drawRectNew(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
-			yPos -= rectGetH(imageRect);
+			yPos -= rectH(imageRect);
 
 			drawTextNew(sv->title, font, vec2(xMid, yPos), fc, vec2i(0,1), width);
 			yPos -= getTextHeight(sv->title, font, vec2(xMid, yPos), width);
@@ -3192,45 +3316,54 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				static float scrollValue = 0.0f;
 				static Vec2 mouseAnchor;
-		
-
-				float sliderSize = (rectGetH(scrollBarRect) / (rectGetH(commentRect)+commentHeight)) * rectGetH(scrollBarRect);
-
 				float z = 1;
-				int id = newGuiButtonAction(&ad->newGui, commentScrollRect, z, input->mousePosNegative, input->mouseWheel != 0, Gui_Focus_MWheel);
-				if(newGuiGotActive(&ad->newGui, id)) {
-					float scrollAmount = font->height;
-					if(input->keysDown[KEYCODE_SHIFT]) scrollAmount *= 2;
-					scrollValue = clamp(scrollValue + -input->mouseWheel*(scrollAmount/commentHeight), 0, 1);
-				}
+		
+				float sliderSize = (rectH(scrollBarRect) / (rectH(commentRect)+commentHeight)) * rectH(scrollBarRect);
+				clampMin(&sliderSize, 20);
 
-				z = 1;
-				Rect slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, false);
-				id = newGuiDragAction(&ad->newGui, slider, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
-				if(newGuiGotActive(&ad->newGui, id)) mouseAnchor = input->mousePosNegative - rectGetCen(slider);
-				if(newGuiIsActive(&ad->newGui, id)) {
-					scrollValue = 1-newGuiSliderGetValue(input->mousePosNegative - mouseAnchor, scrollBarRect, sliderSize, false);
-					slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, false);
-				}
-
-				// Scroll with left mouse.
+				// Scroll with mousewheel.
 				{
-					int id = newGuiDragAction(&ad->newGui, commentRect, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
-					if(newGuiGotActive(&ad->newGui, id)) mouseAnchor.y = input->mousePosNegative.y - (scrollValue*commentHeight);
-					if(newGuiIsActive(&ad->newGui, id)) {
-						scrollValue = (input->mousePosNegative.y - mouseAnchor.y)/commentHeight;
-						clamp(&scrollValue, 0, 1);
+					if(newGuiGoButtonAction(ad->gui, commentScrollRect, z, Gui_Focus_MWheel)) {
+						float scrollAmount = font->height;
+						if(input->keysDown[KEYCODE_SHIFT]) scrollAmount *= 2;
+						scrollValue = clamp(scrollValue + -input->mouseWheel*(scrollAmount/commentHeight), 0, 1);
 					}
 				}
 
-				if(hasScrollbar) drawRectNew(rectExpand(slider, vec2(-7,-7)), scrollBarColor + newGuiHotActiveColorMod(&ad->newGui, id), z+1);
+				Rect slider;
+				int sliderId;
+				// Scroll with handle.
+				{
+					slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, false);
+					int event = newGuiGoDragAction(ad->gui, slider, z);
+					sliderId = newGuiId(ad->gui);
+					if(event == 1) mouseAnchor = input->mousePosNegative - rectCen(slider);
+					if(event > 0) {
+						scrollValue = 1-newGuiSliderGetValue(input->mousePosNegative - mouseAnchor, scrollBarRect, sliderSize, false);
+						slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, false);
+					}
+				}
+
+				// Scroll with background drag.
+				{
+					int event = newGuiGoDragAction(ad->gui, commentRect, z);
+					if(event == 1) mouseAnchor.y = input->mousePosNegative.y - (scrollValue*commentHeight);
+					if(event > 0) {
+						scrollValue = (input->mousePosNegative.y - mouseAnchor.y)/commentHeight;
+						clamp(&scrollValue, 0, 1);
+
+						slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, false);
+					}
+				}
+
+				if(hasScrollbar) drawRectNew(rectExpand(slider, vec2(-7,-7)), scrollBarColor + newGuiColorModId(ad->gui, sliderId), z+1);
 
 				float startYPos = yPos + scrollValue*commentHeight;
 				if(hasScrollbar) yPos = startYPos;
 
 
 				scissorTest(commentRect, res.h);
-				float wrapWidth = rectGetW(commentRect);
+				float wrapWidth = rectW(commentRect);
 				for(int i = 0; i < sn->selectedCommentCount; i++) {
 					drawTextNew(sn->selectedTopComments[i], font2, vec2(infoRect.left, yPos), fc, vec2i(-1,1), wrapWidth);
 					yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), wrapWidth);
@@ -3239,7 +3372,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					yPos -= font2->height;
 				}
 
-				commentHeight = startYPos - yPos - (rectGetH(commentRect));
+				commentHeight = startYPos - yPos - (rectH(commentRect));
 			}
 
 			glDisable(GL_SCISSOR_TEST);
@@ -3247,6 +3380,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 		// Filters gui.
+		if(false)
 		{
 			if(init) {
 				ad->filtersGui.init(rectCenDim(400,-400,600,200), -1);
@@ -3283,8 +3417,80 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
 		}
 
+
+
+		// Filters gui.
+		// if(false)
 		{
-			NewGui* gui = &ad->newGui;
+			char* labels[] = {"Avg. line (width/res months): ", "Filter (Incl./Excl.): "};
+			float widths[] = {150, 0, getTextDim(labels[0], font).x, 40, 40, 10, getTextDim(labels[1], font).x, 250, 250};
+			Rect regions[arrayCount(widths)];
+
+			float offset = 4;
+
+			newGuiDiv(rectW(rFilters), widths, arrayCount(widths), offset);
+			newGuiRectsFromWidths(rFilters, widths, arrayCount(widths), regions, offset);
+
+			Vec4 bc = vec4(0.52,0.25,0.20,1);
+			Vec4 ec = vec4(0.33,0.11,0.11,1);
+			Vec4 tc = vec4(0.9,1);
+
+			TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, ec, tc, vec4(0.24,0.41,0.59,1), vec4(0.2f,0.7f,0,1)};
+
+			glEnable(GL_SCISSOR_TEST);
+			scissorTest(rFilters, ws->currentRes.h);
+
+			float z = 0;
+			if(newGuiGoButtonAction(ad->gui, regions[0], z)) ds->showMenu = !ds->showMenu;
+			newGuiTextBox(regions[0], bc + newGuiColorModB(ad->gui), "Panel (F1)", font, tc, ws->currentRes.h);
+
+			newGuiTextBox(regions[2], vec4(0,0), labels[0], font, tc, ws->currentRes.h);
+
+
+
+			bool updateStats = false;
+
+			{
+				Rect textRect = regions[3];
+				int event = newGuiGoTextEdit(ad->gui, textRect, z, &ad->statTimeSpan, font, editSettings);
+				newGuiTextEditBox(ad->gui->editText, ad->statTimeSpan, font, textRect, ad->gui->editVars, editSettings, event > 0);
+				if(event == 3) updateStats = true;
+			}
+
+			{
+				Rect textRect = regions[4];
+				int event = newGuiGoTextEdit(ad->gui, textRect, z, &ad->statWidth, font, editSettings);
+				newGuiTextEditBox(ad->gui->editText, ad->statWidth, font, textRect, ad->gui->editVars, editSettings, event > 0);
+				if(event == 3) updateStats = true;
+			}
+
+			newGuiTextBox(regions[6], vec4(0,0), labels[1], font, tc, ws->currentRes.h);
+
+			{
+				Rect textRect = regions[7];
+				int event = newGuiGoTextEdit(ad->gui, textRect, z, ad->inclusiveFilter, font, editSettings, arrayCount(ad->inclusiveFilter));
+				newGuiTextEditBox(ad->gui->editText, ad->inclusiveFilter, font, textRect, ad->gui->editVars, editSettings, event > 0);
+				if(event == 3) ad->startLoadFile = true;
+			}
+
+			{
+				Rect textRect = regions[8];
+				int event = newGuiGoTextEdit(ad->gui, textRect, z, ad->exclusiveFilter, font, editSettings, arrayCount(ad->exclusiveFilter));
+				newGuiTextEditBox(ad->gui->editText, ad->exclusiveFilter, font, textRect, ad->gui->editVars, editSettings, event > 0);
+				if(event == 3) ad->startLoadFile = true;
+			}
+			
+
+
+			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cam.xMax - ad->cam.xMin);
+
+			glDisable(GL_SCISSOR_TEST);	
+		}
+
+
+		if(false)
+		{
+			NewGui* gui = ad->gui;
 
 			static bool popupPanel = false;
 
@@ -3297,12 +3503,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			int id = newGuiButtonAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0]);
 			if(newGuiGotActive(gui, id)) popupPanel = true;
-			drawRectNew(br, vec4(0.3f,0.2f,0.7f,1) + newGuiHotGotActiveColorMod(gui, id));
+			drawRectNew(br, vec4(0.3f,0.2f,0.7f,1) + newGuiColorModB(gui));
 
 			if(popupPanel) {
 				float pWidth = 200;
 				float pHeight = 500;
-				Vec2 pCenter = vec2(rectGetCen(br).x, rectGetCen(br).y-rectGetH(br)/2 - pHeight/2);
+				Vec2 pCenter = vec2(rectCen(br).x, rectCen(br).y-rectH(br)/2 - pHeight/2);
 				Rect pr = rectCenDim(pCenter, vec2(pWidth, pHeight));
 
 				float z = 5;
@@ -3320,7 +3526,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				// int id = newGuiButtonAction(gui, pr, z, input->mousePosNegative, input->mouseButtonPressed[0]);
 				// if(newGuiGotActive(gui, id)) popupPanel = true;
-				// drawRectNew(pr, vec4(0.3f,0.2f,0.7f,1) + newGuiHotGotActiveColorMod(gui, id));
+				// drawRectNew(pr, vec4(0.3f,0.2f,0.7f,1) + newGuiColorModB(gui));
 
 				drawRectNew(pr, vec4(0.2f,0.4f,0.7f,1));
 			}
@@ -3339,180 +3545,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	endOfMainLabel:
 
-	// if(false)
-	{
-		glEnable(GL_DEPTH_TEST);
-
-		// if(init) {
-		// 	ad->newGui.activeId = -1;
-		// 	ad->newGui.gotActiveId = -1;
-		// 	ad->newGui.lostActiveId = -1;
-		// }
-
-		NewGui* gui = &ad->newGui;
-
-		/*
-			zoom/move graphs
-			zoom/move left side
-			move window right click everywhere
-			resize ctrl right click everywhere
-			resize right/bottom left click
-
-			debug window blocks everything else
-		*/
-
-		// {
-		// 	Rect br = rectCenDim(300,-300,200,40);
-		// 	Vec4 c = vec4(0.5f,0,0,1);
-		// 	float z = 1;
-
-		// 	int id = newGuiIncrementId(gui);
-		// 	newGuiButtonAction(gui, id, br, z, input->mousePosNegative, input->mouseButtonPressed[0]);
-		// 	newGuiButtonAction(gui, id, br, z, input->mousePosNegative, input->mouseWheel != 0, Gui_Focus_MWheel);
-
-		// 	drawRectNew(br, c, z);
-		// 	if(newGuiGotActive(gui, id)) addDebugNote(fillString("Id: %i", id));
-		// }
-
-		// {
-		// 	Rect br = rectCenDim(330,-320,200,40);
-		// 	Vec4 c = vec4(0,0.5f,0,1);
-		// 	float z = 0;
-
-		// 	int id = newGuiButtonAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0]);
-		// 	bool active = newGuiGotActive(gui, id);
-
-		// 	drawRectNew(br, c + newGuiHotActiveColorMod(newGuiIsHot(gui, id), active), z);
-
-		// 	if(active) {
-		// 		addDebugNote(fillString("Id: %i", id));
-		// 	}
-		// }
-
-		// static Vec2 mouseAnchor;
-		// static bool mode;
-
-		// {
-		// 	static Rect br = rectCenDim(330,-320,80,400);
-		// 	Vec4 c = vec4(0,0.5f,0.5f,1);
-		// 	float z = 2;
-
-		// 	int id = newGuiDragAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
-
-		// 	if(newGuiGotActive(gui, id)) {
-		// 		if(input->keysDown[KEYCODE_CTRL]) mode = 1;
-		// 		else mode = 0;
-
-		// 		if(mode == 0) {
-		// 			mouseAnchor = input->mousePosNegative - rectGetCen(br);
-		// 		} else {
-		// 			mouseAnchor = input->mousePosNegative - rectGetDR(br);
-		// 		}
-		// 	}
-
-		// 	if(newGuiIsActive(gui, id)) {
-		// 		if(mode == 0) {
-		// 			br = rectCenDim(input->mousePosNegative - mouseAnchor, rectGetDim(br));
-		// 		} else {
-		// 			Vec2 dr = input->mousePosNegative - mouseAnchor;
-		// 			br.bottom = br.top - clampMin(br.top - dr.y, 100);
-		// 			br.right = br.left + clampMin(dr.x - br.left, 100);
-		// 		}
-		// 	}
-
-		// 	drawRectNew(br, c + newGuiHotActiveColorMod(newGuiIsHot(gui, id), false), z);
-		// }
-
-		// static float sliderValue = 0;
-		// {
-		// 	static Vec2 mouseAnchor;
-	
-		// 	static Rect br = rectCenDim(630,-320,30,300);
-		// 	float sliderSize = 30;
-		// 	Vec4 c = vec4(0.5f,0.0f,0.5f,1);
-		// 	Vec4 c2 = vec4(0.7f,0.0f,0.5f,1);
-		// 	float z = 3;
-
-		// 	Rect slider = newGuiCalcSlider(sliderValue, br, sliderSize, false);
-		// 	int id = newGuiDragAction(gui, slider, z, input->mousePosNegative, input->mouseButtonPressed[0], input->mouseButtonReleased[0]);
-
-		// 	if(newGuiGotActive(gui, id)) mouseAnchor = input->mousePosNegative - rectGetCen(slider);
-		// 	if(newGuiIsActive(gui, id)) {
-		// 		sliderValue = newGuiSliderGetValue(input->mousePosNegative - mouseAnchor, br, sliderSize, false);
-		// 		Rect slider = newGuiCalcSlider(sliderValue, br, sliderSize, false);
-		// 	}
-
-		// 	drawRectNew(br, c, z);
-		// 	drawRectNew(rectExpand(slider, vec2(-7,-7)), c2 + newGuiHotActiveColorMod(gui, id), z+1);
-		// }
-
-
-
-		{
-			// bool buttonActive = false;
-			// {
-			// 	Rect br = rectCenDim(300,-300,200,60);
-			// 	float z = 0;
-
-			// 	bool active;
-			// 	int id = newGuiButtonAction(gui, br, z, input->mousePosNegative, input->mouseButtonPressed[0], &active);
-
-			// 	drawRectNew(br, vec4(0.6f,0.5f,0,1) + newGuiHotActiveColorMod(newGuiIsHot(gui, id), active), z);
-
-			// 	if(active) {
-			// 		addDebugNote(fillString("Id: %i", id));
-			// 		buttonActive = true;
-			// 	}
-			// }
-
-			// static bool dropBoxEnabled = false;
-
-			// if(buttonActive) {
-			// 	dropBoxEnabled = true;
-			// 	input->mouseButtonPressed[0] = false;
-			// }
-
-			// if(dropBoxEnabled) 
-			// {
-			// 	Rect br = rectCenDim(350,-300,80,500);
-			// 	float z = 3;
-
-			// 	if(input->mouseButtonPressed[0] && !pointInRect(input->mousePosNegative, br)) {
-			// 		dropBoxEnabled = false;
-			// 	}
-
-			// 	int id = newGuiIncrementId(gui);
-			// 	// bool active = newGuiSetActiveLeftMouseClick(gui, id, input->mouseButtonPressed[0]);
-			// 	// newGuiSetNotActiveWhenActive(gui, id);
-			// 	newGuiSetHotMouseOver(gui, id, input->mousePosNegative, br, z);
-
-			// 	Vec4 c = vec4(0.6f,0.5f,0,1);
-
-			// 	// if(newGuiIsHot(gui, id)) c += vec4(0.1f,0); 
-			// 	// if(active) c += vec4(0.2f,0); 
-
-			// 	// if(newGuiIsActive(gui, id)) 
-			// 	drawRectNew(br, c, z);
-
-			// 	// if(active) {
-			// 		// addDebugNote(fillString("Id: %i", id));
-			// 		// buttonActive = true;
-			// 	// }
-			// }
-		}
-
-		glDisable(GL_DEPTH_TEST);
-	}
-
 
 	{
-		int id = newGuiIncrementId(&ad->newGui);
+		int id = newGuiIncrementId(ad->gui);
 		if(ds->showMenu) {
-			newGuiSetHotAllMouseOver(&ad->newGui, id, ds->gui->getPanelBackgroundRect(), 5);
+			newGuiSetHotAllMouseOver(ad->gui, id, ds->gui->getPanelBackgroundRect(), 5);
 		}
 	}
 
-	newGuiEnd(&ad->newGui);
+	newGuiEnd(ad->gui);
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
@@ -3539,6 +3580,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		if(ad->screenShotMode) {
 			ds->showMenu = true;
+			ad->updateFrameBuffers = true;
 
 			bindFrameBuffer(FRAMEBUFFER_ScreenShot);
 			glClearColor(0,0,0,1);
@@ -4154,7 +4196,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					float height = mapRangeClamp(coh, stat->min, stat->max, 1, rheight);
 					Vec2 rmin = r.min + vec2(xOffset, fontBaseOffset);
 					float colorOffset = mapRange(coh, stat->min, stat->max, 0, 1);
-					// drawRectNew(rectMinDim(rmin, vec2(barWidth, height)), vec4(colorOffset,1-colorOffset,0,1));
+					// drawRectNew(rectDLDim(rmin, vec2(barWidth, height)), vec4(colorOffset,1-colorOffset,0,1));
 					drawLineNew(rmin, rmin+vec2(0,height), vec4(colorOffset,1-colorOffset,0,1));
 
 					xOffset += barWidth;
@@ -4181,7 +4223,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			Rect bgRect = gui->getCurrentRegion();
 			gui->heightPop();
 
-			float graphWidth = rectGetDim(bgRect).w;
+			float graphWidth = rectDim(bgRect).w;
 
 			int swapTimerIndex = 0;
 			for(int i = 0; i < timer->timerInfoCount; i++) {
@@ -4242,10 +4284,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			// Header.
 			{
 				drawRectNew(cyclesRect, gui->colors.sectionColor);
-				Vec2 cyclesDim = rectGetDim(cyclesRect);
+				Vec2 cyclesDim = rectDim(cyclesRect);
 
 				drawRectNew(headerRect, vec4(1,1,1,0.1f));
-				Vec2 headerDim = rectGetDim(headerRect);
+				Vec2 headerDim = rectDim(headerRect);
 
 				{
 					float viewAreaLeft = mapRangeDouble(orthoLeft, cyclesLeft, cyclesRight, cyclesRect.min.x, cyclesRect.max.x);
@@ -4353,7 +4395,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			char* hText;
 			GraphSlot* hSlot;
 
-			Vec2 startPos = rectGetUL(bgRect);
+			Vec2 startPos = rectUL(bgRect);
 			startPos -= vec2(0, lineHeight);
 
 			int firstBufferIndex = oldIndex;
@@ -4415,7 +4457,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							if(barLeft < bgRect.min.x) r.min.x = bgRect.min.x;
 							Rect textRect = rect(r.min+vec2(1,1), r.max-vec2(1,1));
 
-							gui->drawTextBox(textRect, fillString("%s %s (%i.c)", tInfo->function, tInfo->name, slot->size), c, 0, rectGetDim(textRect).w);
+							gui->drawTextBox(textRect, fillString("%s %s (%i.c)", tInfo->function, tInfo->name, slot->size), c, 0, rectDim(textRect).w);
 						}
 					}
 
@@ -4430,7 +4472,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				if(hRect.min.x < bgRect.min.x) hRect.min.x = bgRect.min.x;
 
 				float tw = getTextDim(hText, gui->font).w + 2;
-				if(tw > rectGetDim(hRect).w) hRect.max.x = hRect.min.x + tw;
+				if(tw > rectDim(hRect).w) hRect.max.x = hRect.min.x + tw;
 
 				float g = 0.8f;
 				gui->drawRect(hRect, vec4(g,g,g,1));
@@ -4585,7 +4627,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					}
 
 					float y = mapRange(t->cyclesOverHits, orthoBottom, orthoTop, rBottom, rTop);
-					float xOff = rectGetDim(rectLines).w/(cycleCount-1);
+					float xOff = rectDim(rectLines).w/(cycleCount-1);
 					Vec2 np = vec2(rectLines.min.x + xOff*i, y);
 
 					if(lastElementEmpty) np.y = yAvg;
@@ -4601,8 +4643,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 			gui->empty();
 			Rect r = gui->getCurrentRegion();
-			Vec2 rc = rectGetCen(r);
-			float rw = rectGetDim(r).w;
+			Vec2 rc = rectCen(r);
+			float rw = rectDim(r).w;
 
 			// Draw color rectangles.
 			float width = (rw/timerCount)*0.75f;

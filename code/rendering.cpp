@@ -907,7 +907,7 @@ void getUniform(uint shaderId, int shaderStage, uint uniformId, float* data) {
 // void drawRect(Rect r, Vec4 color, Rect uv = rect(0,0,1,1), int texture = -1, float texZ = -1) {	
 // 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_PRIMITIVE_MODE, 0);
 
-// 	Rect cd = rectGetCenDim(r);
+// 	Rect cd = rectCenDim(r);
 
 // 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_MOD, cd.e);
 // 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_UV, uv.min.x, uv.max.x, uv.max.y, uv.min.y);
@@ -925,13 +925,13 @@ void getUniform(uint shaderId, int shaderStage, uint uniformId, float* data) {
 
 void scissorTest(Rect r) {
 	Rect sr = r;
-	Vec2 dim = rectGetDim(sr);
+	Vec2 dim = rectDim(sr);
 	glScissor(sr.min.x, sr.min.y, dim.x, dim.y);
 }
 
 void scissorTest(Rect r, float screenHeight) {
 	Rect sr = scissorRectScreenSpace(r, screenHeight);
-	Vec2 dim = rectGetDim(sr);
+	Vec2 dim = rectDim(sr);
 	glScissor(sr.min.x, sr.min.y, dim.x, dim.y);
 }
 
@@ -1067,7 +1067,7 @@ void drawLineNewOff(Vec2 p0, Vec2 p1, Vec4 color) {
 }
 
 void ortho(Rect r) {
-	r = rectGetCenDim(r);
+	r = rectCenDim(r);
 
 	pushUniform(SHADER_QUAD, 0, QUAD_UNIFORM_CAMERA, r.e);
 }
@@ -1467,6 +1467,48 @@ void drawTextSelection(char* text, Font* font, Vec2 startPos, int index1, int in
 	}
 }
 
+void drawTextSelectionNew(char* text, Font* font, Vec2 startPos, int index1, int index2, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
+	if(index1 == index2) return;
+	if(index1 > index2) swap(&index1, &index2);
+
+	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
+
+	Vec2 lineStart;
+	bool drawSelection = false;
+
+	TextSimInfo tsi = initTextSimInfo(startPos);
+	while(true) {
+		TextInfo ti;
+		int result = textSim(text, font, &tsi, &ti, startPos, wrapWidth);
+
+		bool endReached = ti.index == index2;
+
+		if(drawSelection) {
+			if(ti.lineBreak || endReached) {
+
+				Vec2 lineEnd;
+				if(ti.lineBreak) lineEnd = ti.breakPos;
+				else if(!result) lineEnd = tsi.pos;
+				else lineEnd = ti.pos;
+
+				Rect r = rect(lineStart - vec2(0,font->height), lineEnd);
+				drawRectNew(r, color);
+
+				lineStart = ti.pos;
+
+				if(endReached) break;
+			}
+		}
+
+		if(!drawSelection && (ti.index >= index1)) {
+			drawSelection = true;
+			lineStart = ti.pos;
+		}
+
+		if(!result) break;
+	}
+}
+
 int textMouseToIndex(char* text, Font* font, Vec2 startPos, Vec2 mousePos, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
 
@@ -1710,7 +1752,7 @@ void executeCommandList(DrawCommandList* list, bool print = false, bool skipStri
 			case Draw_Command_Scissor_Type: {
 				dcGetStructAndIncrement(Scissor);
 				Rect r = dc.rect;
-				Vec2 dim = rectGetDim(r);
+				Vec2 dim = rectDim(r);
 				myAssert(dim.w >= 0 && dim.h >= 0);
 				glScissor(r.min.x, r.min.y, dim.x, dim.y);
 			} break;
