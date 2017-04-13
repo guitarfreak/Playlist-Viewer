@@ -2349,51 +2349,79 @@ Mat4 modelMatrix(Vec3 trans, Vec3 scale, float degrees = 0, Vec3 rot = vec3(0,0,
 //
 //
 
-inline Rect rect(float left, float bottom, float right, float top) {
-	Rect r;
-	r.min = vec2(left, bottom);
-	r.max = vec2(right, top);
-	return r;
-}
+inline Rect  rect       () { return {0,0,0,0}; }
+inline Rect  rect       (Vec2 min, Vec2 max) { return {min, max}; }
+inline Rect  rect       (float left, float bottom, float right, float top) { return {left, bottom, right, top}; }
+inline Rect  rectSides  (float left, float right, float bottom, float top) { return rect(left, bottom, right, top); }
+inline Rect  rectBLDim  (Vec2 a, Vec2 d)    { return rect(a, a+d); };
+inline Rect  rectTLDim  (Vec2 a, Vec2 d)    { return rect(a.x, a.y-d.h, a.x+d.w, a.y); };
+inline Rect  rectTRDim  (Vec2 a, Vec2 d)    { return rect(a-d, a); };
+inline Rect  rectBRDim  (Vec2 a, Vec2 d)    { return rect(a.x-d.w, a.y, a.x, a.y+d.h); };
+inline Rect  rectCenDim (Vec2 a, Vec2 d)    { return rect(a.x-d.w/2, a.y - d.h/2, a.x + d.w/2, a.y + d.h/2); }
+inline Rect  rectBLDim  (float x, float y, float w, float h) { return rectBLDim(vec2(x,y), vec2(w,h)); };
+inline Rect  rectTLDim  (float x, float y, float w, float h) { return rectTLDim(vec2(x,y), vec2(w,h)); };
+inline Rect  rectTRDim  (float x, float y, float w, float h) { return rectTRDim(vec2(x,y), vec2(w,h)); };
+inline Rect  rectBRDim  (float x, float y, float w, float h) { return rectBRDim(vec2(x,y), vec2(w,h)); };
+inline Rect  rectCenDim (float x, float y, float w, float h) { return rectCenDim(vec2(x,y), vec2(w,h));};
 
-inline Rect rect(Vec2 min, Vec2 max) {
-	Rect r;
-	r.min = min;
-	r.max = max;
+inline float rectW      (Rect r)            { return r.right - r.left; };
+inline float rectH      (Rect r)            { return r.top - r.bottom; };
+inline float rectCenX   (Rect r)            { return r.left + rectW(r)/2; };
+inline float rectCenY   (Rect r)            { return r.bottom + rectH(r)/2; };
+inline Vec2  rectDim    (Rect r)            { return r.max - r.min; };
+inline Vec2  rectCen    (Rect r)            { return r.min + rectDim(r)/2; };
+inline Vec2  rectBL     (Rect r)            { return r.min; }
+inline Vec2  rectL      (Rect r)            { return vec2(r.left, rectCen(r).y); }
+inline Vec2  rectTL     (Rect r)            { return vec2(r.left, r.top); }
+inline Vec2  rectT      (Rect r)            { return vec2(rectCen(r).x, r.top); }
+inline Vec2  rectTR     (Rect r)            { return r.max; }
+inline Vec2  rectR      (Rect r)            { return vec2(r.right, rectCen(r).y); }
+inline Vec2  rectBR     (Rect r)            { return vec2(r.right, r.bottom); }
+inline Vec2  rectB      (Rect r)            { return vec2(rectCen(r).x, r.bottom); }
 
-	return r;
-}
+inline Rect  rectSetCen (Rect r, Vec2 p)    { return rectCenDim(p, rectDim(r)); }
+inline Rect  rectSetDim (Rect r, Vec2 d)    { return rectCenDim(rectCen(r), d); }
+inline Rect  rectSetBL  (Rect r, Vec2 p)    { r.min = p; return r; }
+inline Rect  rectSetTL  (Rect r, Vec2 p)    { r.left = p.x; r.top = p.y; return r; }
+inline Rect  rectSetTR  (Rect r, Vec2 p)    { r.max = p; return r; }
+inline Rect  rectSetBR  (Rect r, Vec2 p)    { r.right = p.x; r.bottom = p.y; return r; }
+inline Rect  rectSetL   (Rect r, float p)   { r.left = p; return r; }
+inline Rect  rectSetT   (Rect r, float p)   { r.top = p; return r; }
+inline Rect  rectSetR   (Rect r, float p)   { r.right = p; return r; }
+inline Rect  rectSetB   (Rect r, float p)   { r.bottom = p; return r; }
 
-inline Rect rectSides(float left, float right, float bottom, float top) { return rect(left, bottom, right, top); }
-inline Rect rectDLDim(Vec2 a, Vec2 d) { return rect(a, a+d); };
-inline Rect rectULDim(Vec2 a, Vec2 d) { return rect(a.x, a.y-d.h, a.x+d.w, a.y); };
-inline Rect rectURDim(Vec2 a, Vec2 d) { return rect(a-d, a); };
-inline Rect rectDRDim(Vec2 a, Vec2 d) { return rect(a.x-d.w, a.y, a.x, a.y+d.h); };
-inline Rect rectCenDim(Vec2 a, Vec2 d) {
-	float w2 = d.w/2;
-	float h2 = d.h/2;
-	return rect(a.x-w2, a.y - h2, a.x + w2, a.y + h2);
-}
-inline Rect rectDLDim(float x, float y, float w, float h) { return rectDLDim(vec2(x,y), vec2(w,h)); };
-inline Rect rectULDim(float x, float y, float w, float h) { return rectULDim(vec2(x,y), vec2(w,h)); };
-inline Rect rectURDim(float x, float y, float w, float h) { return rectURDim(vec2(x,y), vec2(w,h)); };
-inline Rect rectDRDim(float x, float y, float w, float h) { return rectDRDim(vec2(x,y), vec2(w,h)); };
-inline Rect rectCenDim(float x, float y, float w, float h) { return rectCenDim(vec2(x,y), vec2(w,h)); };
+inline Rect  rectExpand (Rect r, Vec2 dim)  { return rect(r.min-dim/2, r.max+dim/2); }
+inline Rect  rectTrans  (Rect r, Vec2 off)  { return rect(r.min+off, r.max+off); }
+inline Rect  rectAddBL  (Rect r, Vec2 p)    { r.min += p; return r; }
+inline Rect  rectAddTL  (Rect r, Vec2 p)    { r.left += p.x; r.top += p.y; return r; }
+inline Rect  rectAddTR  (Rect r, Vec2 p)    { r.max += p; return r; }
+inline Rect  rectAddBR  (Rect r, Vec2 p)    { r.right += p.x; r.bottom += p.y; return r; }
+inline Rect  rectAddL   (Rect r, float p)   { r.left += p; return r; }
+inline Rect  rectAddT   (Rect r, float p)   { r.top += p; return r; }
+inline Rect  rectAddR   (Rect r, float p)   { r.right += p; return r; }
+inline Rect  rectAddB   (Rect r, float p)   { r.bottom += p; return r; }
 
-inline float rectW(Rect r)    { return r.right - r.left; };
-inline float rectH(Rect r)    { return r.top - r.bottom; };
-inline float rectCenX(Rect r) { return r.left + rectW(r)/2; };
-inline float rectCenY(Rect r) { return r.bottom + rectH(r)/2; };
-inline Vec2  rectDim(Rect r)  { return r.max - r.min; };
-inline Vec2  rectCen(Rect r)  { return r.min + rectDim(r)/2; };
-inline Vec2  rectDL(Rect r)   { return r.min; }
-inline Vec2  rectL(Rect r)    { return vec2(r.left, rectCen(r).y); }
-inline Vec2  rectUL(Rect r)   { return vec2(r.left, r.top); }
-inline Vec2  rectU(Rect r)    { return vec2(rectCen(r).x, r.top); }
-inline Vec2  rectUR(Rect r)   { return r.max; }
-inline Vec2  rectR(Rect r)    { return vec2(r.right, rectCen(r).y); }
-inline Vec2  rectDR(Rect r)   { return vec2(r.right, r.bottom); }
-inline Vec2  rectD(Rect r)    { return vec2(rectCen(r).x, r.bottom); }
+inline void  rectSetCen (Rect* r, Vec2 p)   { *r = rectCenDim(p, rectDim(*r)); }
+inline void  rectSetDim (Rect* r, Vec2 d)   { *r = rectCenDim(rectCen(*r), d); }
+inline void  rectSetBL  (Rect* r, Vec2 p)   { r->min = p; }
+inline void  rectSetTL  (Rect* r, Vec2 p)   { r->left = p.x; r->top = p.y; }
+inline void  rectSetTR  (Rect* r, Vec2 p)   { r->max = p; }
+inline void  rectSetBR  (Rect* r, Vec2 p)   { r->right = p.x; r->bottom = p.y; }
+inline void  rectSetL   (Rect* r, float p)  { r->left = p; }
+inline void  rectSetT   (Rect* r, float p)  { r->top = p; }
+inline void  rectSetR   (Rect* r, float p)  { r->right = p; }
+inline void  rectSetB   (Rect* r, float p)  { r->bottom = p; }
+
+inline void  rectExpand (Rect* r, Vec2 dim) { r->min-dim; r->max+dim; }
+inline void  rectTrans  (Rect* r, Vec2 off) { r->min+off; r->max+off; }
+inline void  rectAddBL  (Rect* r, Vec2 p)   { r->min += p; }
+inline void  rectAddTL  (Rect* r, Vec2 p)   { r->left += p.x; r->top += p.y; }
+inline void  rectAddTR  (Rect* r, Vec2 p)   { r->max += p; }
+inline void  rectAddBR  (Rect* r, Vec2 p)   { r->right += p.x; r->bottom += p.y; }
+inline void  rectAddL   (Rect* r, float p)  { r->left += p; }
+inline void  rectAddT   (Rect* r, float p)  { r->top += p; }
+inline void  rectAddR   (Rect* r, float p)  { r->right += p; }
+inline void  rectAddB   (Rect* r, float p)  { r->bottom += p; }
 
 inline Rect rectCenDim(Rect r) {
 	Rect newR;
@@ -2412,10 +2440,8 @@ inline Rect rectGetMinMax(Rect r) {
 	return newR;
 }
 
-inline bool operator==(Rect r1, Rect r2) {
-	bool equal = (r1.min == r2.min) && (r1.max == r2.max);
-	return equal;
-}
+inline bool operator==(Rect r1, Rect r2) { return (r1.min == r2.min) && (r1.max == r2.max); }
+inline bool operator!=(Rect r1, Rect r2) { return (r1.min != r2.min) && (r1.max != r2.max); }
 
 inline bool rectIntersection(Rect r1, Rect r2) {
 	bool hasIntersection = !(r2.min.x > r1.max.x ||
@@ -2424,6 +2450,19 @@ inline bool rectIntersection(Rect r1, Rect r2) {
 							 r2.min.y > r1.max.y);
 	return hasIntersection;
 }
+
+Rect rectIntersect(Rect r1, Rect r2) {
+	bool hasIntersection = rectIntersection(r1, r2);
+	Rect intersectionRect;
+	if (hasIntersection) {
+		intersectionRect.min.x = max(r1.min.x, r2.min.x);
+		intersectionRect.max.x = min(r1.max.x, r2.max.x);
+		intersectionRect.max.y = min(r1.max.y, r2.max.y);
+		intersectionRect.min.y = max(r1.min.y, r2.min.y);
+	} else intersectionRect = rect(0,0,0,0);
+	
+	return intersectionRect;
+};
 
 bool rectGetIntersection(Rect * intersectionRect, Rect r1, Rect r2) {
 	bool hasIntersection = rectIntersection(r1, r2);
@@ -2447,39 +2486,18 @@ bool pointInRect(Vec2 p, Rect r) {
 	return inRect;
 }
 
+bool pointInRectEx(Vec2 p, Rect r) {
+	bool inRect = ( p.x > r.min.x &&
+					p.x < r.max.x &&
+					p.y > r.min.y &&
+					p.y < r.max.y   );
+
+	return inRect;
+}
+
 bool rectEmpty(Rect r) {
 	bool result = (r == rect(0,0,0,0));
 	return result;
-}
-
-Rect rectAddOffset(Rect r, Vec2 offset) {
-	Rect result = rect(r.min + offset, r.max + offset);
-
-	return result;	
-}
-
-Rect rectExpand(Rect r, Rect rExpand) {
-	Vec2 dim = rectDim(rExpand);
-	r.min -= dim/2;
-	r.max += dim/2;
-
-	return r;
-}
-
-Rect rectExpand(Rect r, Vec2 dim) {
-	r.min -= dim/2;
-	r.max += dim/2;
-
-	return r;
-}
-
-Rect rectExpand(Rect r, float left, float bottom, float right, float top) {
-	r.min.x += left;
-	r.min.y += bottom;
-	r.max.x += right;
-	r.max.y += top;
-
-	return r;
 }
 
 bool rectInsideRect(Rect r0, Rect r1) {
@@ -2715,7 +2733,7 @@ int blueNoise(Rect region, float radius, Vec2** noiseSamples, int numOfSamples =
 	Vec2 pos = samples[0];
 	grid[(int)(pos.y/cs)*gridW+(int)(pos.x/cs)] = 0;
 
-	Rect regionOrigin = rectAddOffset(region, region.min*-1);
+	Rect regionOrigin = rectTrans(region, region.min*-1);
 	while(activeListSize > 0) {
 
 		int activeIndex = randomInt(0,activeListSize-1);

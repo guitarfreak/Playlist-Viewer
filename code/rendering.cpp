@@ -931,8 +931,9 @@ void scissorTest(Rect r) {
 
 void scissorTest(Rect r, float screenHeight) {
 	Rect sr = scissorRectScreenSpace(r, screenHeight);
-	Vec2 dim = rectDim(sr);
-	glScissor(sr.min.x, sr.min.y, dim.x, dim.y);
+	if(rectW(sr) < 0 || rectH(sr) < 0) sr = rect(0,0,0,0);
+
+	glScissor(sr.min.x, sr.min.y, rectW(sr), rectH(sr));
 }
 
 void drawRectNew(Rect r, Vec4 color, Rect uv, int texture, float z = 0) {	
@@ -1289,7 +1290,7 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 	startPos = testgetTextStartPos(text, font, startPos, align, 0);
 
 	Vec2 textDim = getTextDim(text, font);
-	Rect r = rectULDim(startPos, textDim);
+	Rect r = rectTLDim(startPos, textDim);
 
 	return r;
 }
@@ -1355,7 +1356,7 @@ void drawTextNew(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align,
 		if(shadow > 0) {
 			glColor4f(sc.r, sc.g, sc.b, sc.a);
 
-			Rect r = rectAddOffset(ti.r, vec2(shadow,-shadow));
+			Rect r = rectTrans(ti.r, vec2(shadow,-shadow));
 			glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(r.left, r.bottom, 0.0);
 			glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(r.left, r.top, 0.0);
 			glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(r.right, r.top, 0.0);
