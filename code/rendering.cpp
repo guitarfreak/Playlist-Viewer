@@ -936,6 +936,17 @@ void scissorTest(Rect r, float screenHeight) {
 	glScissor(sr.min.x, sr.min.y, rectW(sr), rectH(sr));
 }
 
+extern float globalScreenHeight;
+
+void scissorTestScreen(Rect r) {
+	Rect sr = scissorRectScreenSpace(r, globalScreenHeight);
+	if(rectW(sr) < 0 || rectH(sr) < 0) sr = rect(0,0,0,0);
+
+	glScissor(sr.min.x, sr.min.y, rectW(sr), rectH(sr));
+}
+
+
+
 void drawRectNew(Rect r, Vec4 color, Rect uv, int texture, float z = 0) {	
 	if(texture == -1) texture = getTexture(TEXTURE_WHITE)->id;
 

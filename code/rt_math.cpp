@@ -289,6 +289,10 @@ inline double roundDouble(double i) {
 	return floor(i + 0.5f);
 }
 
+inline double roundDownDouble(double i) {
+	return (double)((int)i);
+}
+
 inline float roundMod(float i, float val) {
 	return (roundFloat(i/val))*val;
 }
@@ -2391,6 +2395,7 @@ inline Rect  rectSetR   (Rect r, float p)   { r.right = p; return r; }
 inline Rect  rectSetB   (Rect r, float p)   { r.bottom = p; return r; }
 
 inline Rect  rectExpand (Rect r, Vec2 dim)  { return rect(r.min-dim/2, r.max+dim/2); }
+inline Rect  rectExpand (Rect r, float s)  { return rect(r.min-vec2(s,s)/2, r.max+vec2(s,s)/2); }
 inline Rect  rectTrans  (Rect r, Vec2 off)  { return rect(r.min+off, r.max+off); }
 inline Rect  rectAddBL  (Rect r, Vec2 p)    { r.min += p; return r; }
 inline Rect  rectAddTL  (Rect r, Vec2 p)    { r.left += p.x; r.top += p.y; return r; }
@@ -2412,8 +2417,9 @@ inline void  rectSetT   (Rect* r, float p)  { r->top = p; }
 inline void  rectSetR   (Rect* r, float p)  { r->right = p; }
 inline void  rectSetB   (Rect* r, float p)  { r->bottom = p; }
 
-inline void  rectExpand (Rect* r, Vec2 dim) { r->min-dim; r->max+dim; }
-inline void  rectTrans  (Rect* r, Vec2 off) { r->min+off; r->max+off; }
+inline void  rectExpand (Rect* r, Vec2 dim) { r->min -= dim; r->max += dim; }
+inline void  rectExpand (Rect* r, float s)  { r->min -= vec2(s,s)/2; r->max += vec2(s,s)/2; }
+inline void  rectTrans  (Rect* r, Vec2 off) { r->min += off; r->max += off; }
 inline void  rectAddBL  (Rect* r, Vec2 p)   { r->min += p; }
 inline void  rectAddTL  (Rect* r, Vec2 p)   { r->left += p.x; r->top += p.y; }
 inline void  rectAddTR  (Rect* r, Vec2 p)   { r->max += p; }
