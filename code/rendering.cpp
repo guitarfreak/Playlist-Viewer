@@ -946,6 +946,54 @@ void scissorTestScreen(Rect r) {
 }
 
 
+void drawLineHeader(Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINES);
+}
+
+void drawLineStripHeader(Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINE_STRIP);
+}
+
+inline void pushVecs(Vec2 p0, Vec2 p1) {
+	glVertex3f(p0.x, p0.y, 0.0f);
+	glVertex3f(p1.x, p1.y, 0.0f);
+}
+
+inline void pushVec(Vec2 p0) {
+	glVertex3f(p0.x, p0.y, 0.0f);
+}
+
+inline void pushColor(Vec4 c) {
+	glColor4f(c.r, c.g, c.b, c.a);
+}
+
+void drawLineNew(Vec2 p0, Vec2 p1, Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINES);
+		glVertex3f(p0.x, p0.y, 0.0f);
+		glVertex3f(p1.x, p1.y, 0.0f);
+	glEnd();
+}
+
+void drawLineNewOff(Vec2 p0, Vec2 p1, Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_LINES);
+		glVertex3f(p0.x, p0.y, 0.0f);
+		glVertex3f(p0.x + p1.x, p0.y + p1.y, 0.0f);
+	glEnd();
+}
 
 void drawRectNew(Rect r, Vec4 color, Rect uv, int texture, float z = 0) {	
 	if(texture == -1) texture = getTexture(TEXTURE_WHITE)->id;
@@ -977,6 +1025,25 @@ void drawRectNew(Rect r, Vec4 color, float z = 0) {
 		glVertex3f(r.right, r.top, z);
 		glVertex3f(r.right, r.bottom, z);
 	glEnd();
+}
+
+void drawRectOutline(Rect r, Vec4 color, int offset = -1, float z = 0) {	
+	// We assume glLineWidth(1.0f) for now.
+	// Offset -1 means draw the lines inside, offset 0 is directly on edge.
+
+	drawLineStripHeader(color);
+	rectExpand(&r, offset);
+	pushVec(rectBL(r));
+	pushVec(rectTL(r));
+	pushVec(rectTR(r));
+	pushVec(rectBR(r));
+	pushVec(rectBL(r));
+	glEnd();
+}
+
+void drawRectOutlined(Rect r, Vec4 color, Vec4 colorOutline, int offset = -1, float z = 0) {	
+	drawRectNew(r, color, z);
+	drawRectOutline(r, colorOutline, z);
 }
 
 void drawRectNewColored(Rect r, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3) {	
@@ -1028,55 +1095,6 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	}
 	glEnd();
 };
-
-void drawLineHeader(Vec4 color) {
-	glBindTexture(GL_TEXTURE_2D, 0);
-	Vec4 c = colorSRGB(color);
-	glColor4f(c.r, c.g, c.b, c.a);
-	glBegin(GL_LINES);
-}
-
-void drawLineStripHeader(Vec4 color) {
-	glBindTexture(GL_TEXTURE_2D, 0);
-	Vec4 c = colorSRGB(color);
-	glColor4f(c.r, c.g, c.b, c.a);
-	glBegin(GL_LINE_STRIP);
-}
-
-inline void pushVecs(Vec2 p0, Vec2 p1) {
-	glVertex3f(p0.x, p0.y, 0.0f);
-	glVertex3f(p1.x, p1.y, 0.0f);
-}
-
-inline void pushVec(Vec2 p0) {
-	glVertex3f(p0.x, p0.y, 0.0f);
-}
-
-inline void pushColor(Vec4 c) {
-	glColor4f(c.r, c.g, c.b, c.a);
-}
-
-void drawLineNew(Vec2 p0, Vec2 p1, Vec4 color) {
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	Vec4 c = colorSRGB(color);
-	glColor4f(c.r, c.g, c.b, c.a);
-	glBegin(GL_LINES);
-		glVertex3f(p0.x, p0.y, 0.0f);
-		glVertex3f(p1.x, p1.y, 0.0f);
-	glEnd();
-}
-
-void drawLineNewOff(Vec2 p0, Vec2 p1, Vec4 color) {
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	Vec4 c = colorSRGB(color);
-	glColor4f(c.r, c.g, c.b, c.a);
-	glBegin(GL_LINES);
-		glVertex3f(p0.x, p0.y, 0.0f);
-		glVertex3f(p0.x + p1.x, p0.y + p1.y, 0.0f);
-	glEnd();
-}
 
 void ortho(Rect r) {
 	r = rectCenDim(r);

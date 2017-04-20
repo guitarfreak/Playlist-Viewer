@@ -251,6 +251,11 @@ LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LP
             return DefWindowProc(window, message, wParam, lParam);
         } break;
 
+        case WM_SETCURSOR: {
+            SetCursor(GetCursor());
+            return true;
+        } break;
+
         default: {
             return DefWindowProc(window, message, wParam, lParam);
         } break;
@@ -338,7 +343,8 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
     windowClass.lpfnWndProc = mainWindowCallBack;
     windowClass.hInstance = systemData->instance;
     windowClass.lpszClassName = "App";
-    windowClass.hCursor = LoadCursor(0, IDC_ARROW);
+    // windowClass.hCursor = LoadCursor(0, IDC_ARROW);
+    windowClass.hCursor = 0;
     // windowClass.hbrBackground = CreateSolidBrush(RGB(30,30,30));
     // windowClass.hbrBackground = (HBRUSH)CreateSolidBrush(0x00000000);
 
@@ -410,6 +416,8 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
     // bool r = RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
 
     // printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
+
+	SetCursor(LoadCursor(0, IDC_ARROW));
 }
 
 void showWindow(HWND windowHandle) {
