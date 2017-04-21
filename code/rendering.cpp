@@ -965,12 +965,20 @@ inline void pushVecs(Vec2 p0, Vec2 p1) {
 	glVertex3f(p1.x, p1.y, 0.0f);
 }
 
-inline void pushVec(Vec2 p0) {
-	glVertex3f(p0.x, p0.y, 0.0f);
+inline void pushVec(Vec2 p0, float z = 0) {
+	glVertex3f(p0.x, p0.y, z);
 }
 
 inline void pushColor(Vec4 c) {
 	glColor4f(c.r, c.g, c.b, c.a);
+}
+
+void drawPoint(Vec2 p, Vec4 color) {
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_POINTS);
+		glVertex3f(p.x, p.y, 0.0f);
+	glEnd();
 }
 
 void drawLineNew(Vec2 p0, Vec2 p1, Vec4 color) {
@@ -1043,7 +1051,7 @@ void drawRectOutline(Rect r, Vec4 color, int offset = -1, float z = 0) {
 
 void drawRectOutlined(Rect r, Vec4 color, Vec4 colorOutline, int offset = -1, float z = 0) {	
 	drawRectNew(r, color, z);
-	drawRectOutline(r, colorOutline, z);
+	drawRectOutline(r, colorOutline, offset, z);
 }
 
 void drawRectNewColored(Rect r, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3) {	
@@ -1095,6 +1103,63 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	}
 	glEnd();
 };
+
+void drawTriangle(Vec2 p, float size, Vec2 dir, Vec4 color, float z = 0) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	dir = normVec2(dir) * size;
+	Vec2 tp;
+	glBegin(GL_TRIANGLES);
+		tp = p + dir;
+		glVertex3f(tp.x, tp.y, z);
+		tp = p + rotateVec2(dir, degreeToRadian(360/3));
+		glVertex3f(tp.x, tp.y, z);
+		tp = p + rotateVec2(dir, degreeToRadian(360/3*2));
+		glVertex3f(tp.x, tp.y, z);
+	glEnd();
+}
+
+void drawCross(Vec2 p, float size, float size2, Vec2 dir, Vec4 color, float z = 0) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	size2 = size2 / 2 * 1/0.707f;
+
+	dir = normVec2(dir);
+
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+
+	Vec2 tr = p + vec2(1,1)*size;
+	Vec2 br = p + vec2(1,-1)*size;
+	Vec2 bl = p + vec2(-1,-1)*size;
+	Vec2 tl = p + vec2(-1,1)*size;
+
+	glBegin(GL_TRIANGLE_FAN);
+		pushVec(p);
+
+		pushVec(p + vec2(0,1) * size2);
+			pushVec(tr + vec2(-1,0) * size2);
+			pushVec(tr);
+			pushVec(tr + vec2(0,-1) * size2);
+		pushVec(p + vec2(1,0) * size2);
+			pushVec(br + vec2(0,1) * size2);
+			pushVec(br);
+			pushVec(br + vec2(-1,0) * size2);
+		pushVec(p + vec2(0,-1) * size2);
+			pushVec(bl + vec2(1,0) * size2);
+			pushVec(bl);
+			pushVec(bl + vec2(0,1) * size2);
+		pushVec(p + vec2(-1,0) * size2);
+			pushVec(tl + vec2(0,-1) * size2);
+			pushVec(tl);
+			pushVec(tl + vec2(1,0) * size2);
+		pushVec(p + vec2(0,1) * size2);
+	glEnd();
+}
+
+
 
 void ortho(Rect r) {
 	r = rectCenDim(r);
@@ -1359,6 +1424,46 @@ void drawTextNew(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align 
 		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, 0.0);
 		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, 0.0);
 		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, 0.0);
+	}
+	
+	glEnd();
+}
+
+void drawTextOutlined(char* text, Font* font, Vec2 startPos, float outlineSize, Vec4 color, Vec4 colorOutline, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
+
+	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
+	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+
+	glBindTexture(GL_TEXTURE_2D, font->tex.id);
+	Vec4 c = colorSRGB(color);
+	Vec4 c2 = colorSRGB(colorOutline);
+	glBegin(GL_QUADS);
+
+	TextSimInfo tsi = initTextSimInfo(startPos);
+	while(true) {
+		TextInfo ti;
+		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
+		if(text[ti.index] == '\n') continue;
+
+		glColor4f(c2.r,c2.g,c2.b,c2.a);
+
+		for(int i = 0; i < 8; i++) {
+			Vec2 dir = rotateVec2(vec2(1,0), (M_2PI/8)*i);
+
+			Rect nr = rectTrans(ti.r, dir*outlineSize);
+			glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(nr.left, nr.bottom, 0.0);
+			glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(nr.left, nr.top, 0.0);
+			glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(nr.right, nr.top, 0.0);
+			glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(nr.right, nr.bottom, 0.0);
+		}
+
+		glColor4f(c.r, c.g, c.b, c.a);
+
+		glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(ti.r.left, ti.r.bottom, 0.0);
+		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, 0.0);
+		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, 0.0);
+		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, 0.0);
+
 	}
 	
 	glEnd();

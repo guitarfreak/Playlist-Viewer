@@ -424,6 +424,18 @@ void showWindow(HWND windowHandle) {
     ShowWindow(windowHandle, SW_SHOW);
 }
 
+Vec2 getMousePos(HWND windowHandle, bool yInverted = true) {
+	POINT point;    
+	GetCursorPos(&point);
+	ScreenToClient(windowHandle, &point);
+	Vec2 mousePos = vec2(0,0);
+	mousePos.x = point.x;
+	mousePos.y = point.y;
+	if(yInverted) mousePos.y = -mousePos.y;
+
+	return mousePos;
+}
+
 void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 	// WaitMessage();
 

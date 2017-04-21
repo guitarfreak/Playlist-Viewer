@@ -58,7 +58,8 @@
 
 	- Cursor image still flickering somtimes. 
 	  Has something to do with the window changing screens, or a specific location on the screen?
-	
+
+	- Average lines seem off.	
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
@@ -703,20 +704,30 @@ double divZero(double a, double b) {
 	else return a/b;
 }
 
-void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, int* avgPointsCount, double* avgPointsLikes, int* avgPointsLikesCount, float timeSpanInMonths, float widthInMonths, double minMaxWidth) {
+#define Line_Graph_Count 4
+
+struct LineGraph {
+	double* points[Line_Graph_Count];
+	int count;
+};
+
+void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGraph, float timeSpanInMonths, float widthInMonths, double minMaxWidth) {
 	double avgStartX = videos[0].date.num;
 	double avgWidth = monthsToInt(widthInMonths);
 	double avgTimeSpan = monthsToInt(timeSpanInMonths);
 
 	int statCount = (minMaxWidth/avgWidth) + 2;
-	(*avgPointsCount) = statCount;
-	(*avgPointsLikesCount) = statCount;
+	lineGraph->count = statCount;
+	for(int i = 0; i < Line_Graph_Count; i++) {
+		if(lineGraph->points[i] != 0) free(lineGraph->points[i]);
+		lineGraph->points[i] = (double*)malloc(statCount*sizeof(double));
+	}
 
-	Statistic* stats = getTArray(Statistic, statCount);
-	Statistic* statsLikes = getTArray(Statistic, statCount);
+	Statistic* stats[4];
+	for(int i = 0; i < Line_Graph_Count; i++) stats[i] = getTArray(Statistic, statCount);
+
 	for(int i = 0; i < statCount; i++) {
-		beginStatistic(stats + i);
-		beginStatistic(statsLikes + i);
+		for(int gi = 0; gi < Line_Graph_Count; gi++) beginStatistic(stats[gi] + i);
 	}
 
 	for(int i = 1; i < videoCount; i++) {
@@ -726,23 +737,21 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, double* avgPoints, 
 		for(int si = 0; si < statCount; si++) {
 			double avgMidX = avgStartX + (si*avgWidth);
 			if((avgMidX - avgTimeSpan/2) <= timeX && timeX <= (avgMidX + avgTimeSpan/2)) {
-				updateStatistic(&stats[si], vid->viewCount);
-				updateStatistic(&statsLikes[si], divZero(vid->dislikeCount, (vid->likeCount + vid->dislikeCount)));
+
+				updateStatistic(&stats[0][si], vid->viewCount);
+				updateStatistic(&stats[1][si], vid->likeCount + vid->dislikeCount);
+				updateStatistic(&stats[2][si], divZero(vid->dislikeCount, (vid->likeCount + vid->dislikeCount)));
+				updateStatistic(&stats[3][si], vid->commentCount);
 			}
 		}
 	}
 
 	double lastValidData = 0;
 	for(int i = 0; i < statCount; i++) {
-		endStatistic(stats + i);
-
-		if(stats[i].count > 0) avgPoints[i] = stats[i].avg;
-		else avgPoints[i] = 0;
-
-		endStatistic(statsLikes + i);
-
-		if(statsLikes[i].count > 0) avgPointsLikes[i] = statsLikes[i].avg;
-		else avgPointsLikes[i] = 0;
+		for(int gi = 0; gi < Line_Graph_Count; gi++) {
+			endStatistic(stats[gi] + i);
+			lineGraph->points[gi][i] = stats[gi][i].count > 0 ? stats[gi][i].avg : 0;
+		}
 	}
 }
 
@@ -1839,8 +1848,74 @@ bool newGuiQuickTextEdit(NewGui* gui, Rect r, float* data, float z, Font* font, 
 
 
 
+struct AppColors {
+	Vec4 graphBackgroundBottom;
+	Vec4 graphBackgroundTop;
+	Vec4 graphLine1;
+	Vec4 graphLine2;
+	Vec4 graphLineAvg;
+	Vec4 font1;
+	Vec4 font2;
+	Vec4 font3;
+	Vec4 background;
+	Vec4 buttons;
 
+	Vec4 sidePanel;
+	Vec4 likes;
+	Vec4 dislikes;
+	Vec4 comments;
+	Vec4 commentScroll;
+	Vec4 sidePanelButtons;
 
+	Vec4 editBackground;
+	Vec4 editSelection;
+	Vec4 editCursor;
+	Vec4 mouseHover;
+
+	Vec4 outlines;
+
+	Vec4 graphMarkers;
+};
+
+struct AppSettings {
+	int windowX;
+	int windowY;
+	int windowW;
+	int windowH;
+
+	int windowMinWidth;
+	int windowMinHeight;
+
+	float sidePanelWidth;
+	float graphHeights[4];
+	float graphHeightMin;
+
+	int font;
+	int fontSize;
+
+	int fontComment;
+	int fontCommentSize;
+
+	int fontTitle;
+	int fontTitleSize;
+
+	int marginBottomText;
+	int marginLeftText;
+	int marginSidePanel;
+	int marginComments;
+	int marginButtons;
+	int marginButtonsHeight;
+	int marginFilters;
+	int marginSlider;
+
+	int commentScrollbarWidth;
+
+	int sidePanelMinWidth;
+
+	int resizeRegionSize;
+
+	int titleOffset;
+};
 
 #define Graph_Zoom_Min 60*60*36
 
@@ -1883,6 +1958,9 @@ struct AppData {
 
 	// App.
 
+	AppColors appColors;
+	AppSettings appSettings;
+
 	Font* font;
 
 	CURL* curlHandle;
@@ -1899,7 +1977,6 @@ struct AppData {
 
 	float graphOffsets[5];
 	float sidePanelWidth;
-	float sidePanelMin;
 	float sidePanelMax;
 
 	//
@@ -1950,17 +2027,17 @@ struct AppData {
 	float statTimeSpan;
 	float statWidth;
 
-	double avgPoints[1000];
-	int avgPointsCount;
-	double avgPointsLikes[1000];
-	int avgPointsLikesCount;
+	LineGraph averagesLineGraph;
+	// double* avgPoints[4];
+	// int avgPointsCounts;
+
+	// double avgPoints[1000];
+	// int avgPointsCount;
+	// double avgPointsLikes[1000];
+	// int avgPointsLikesCount;
 
 	char exclusiveFilter[50];
 	char inclusiveFilter[50];
-
-	// GuiInput guiInput;
-	// Gui filtersGui;
-	// Gui snippetGui;
 };
 
 
@@ -2239,7 +2316,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->graphOffsets[4] = 1.0f;
 
 		ad->sidePanelWidth = ws->currentRes.w*0.25f;
-		ad->sidePanelMin = 100;
 		ad->sidePanelMax = 0.5f;
 	}
 
@@ -2305,6 +2381,62 @@ extern "C" APPMAINFUNCTION(appMain) {
 		newGuiBegin(ad->gui, input);
 
 		SetCursor(LoadCursor(0, IDC_ARROW));
+
+		{
+			ad->appColors.graphBackgroundBottom = vec4(0.2f, 0.1f, 0.4f, 1);
+			ad->appColors.graphBackgroundTop    = vec4(0.1f, 0.1f, 0.2f, 1);
+			ad->appColors.graphLine1            = vec4(0,0.7f,1,1);
+			ad->appColors.graphLine2            = vec4(0.9f,0.5f,1,1);
+			ad->appColors.graphLineAvg          = vec4(0,0.9f,0.3f,0.8f);
+			ad->appColors.font1                 = vec4(0.9f,1);
+			ad->appColors.font2                 = vec4(0.6f,1);
+			ad->appColors.font3                 = vec4(1.0f,0.5f,0,1);
+			ad->appColors.background            = vec4(0.45f, 0.15f, 0.15f, 1);
+			ad->appColors.buttons               = vec4(0.52,0.25,0.20,1);
+			ad->appColors.sidePanel             = vec4(0,0.9f);
+			ad->appColors.likes                 = vec4(0.2f,0.2f,0.5f,1);
+			ad->appColors.dislikes              = vec4(0.5f,0.2f,0.2f,1);
+			ad->appColors.comments              = vec4(0.2f,0.1f,0,1);
+			ad->appColors.commentScroll         = vec4(0.3f,0.15f,0,1);
+			ad->appColors.sidePanelButtons      = vec4(0.3f,0.1f,0,1);
+			ad->appColors.editBackground        = vec4(0.33,0.11,0.11,1);
+			ad->appColors.editSelection         = vec4(0.24,0.41,0.59,1); 
+			ad->appColors.editCursor            = vec4(0.2f,0.7f,0,1);
+			ad->appColors.mouseHover            = vec4(0.8f,0,0.2f,0.2f);
+			ad->appColors.outlines              = vec4(0,1);
+			ad->appColors.graphMarkers          = vec4(1,0.05f);
+		}
+
+		{
+			ad->appSettings.windowX;
+			ad->appSettings.windowY;
+			ad->appSettings.windowW;
+			ad->appSettings.windowH;
+			ad->appSettings.sidePanelWidth;
+			ad->appSettings.graphHeights[4];
+
+			ad->appSettings.windowMinWidth = 300;
+			ad->appSettings.windowMinHeight = 300;
+			ad->appSettings.graphHeightMin = 0.1f;
+			ad->appSettings.font = FONT_CALIBRI;
+			ad->appSettings.fontSize = 20;
+			ad->appSettings.fontComment = FONT_SOURCESANS_PRO;
+			ad->appSettings.fontCommentSize = 23;
+			ad->appSettings.fontTitle = FONT_CALIBRI;
+			ad->appSettings.fontTitleSize = 30;
+			ad->appSettings.marginBottomText = -3;
+			ad->appSettings.marginLeftText = 2;
+			ad->appSettings.marginSidePanel = 20;
+			ad->appSettings.marginComments = 10;
+			ad->appSettings.marginButtons = 4;
+			ad->appSettings.marginButtonsHeight = 4;
+			ad->appSettings.marginFilters = 8;
+			ad->appSettings.marginSlider = 7;
+			ad->appSettings.commentScrollbarWidth = 20;
+			ad->appSettings.sidePanelMinWidth = 200;
+			ad->appSettings.resizeRegionSize = 10;
+			ad->appSettings.titleOffset = 10;
+		}
 	}
 
 	// Handle recording.
@@ -2377,7 +2509,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	}
 	    }
 
-	    float w = 10;
+	    float w = ad->appSettings.resizeRegionSize;
     	Rect resizeRight = rectSetL(screenRect, screenRect.right - w);
     	Rect resizeBottom = rectSetT(screenRect, screenRect.bottom + w);
     	Rect resizeDR = rectSetTL(screenRect, rectBR(screenRect) + vec2(-w,w));
@@ -2416,8 +2548,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	    	ScreenToClient(windowHandle, &p);
 
-	    	int newWidth = mode == 1 ? r.right - r.left : clampMin(p.x + gui->mouseAnchor.x, 300);
-	    	int newHeight = mode == 0 ? r.bottom - r.top : clampMin(p.y + gui->mouseAnchor.y, 300);
+	    	int newWidth = mode == 1 ? r.right - r.left : clampMin(p.x + gui->mouseAnchor.x, ad->appSettings.windowMinWidth);
+	    	int newHeight = mode == 0 ? r.bottom - r.top : clampMin(p.y + gui->mouseAnchor.y, ad->appSettings.windowMinHeight);
 
 	    	ad->updateWindow = true;
 
@@ -2926,7 +3058,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					graphCamInit(&ad->cams[3], statDates.min, statDates.max, 0, statComments.max*1.1f);
 				}
 
-				calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin);
+				calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin);
 			}
 
 			ad->selectedVideo = -1;
@@ -2936,10 +3068,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		globalCommandList = &ad->commandList2d;
 
-		// int fontSize = 20;
-		// Font* font = getFont(FONT_CALIBRI, fontSize);
-		int fontSize = ad->font->height;
-		Font* font = ad->font;
+		AppColors* ac = &ad->appColors;
+		AppSettings* as = &ad->appSettings;
+
+		int fontSize = as->fontSize;
+		Font* font = getFont(as->font, as->fontSize);
 
 		float zoomSpeed = 1.2;
 
@@ -2950,20 +3083,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// float sidePanelWidth = ad->selectedVideo!=-1 ? rectW(screenRect)*0.25f : 0;
 		float sidePanelWidth = ad->selectedVideo!=-1 ? ad->sidePanelWidth : 0;
-		float filtersHeight = font->height + 8;
-		float bottomTextHeight = font->height*2 - 3;
+		float filtersHeight = font->height + as->marginFilters;
+		float bottomTextHeight = font->height*2 + as->marginBottomText;
+		float leftTextMargin = as->marginLeftText;
 
-		clamp(&ad->sidePanelWidth, ad->sidePanelMin, ws->currentRes.w*ad->sidePanelMax);
+		clamp(&ad->sidePanelWidth, as->sidePanelMinWidth, ws->currentRes.w*ad->sidePanelMax);
 
 		rSidePanel = rectSetL(screenRect, screenRect.right-sidePanelWidth);
 		rFilters = rectSetBR(screenRect, vec2(screenRect.right-sidePanelWidth, screenRect.top-filtersHeight));
 		rChart = rectSetTR(screenRect, vec2(screenRect.right-sidePanelWidth, screenRect.top-filtersHeight));
 
-		rBottomText = rectSetTL(rChart, vec2(rChart.left+ad->leftTextWidth, rChart.bottom+bottomTextHeight));
-		// rBottomText = rectSetTL(rChart, vec2(rChart.left, rChart.bottom+bottomTextHeight));
-		rLeftTexts = rectSetBR(rChart, vec2(rChart.left+ad->leftTextWidth, rChart.bottom+bottomTextHeight));
+		rBottomText = rectSetTL(rChart, vec2(rChart.left+ad->leftTextWidth+leftTextMargin, rChart.bottom+bottomTextHeight));
+		rLeftTexts = rectSetBR(rChart, vec2(rChart.left+ad->leftTextWidth+leftTextMargin, rChart.bottom+bottomTextHeight));
 
-		rGraphs = rectSetBL(rChart, vec2(rChart.left+ad->leftTextWidth, rChart.bottom+bottomTextHeight));
+		rGraphs = rectSetBL(rChart, vec2(rChart.left+ad->leftTextWidth+leftTextMargin, rChart.bottom+bottomTextHeight));
 
 		Rect graphRects[10];
 		Rect leftTextRects[10];
@@ -2976,15 +3109,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		// Draw background.
-		float g = 0.15f;
-		Vec4 c1 = vec4(0.45f,g,g,1);
-		Vec4 c2 = vec4(0.4f,g,g,1);
-		drawRectNewColored(screenRect, c1,c2,c2,c1);
+		drawRectNew(screenRect, ac->background);
 
-		Vec4 graphColor2 = vec4(0.1f, 0.1f, 0.2f, 1);
-		Vec4 graphColor1 = vec4(0.2f, 0.1f, 0.4f, 1);
 		for(int i = 0; i < ad->camCount; i++) {
-			drawRectNewColored(graphRects[i], graphColor1, graphColor2, graphColor2, graphColor1);
+			drawRectNewColored(graphRects[i], ac->graphBackgroundBottom, ac->graphBackgroundTop, ac->graphBackgroundTop, ac->graphBackgroundBottom);
 		}
 
 		// Height sliders.
@@ -2992,19 +3120,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float z = 1;
 
 			for(int i = 0; i < ad->camCount-1; i++) {
-				Rect r = rectCenDim(rectB(leftTextRects[i]), vec2(ad->leftTextWidth-4,font->height/2));
+				Rect r = rectCenDim(rectB(leftTextRects[i]), vec2(ad->leftTextWidth, as->resizeRegionSize));
 
 				int event = newGuiGoDragAction(ad->gui, r, z);
 				if(event == 1) ad->gui->mouseAnchor = input->mousePos - ad->graphOffsets[i+1]*rectH(rGraphs);
 				if(event > 0) {
 					ad->graphOffsets[i+1] = (input->mousePos - ad->gui->mouseAnchor).y/rectH(rGraphs);
-					clamp(&ad->graphOffsets[i+1], ad->graphOffsets[i]+0.05f, ad->graphOffsets[i+2]-0.05f);
+					clamp(&ad->graphOffsets[i+1], ad->graphOffsets[i] + as->graphHeightMin/2, ad->graphOffsets[i+2] - as->graphHeightMin/2);
 
 					SetCursor(LoadCursor(0, IDC_SIZENS));
 				}
 
 				if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_SIZENS));
-				// drawRectRounded(r, c2 + newGuiColorMod(ad->gui), rectH(r)/2);
 			}
 		}
 
@@ -3070,9 +3197,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Draw left text.
 		{
-			Vec4 mainColor = vec4(0.9f,1);
-			Vec4 semiColor = vec4(0.6f,1);
-			Vec4 horiLinesColor = vec4(1,0.03f);
+			Vec4 mainColor = ac->font1;
+			Vec4 semiColor = ac->font2;
+			Vec4 horiLinesColor = ac->graphMarkers;
 			float markLength = 10;
 			float fontMargin = 4;
 			float div = 10;
@@ -3118,7 +3245,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					
 					float textWidth = getTextDim(text, font).w;
 
-					if(calcMaxTextWidth) maxTextWidth = max(maxTextWidth, textWidth + markLength+fontMargin + 2);
+					if(calcMaxTextWidth) maxTextWidth = max(maxTextWidth, textWidth + markLength+fontMargin);
 
 					// Semi markers.
 					for(int i = 1; i < subDiv; i++) {
@@ -3145,9 +3272,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		{
 			GraphCam* cam = &ad->cams[0];
 
-			Vec4 mainColor = vec4(0.9f,1);
-			Vec4 semiColor = vec4(0.6f,1);
-			Vec4 horiLinesColor = vec4(1,1,1,0.03f);
+			Vec4 mainColor = ac->font1;
+			Vec4 semiColor = ac->font2;
+			Vec4 horiLinesColor = ac->graphMarkers;
 			float markLength = font->height-3;
 			float fontMargin = 0;
 			float div = 10;
@@ -3180,7 +3307,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					Date d;
 					intToDate(p, &d);
-					char* dateString = fillString("%i..%i..%i", d.day, d.month, d.year);
+					char* dateString = fillString("%s%i..%s%i..%i", d.day+1 < 10?"0":"", d.day+1, d.month+1 < 10?"0":"", d.month+1, d.year);
 					drawTextNew(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
 				}
 
@@ -3341,6 +3468,149 @@ extern "C" APPMAINFUNCTION(appMain) {
 		YoutubeVideo* vids = ad->videos;
 		int vidCount = ad->playlist.count;
 
+		glEnable(GL_SCISSOR_TEST);
+
+		bool drawAgain = true;
+
+		TIMER_BLOCK_BEGIN_NAMED(drawGraphs, "DrawGraphs");
+
+		// Draw Graphs.
+		int graphCount = ad->camCount + 1;
+		for(int graphIndex = 0; graphIndex < graphCount; graphIndex++) {
+			Vec4 c1 = ac->graphLine1;
+			Vec4 c2 = ac->graphLine2;
+
+			glLineWidth(1);
+			
+			int camIndex = 0;
+			Vec4 color;
+
+			if(graphIndex == 0) {
+				color = c1;
+				camIndex = 0;
+
+			}  else if(graphIndex == 1) {
+				color = c1;
+				camIndex = 1;
+
+			} else if(graphIndex == 2) {
+				color = c2;
+				camIndex = 1;
+
+			} else if(graphIndex == 3) {
+				color = c2;
+				camIndex = 2;
+
+			} else if(graphIndex == 4) {
+				color = c1;
+				camIndex = 3;
+			} 
+
+			GraphCam* cam = ad->cams + camIndex;
+			scissorTestScreen(rectExpand(cam->viewPort, 1));
+
+			drawLineStripHeader(color);
+
+			bool lastOneWasOverRight = false;
+			for(int i = 0; i < vidCount; i++) {
+				if(i+1 < vidCount && vids[i+1].date.num < cam->left) continue;
+				if(lastOneWasOverRight) continue;
+				if(vids[i].date.num > cam->right) lastOneWasOverRight = true;
+
+				float x = graphCamMapX(cam, vids[i].date.num) + 1;
+
+				if(graphIndex == 0) {
+					pushVec(vec2(x, graphCamMapY(cam, vids[i].viewCount)));
+				} else if(graphIndex == 1) {
+					pushVec(vec2(x, graphCamMapY(cam, vids[i].likeCount + vids[i].dislikeCount)));
+
+					// float x = graphCamMapX(cam, vids[i].date.num);
+					// if(i == 0) x += lineWidth/2;
+					// else if(i == vidCount-1) x -= lineWidth/2+1;
+
+					#if 0
+					// Drawing likes as bar graphs.
+					{
+					int duration = 1*60*60;
+					float width = graphCamCamToScreenSpaceX(cam, duration);
+					clampMin(&width, 3);
+					bool outlines = true;
+					if(width == 3) outlines = false;
+					float height2 = graphCamCamToScreenSpaceY(cam, vids[i].likeCount);
+					float height = graphCamCamToScreenSpaceY(cam, vids[i].dislikeCount);
+
+					Rect rBottom = rectBDim(x, graphCamMapY(cam, 0), width, height);
+					Rect rTop = rectBDim(x, graphCamMapY(cam, 0) + height, width, height2);
+					drawRectNew(rBottom, c2);
+					drawRectNew(rTop, c1);
+					drawLineNew(rectTL(rBottom), rectTR(rBottom), vec4(0,1));
+
+					if(outlines) {
+						drawRectOutline(rBottom, vec4(0,1), 0);
+						drawRectOutline(rTop, vec4(0,1), 0);
+					}
+					}
+					#endif
+
+					// pushColor(slc1);
+					// pushVecs(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].likeCount)));
+					// pushColor(slc2);
+					// pushVecs(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x, graphCamMapY(cam, vids[i].dislikeCount + vids[i].likeCount)));
+				} else if(graphIndex == 2) {
+					pushVec(vec2(x, graphCamMapY(cam, vids[i].dislikeCount)));
+
+				} else if(graphIndex == 3) {
+					double div1 = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
+					pushVec(vec2(x, graphCamMapY(cam, div1)));
+
+				} else if(graphIndex == 4) {
+					pushVec(vec2(x, graphCamMapY(cam, vids[i].commentCount)));
+				}
+			}
+
+			glEnd();
+		}
+
+		// Average line.
+		{
+			glLineWidth(1);
+			glEnable(GL_SCISSOR_TEST);
+			Vec4 c = ac->graphLineAvg;
+
+			for(int graphIndex = 0; graphIndex < Line_Graph_Count; graphIndex++) {
+
+				GraphCam* cam = ad->cams + graphIndex;
+
+				double avgStartX = ad->videos[0].date.num;
+				double avgWidth = monthsToInt(ad->statWidth);
+				double avgTimeSpan = monthsToInt(ad->statTimeSpan);
+
+				scissorTestScreen(cam->viewPort);
+
+				drawLineStripHeader(c);
+				double xPos = avgStartX;
+				for(int i = 0; i < ad->averagesLineGraph.count; i++) {
+					if(xPos + avgWidth < cam->left) {
+						xPos += avgWidth;
+						continue;
+					}
+					if(xPos - avgWidth > cam->right) break;
+
+					pushVec(graphCamMap(cam, clampMax(xPos, ad->camMaxWithoutMargin), ad->averagesLineGraph.points[graphIndex][i]));
+
+					xPos += avgWidth;
+				}
+
+				glEnd();
+			}
+
+			glDisable(GL_SCISSOR_TEST);
+			glLineWidth(1);
+		}
+
+		TIMER_BLOCK_END(drawGraphs);
+
+
 		// Mouse hover.
 		{
 			int id = newGuiIncrementId(ad->gui);
@@ -3361,15 +3631,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 						scissorTestScreen(rGraphs);
 						glEnable(GL_SCISSOR_TEST);
 
-						drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), vec4(0.8f,0,0.2f,0.2f));
+						drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
 
-						Font* font = getFont(FONT_CALIBRI, 20);
-						Vec4 c = vec4(1.0f,0.5f,0,1);
+						Font* font = getFont(as->font, as->fontSize);
+						Vec4 c = ac->font3;
 						Vec2 p = rChart.max - vec2(5);
-						drawTextNew(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
-						drawTextNew(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
-						drawTextNew(fillString("%i", i), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
+						// drawTextNew(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
+						// drawTextNew(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
+						// drawTextNew(fillString("%i", i), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
 		
+						float os = 2;
+						drawTextOutlined(fillString("%s", ad->videos[i].title), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+						drawTextOutlined(fillString("%s", ad->videos[i].dateString), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+						drawTextOutlined(fillString("%i", i), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+
 						glDisable(GL_SCISSOR_TEST);
 
 						if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
@@ -3386,140 +3661,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 		}
 
-		glLineWidth(1);
-		glEnable(GL_SCISSOR_TEST);
 
-		// Draw Graphs.
-		for(int graphIndex = 0; graphIndex < ad->camCount; graphIndex++) {
-			Vec4 c1 = vec4(0,0.7f,1,1);
-			Vec4 c2 = vec4(0.9f,0.5f,1,1);
-
-			GraphCam* cam = ad->cams + graphIndex;
-
-			scissorTestScreen(cam->viewPort);
-
-			if(graphIndex == 0) drawLineStripHeader(c1);
-			else if(graphIndex == 1) drawLineStripHeader(c2);
-			else if(graphIndex == 2) drawLineStripHeader(c2);
-			else if(graphIndex == 3) drawLineStripHeader(c1);
-
-			bool lastOneWasOverRight = false;
-			for(int i = 0; i < vidCount; i++) {
-				if(i+1 < vidCount && vids[i+1].date.num < cam->left) continue;
-				if(lastOneWasOverRight) continue;
-				if(vids[i].date.num > cam->right) lastOneWasOverRight = true;
-
-				float x = graphCamMapX(cam, vids[i].date.num) + 1;
-
-				if(graphIndex == 0) {
-					pushVec(vec2(x, graphCamMapY(cam, vids[i].viewCount)));
-
-				} else if(graphIndex == 2) {
-					double div1 = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
-
-					pushVec(vec2(x, graphCamMapY(cam, div1)));
-				} else if(graphIndex == 3) {
-					pushVec(vec2(x, graphCamMapY(cam, vids[i].commentCount)));
-
-				}
-			}
-
-			glEnd();
-		}
-
-		{
-			int lineWidth = 3;
-			glLineWidth(lineWidth);
-
-			GraphCam* cam = &ad->cams[1];
-			scissorTestScreen(cam->viewPort);
-
-			Vec4 lc1 = vec4(0.0f,0.7f,1,1);
-			Vec4 lc2 = vec4(0.7f,0.3f,1,1);
-
-			drawLineHeader(lc1);
-			Vec4 slc1 = colorSRGB(lc1);
-			Vec4 slc2 = colorSRGB(lc2);
-
-			for(int i = 0; i < vidCount; i++) {
-				float x = graphCamMapX(cam, vids[i].date.num);
-				if(x+lineWidth < cam->viewPort.left || x-lineWidth > cam->viewPort.right) continue;
-
-				if(i == 0) x += lineWidth/2;
-				else if(i == vidCount-1) x -= lineWidth/2+1;
-
-				pushColor(slc1);
-				pushVecs(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].likeCount)));
-				pushColor(slc2);
-				pushVecs(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x, graphCamMapY(cam, vids[i].dislikeCount + vids[i].likeCount)));
-			}
-
-			glEnd();
-		}
-
-		// Average line.
-		{
-			glEnable(GL_SCISSOR_TEST);
-
-			GraphCam* cam = &ad->cams[0];
-			GraphCam* camLikes = &ad->cams[2];
-	
-			glLineWidth(1);
-
-			double avgStartX = ad->videos[0].date.num;
-			double avgWidth = monthsToInt(ad->statWidth);
-			double avgTimeSpan = monthsToInt(ad->statTimeSpan);
-
-			scissorTestScreen(ad->cams[0].viewPort);
-
-			Vec4 c = vec4(0,0.9f,0.3f,0.8f);
-
-			drawLineStripHeader(c);
-			double xPos = avgStartX;
-			for(int i = 0; i < ad->avgPointsCount; i++) {
-				if(xPos + avgWidth < cam->left) {
-					xPos += avgWidth;
-					continue;
-				}
-				if(xPos - avgWidth > cam->right) break;
-
-				float x1 = clampMax(xPos, ad->camMaxWithoutMargin);
-				pushVec(graphCamMap(cam, x1, ad->avgPoints[i]));
-
-				xPos += avgWidth;
-			}
-			glEnd();
-			
-			scissorTestScreen(ad->cams[2].viewPort);
-			
-			drawLineStripHeader(c);
-			xPos = avgStartX;
-			for(int i = 0; i < ad->avgPointsCount; i++) {
-				if(xPos + avgWidth < cam->left) {
-					xPos += avgWidth;
-					continue;
-				}
-				if(xPos - avgWidth > cam->right) break;
-
-				float x1 = graphCamMapX(camLikes, clampMax(xPos, ad->camMaxWithoutMargin));
-				// float y1 = mapRangeDouble(ad->avgPointsLikes[i], 0, 1, camLikes->viewPort.bottom, camLikes->viewPort.top);
-				float y1 = graphCamMapY(camLikes, ad->avgPointsLikes[i]);
-				pushVec(vec2(x1,y1));
-
-				xPos += avgWidth;
-			}
-			glEnd();
-		
-			glLineWidth(1);
-
-			glDisable(GL_SCISSOR_TEST);
-		}
-
-		Font* titleFont = getFont(FONT_CALIBRI, 30);
+		Font* titleFont = getFont(as->fontTitle, as->fontTitleSize);
 
 		for(int i = 0; i < ad->camCount; i++) {
 			Rect rGraph = graphRects[i];
-			Vec2 tp = rectTL(rGraph) + vec2(20,-10);
+			Vec2 tp = rectTL(rGraph) + vec2(as->titleOffset,-as->titleOffset);
 
 			char* text;
 			if(i == 0) text = "Views";
@@ -3528,59 +3675,62 @@ extern "C" APPMAINFUNCTION(appMain) {
 			else if(i == 3) text = "Comments";
 			else text = "";
 
-			drawTextNew(text, titleFont, tp, vec4(0.9f,1), vec2i(-1,1), 0, 2, vec4(0,1));
+			// drawTextNew(text, titleFont, tp, ac->font1, vec2i(-1,1), 0, 2, vec4(0,1));
+			drawTextOutlined(text, titleFont, tp, 2, ac->font1, vec4(0,1), vec2i(-1,1));
 		}
+
+		TIMER_BLOCK_BEGIN_NAMED(sidePanel, "SidePanel");
 
 		// Side panel.
 		if(ad->selectedVideo != -1) {
 			// Graph selection line.
 			{
 				float x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.num) + 1;
-				drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), vec4(1,0,0,0.1f));
+				drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
 			}
 
 			// Panel width slider.
 			{
-				Rect r = rectCenDim(rectL(rSidePanel), vec2(font->height, rectH(rSidePanel)-4));
+				// Rect r = rectCenDim(rectL(rSidePanel), vec2(font->height, rectH(rSidePanel)-4));
+				Rect r = rectCenDim(rectL(rSidePanel), vec2(as->resizeRegionSize, rectH(rSidePanel)));
 
 				int event = newGuiGoDragAction(ad->gui, r, 1);
 				if(event == 1) ad->gui->mouseAnchor.x = (ws->currentRes.w-input->mousePos.x) - ad->sidePanelWidth;
 				if(event > 0) {
 					ad->sidePanelWidth = (ws->currentRes.w-input->mousePos.x) - ad->gui->mouseAnchor.x;
-					clamp(&ad->sidePanelWidth, ad->sidePanelMin, ws->currentRes.w*ad->sidePanelMax);
+					clamp(&ad->sidePanelWidth, as->sidePanelMinWidth, ws->currentRes.w*ad->sidePanelMax);
 				}
 
 				if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_SIZEWE));
 			}
 
-			Vec4 sidePanelColor = vec4(0,0.9f);
+			Vec4 sidePanelColor = ac->sidePanel;
 			drawRectNew(rSidePanel, sidePanelColor);
 
-			float border = 20;
+			float border = as->marginSidePanel;
 			Rect rPanel = rectExpand(rSidePanel, -vec2(border,border));
-			Font* font = getFont(FONT_CALIBRI, 20);
-			// Font* font2 = getFont(FONT_SOURCESANS_PRO, 20);
-			Font* font2 = getFont(FONT_SOURCESANS_PRO, 23);
+			Font* font = getFont(as->font, as->fontSize);
+			Font* font2 = getFont(as->fontComment, as->fontCommentSize);
 			float xMid = rectCen(rPanel).x;
 			float width = rectW(rPanel);
 			float yPos = rPanel.top;
-			Vec4 fc = vec4(0.9f,1);
+			Vec4 fc = ac->font1;
 
 			Rect infoPanelTop = rPanel;
-			infoPanelTop.min.y = infoPanelTop.top - font->height - 4;
+			infoPanelTop.min.y = infoPanelTop.top - font->height - as->marginButtonsHeight;
 
 			// Top gui.
 			{
 				glEnable(GL_SCISSOR_TEST);
 
-				float offset = 4;
+				float offset = as->marginButtons;
 				float divs[] = {40,0,0,40, 30};
 				Rect buttons[arrayCount(divs)];
 				newGuiDiv(rectW(infoPanelTop), divs, arrayCount(divs), offset);
 				newGuiRectsFromWidths(infoPanelTop, divs, arrayCount(divs), buttons, offset);
 
 				float z = 1;
-				Vec4 buttonColor = vec4(0.3f,0.1f,0,1);
+				Vec4 buttonColor = ac->sidePanelButtons;
 
 				if(ad->selectedVideo > 0) {
 					Rect r = buttons[0];
@@ -3595,7 +3745,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 					}
 
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "<-", font, fc, vec2i(0,0));
+					// drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "<-", font, fc, vec2i(0,0));
+
+					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
+					drawTriangle(rectCen(r), font->height/3, vec2(-1,0), fc);
 				}
 
 				{
@@ -3628,7 +3781,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 					}
 
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "->", font, fc, vec2i(0,0));
+					// drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "->", font, fc, vec2i(0,0));
+
+					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
+					drawTriangle(rectCen(r), font->height/3, vec2(1,0), fc);
 				}
 
 				{
@@ -3637,14 +3793,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 						ad->selectedVideo = -1;
 					}
 
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "x", font, fc, vec2i(0,1));
+					// drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "x", font, fc, vec2i(0,0));
+
+					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
+					drawCross(rectCen(r), font->height/3, 2, vec2(0,1), fc);
 				}
 
 				glDisable(GL_SCISSOR_TEST);
 			}
 
-
-			yPos -= font->height + 8;
+			yPos -= rectH(infoPanelTop) + 8;
 
 			glEnable(GL_SCISSOR_TEST);
 			scissorTestScreen(rPanel);
@@ -3669,8 +3827,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			yPos -= font->height;
 
 			float dislikePercent = divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount));
-			drawRectOutlined(rectLDim(rPanel.left, yPos, rectW(rPanel)*(1-dislikePercent), font->height*0.6f), vec4(0.2f,0.2f,0.5f,1), vec4(0,1));
-			drawRectOutlined(rectRDim(rPanel.right, yPos, rectW(rPanel)*dislikePercent, font->height*0.6f), vec4(0.5f,0.2f,0.2f,1), vec4(0,1));
+			drawRectOutlined(rectLDim(rPanel.left, yPos, rectW(rPanel)*(1-dislikePercent), font->height*0.6f), ac->likes, vec4(0,1), 0);
+			drawRectOutlined(rectRDim(rPanel.right, yPos, rectW(rPanel)*dislikePercent, font->height*0.6f), ac->dislikes, vec4(0,1), 0);
 			yPos -= font->height;
 
 			{
@@ -3706,18 +3864,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 				static float commentHeight = 300;
 				bool hasScrollbar = commentHeight > 0;
 
-				float scrollBarWidth = hasScrollbar?20:0;
+				float scrollBarWidth = hasScrollbar?as->commentScrollbarWidth:0;
 				Rect commentScrollRect = rect(rPanel.left, rPanel.bottom, rPanel.right, yPos);
 				Rect commentRect = rect(rPanel.left, rPanel.bottom, rPanel.right-scrollBarWidth, yPos);
 				Rect scrollBarRect = rect(rPanel.right - scrollBarWidth, rPanel.bottom, rPanel.right, yPos);
 
-				Vec4 screenColor = vec4(0.1f,0,0,1);
+				drawRectNew(commentRect, ac->comments);
+				drawRectNew(scrollBarRect, ac->comments);
+				Vec4 scrollBarColor = ac->commentScroll;
 
-				drawRectNew(commentRect, screenColor + vec4(0.1f,0.1f,0,0));
-				drawRectNew(scrollBarRect, screenColor + vec4(0.1f,0.1f,0,0));
-				Vec4 scrollBarColor = screenColor + vec4(0.2f,0.15f,0,0);
-
-				rectExpand(&commentRect, vec2(-10,0));
+				rectExpand(&commentRect, vec2(-as->marginComments,0));
 
 				static float scrollValue = 0.0f;
 				static Vec2 mouseAnchor;
@@ -3729,7 +3885,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				// Scroll with mousewheel.
 				{
 					if(newGuiGoButtonAction(ad->gui, commentScrollRect, z, Gui_Focus_MWheel)) {
-						float scrollAmount = font->height;
+						float scrollAmount = font2->height;
 						if(input->keysDown[KEYCODE_SHIFT]) scrollAmount *= 2;
 						scrollValue = clamp(scrollValue + -input->mouseWheel*(scrollAmount/commentHeight), 0, 1);
 					}
@@ -3761,7 +3917,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
-				rectExpand(&slider, vec2(-7,-7));
+				rectExpand(&slider, -as->marginSlider);
 				if(hasScrollbar) drawRectRounded(slider, scrollBarColor + newGuiColorModId(ad->gui, sliderId), rectW(slider)/2);
 
 				float startYPos = yPos + scrollValue*commentHeight;
@@ -3774,7 +3930,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					drawTextNew(sn->selectedTopComments[i], font2, vec2(commentRect.left, yPos), fc, vec2i(-1,1), wrapWidth);
 					yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), wrapWidth);
 					
-					drawTextNew(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(commentRect.right, yPos), vec4(0.7f,1), vec2i(1,1), wrapWidth);
+					drawTextNew(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(commentRect.right, yPos), ac->font2, vec2i(1,1), wrapWidth);
 					yPos -= font2->height;
 				}
 
@@ -3799,11 +3955,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			newGuiDiv(rectW(r), widths, arrayCount(widths), offset);
 			newGuiRectsFromWidths(r, widths, arrayCount(widths), regions, offset);
 
-			Vec4 bc = vec4(0.52,0.25,0.20,1);
-			Vec4 ec = vec4(0.33,0.11,0.11,1);
-			Vec4 tc = vec4(0.9,1);
+			Vec4 bc = ac->buttons;
+			Vec4 ec = ac->editBackground;
+			Vec4 tc = ac->font1;
 
-			TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, ec, tc, vec4(0.24,0.41,0.59,1), vec4(0.2f,0.7f,0,1)};
+			TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, ec, tc, ac->editSelection, ac->editCursor};
 
 			float z = 0;
 
@@ -3828,14 +3984,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
 
 
-			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, ad->avgPoints, &ad->avgPointsCount, ad->avgPointsLikes, &ad->avgPointsLikesCount, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin);
+			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin);
 
 			glDisable(GL_SCISSOR_TEST);	
 		}
 
+		TIMER_BLOCK_END(sidePanel);
+
 		// Draw outlines.
 		{
-			Vec4 color = vec4(0,1);
+			glLineWidth(1.0f);
+
+			Vec4 color = ac->outlines;
 			float offset = 0;
 			for(int camIndex = 0; camIndex < ad->camCount; camIndex++) {
 				drawRectOutline(leftTextRects[camIndex], color, offset);
@@ -3878,7 +4038,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		NewGui* gui = ad->gui;
 
-		Font* font = getFont(FONT_CALIBRI, 20);
+		Font* font = getFont(ad->appSettings.font, ad->appSettings.fontSize);
 
 		static Vec2 panelPos = vec2(800,-100);
 		static Vec2 panelDim = vec2(400,600);
@@ -3992,6 +4152,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
 	newGuiEnd(ad->gui);
+
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
