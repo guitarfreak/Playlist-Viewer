@@ -19,47 +19,26 @@
 	- Massive changes in rect functions.
 
 
-	- Change draggin in gui to match the winapi method.
     - Clamp window to monitor.
-	- Date timeline.
-	- Abstract timeline.
-	- Debug gui stuff should disable app input when needed. (Mouse dragging, for example.)
-
-	- Gui when scrollsection gets initialized, put in the current window height to avoid one frame jumping.
-	- Zoom stages for bottom timeline.
-	- Combine 2 graphs again and do h scroll with side bars.
-	- Bottom Zoom glitchy.
-	  - Viewport left and right of cam to big probably. Should add offset so cam goes from 0 to viewport width.
-	- Draw command dots.
-	- Update a playlist.
 	- Sort videos by most commented, most viewed, etc.
-	- If data cant be received from a video, still make it work. (Probably should be more precise with parsing.)
 	- Scale font size to windows. (For high resolution monitors.)
 	- Filter -> percentage of views.
 	- Make stress test playlist file with 100k videos.
-
 	- Enhance performance.
-
 	- Replace bubble sort.
-	- Bug: Duplicates if you download long enough.
-	- Clamp cam based on viewport.
-
 	- Make it so downloading spawns a thread that shows progress and a cancel button.
 	  Shuld be more reasonable than what we have now.
-
-	- Make bottom text also dynaic fitting like left text.
 	- Make divs a better system in generell. Add things like min max size in addition to float elements.
 	  - You could also make that system stacking.
-
 	- Use stb_truetype advance font system for smaller fonts.
-	- drawRect width surrounding lines.
-
 	- Ignore first two digits in year to get more precision and save space.
-
 	- Cursor image still flickering somtimes. 
 	  Has something to do with the window changing screens, or a specific location on the screen?
-
 	- Average lines seem off.	
+
+	- Standard deviation graph.
+
+	- Draw dots in line graph to distinguish flash lines.
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
@@ -224,38 +203,95 @@ char* getString(char** string, int size) {
 	return stringBase;
 }
 
+bool isLeapYear(int year, bool addFrontDigits = true) {
+	if(addFrontDigits) year += 2000;
+
+	if(year % 4 != 0) return false;
+	else if(year % 100 != 0) return true;
+	else if(year % 400 != 0) return false;
+	else return true;
+}
+
+const int monthDayCount[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
+int getYearDayCount(int year) {
+	return isLeapYear(year)?366:365;
+}
+
+int getMonthDayCount(int month, int year) {
+	int result = monthDayCount[month-1];
+	if(isLeapYear(year) && month == 2) result++;
+
+	return result;
+}
+
 struct Date {
-	int year, month, day, hours, minutes, seconds;
-	i64 num;
+	char y, m, d;
+	char h, mins, secs;
+	i64 n;
 };
 
-i64 dateToInt(int year, int month, int day, int hour, int minute, int second) {
-	i64 result = (i64)(year*(i64)31556926);
-	result += (i64)(month*2629744);
-	result += (i64)(day*86400);
-	result += (i64)(hour*3600);
-	result += (i64)(minute*60);
-	result += (i64)(second);
+i64 dateEncode(char year, char month, char day, char hour, char minute, char second) {
+
+	i64 yearSeconds = 0;
+	for(int i = 0; i < year; i++) yearSeconds += (i64)getYearDayCount(i)*86400;
+
+	i64 monthSeconds = 0;
+	for(int i = 0; i < month-1; i++) monthSeconds += (i64)getMonthDayCount(i+1, year)*86400;
+
+	i64 result = 0;
+	result += yearSeconds;
+	result += monthSeconds;
+	result += (i64)(day-1)*86400;
+	result += (i64)hour*3600;
+	result += (i64)minute*60;
+	result += (i64)second;
 
 	return result;
 }
 
-i64 monthsToInt(float months) {
-	i64 result = (i64)(months*2629744.0f);
-	return result;
+void dateDecode(i64 date, char* year, char* month, char* day, char* hour, char* minute, char* second) {
+	i64 n = date;
+
+	int tempYear = 0;
+	for(;;) {
+		i64 yearSeconds = (i64)getYearDayCount(tempYear)*86400;
+		if(n >= yearSeconds) {
+			tempYear++;
+			n -= yearSeconds;
+		} else break;
+	}
+
+	int tempMonth = 0;
+	for(;;) {
+		i64 monthSeconds = (i64)getMonthDayCount(tempMonth+1, tempYear)*86400;
+
+		if(n >= monthSeconds) {
+			tempMonth++;
+			n -= monthSeconds;
+		} else break;
+	}
+
+	(*year) = tempYear;
+	(*month) = tempMonth+1;
+	(*day) = n/86400 + 1; n %= 86400;
+	(*hour) = n/3600; n %= 3600;
+	(*minute) = n/60; n %= 60;
+	(*second) = n;
 }
 
-void intToDate(i64 date, int* year, int* month, int* day, int* hour, int* minute, int* second) {
-	(*year) = date/((i64)31556926); date %= 31556926;
-	(*month) = date/((i64)2629744); date %= 2629744;
-	(*day) = date/86400; date %= 86400;
-	(*hour) = date/3600; date %= 3600;
-	(*minute) = date/60; date %= 60;
-	(*second) = date;
+void dateEncode(Date* d) {
+	d->n = dateEncode(d->y, d->m, d->d, d->h, d->mins, d->secs);
 }
 
-void intToDate(i64 date, Date* d) {
-	intToDate(date, &d->year, &d->month, &d->day, &d->hours, &d->minutes, &d->seconds);
+void dateDecode(Date* d) {
+	dateDecode(d->n, &d->y, &d->m, &d->d, &d->h, &d->mins, &d->secs);
+}
+
+Date dateDecode(i64 n) {
+	Date d;
+	dateDecode(n, &d.y, &d.m, &d.d, &d.h, &d.mins, &d.secs);
+	return d;
 }
 
 Date stringToDate(char* s) {
@@ -263,17 +299,57 @@ Date stringToDate(char* s) {
 	char* buffer = s;
 	char* d = getTString(10); 
 
-	strCpy(d, buffer, 4); buffer += 5; date.year = strToInt(d);
-	strCpy(d, buffer, 2); buffer += 3; date.month = strToInt(d);
-	strCpy(d, buffer, 2); buffer += 3; date.day = strToInt(d);
-	strCpy(d, buffer, 2); buffer += 3; date.hours = strToInt(d);
-	strCpy(d, buffer, 2); buffer += 3; date.minutes = strToInt(d);
-	strCpy(d, buffer, 2); buffer += 3; date.seconds = strToInt(d);
+	strCpy(d, buffer, 4); buffer += 5; date.y = strToInt(d) - 2000;
+	strCpy(d, buffer, 2); buffer += 3; date.m = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.d = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.h = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.mins = strToInt(d);
+	strCpy(d, buffer, 2); buffer += 3; date.secs = strToInt(d);
 
-	date.num = dateToInt(date.year, date.month, date.day, date.hours, date.minutes, date.seconds);
+	dateEncode(&date);
 
 	return date;
 }
+
+// Mode 0 = years, Mode 1 = months, Mode 2 = days, Mode 3 = hours.
+void dateIncrement(Date* date, int mode) {
+	if(mode == 0) {
+		date->y++;
+	} else if(mode == 1) {
+		date->m++;
+		if(date->m > 12) {
+			date->m = 1;
+			dateIncrement(date, mode-1);
+		}
+	} else if(mode == 2) {
+		date->d++;
+		int daysOfMonth = monthDayCount[date->m-1];
+		if(date->d > daysOfMonth) {
+			date->d = 1;
+			dateIncrement(date, mode-1);
+		}
+	} else if(mode == 3) {
+		date->h++;
+		if(date->h >= 24) {
+			date->h = 0;
+			dateIncrement(date, mode-1);
+		}
+	}
+}
+
+// Really?
+void dateIncrement(Date* date, int count, int mode) {
+	for(int i = 0; i < count; i++) dateIncrement(date, mode);
+}
+
+i64 monthsToInt(float months) {
+	i64 result = (i64)(months*2629744.0f);
+	return result;
+}
+
+
+
+// Date String Format: 2017-02-01T12:03:23.000Z
 
 // #pragma pack(push,1)
 struct YoutubeVideo {
@@ -712,7 +788,7 @@ struct LineGraph {
 };
 
 void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGraph, float timeSpanInMonths, float widthInMonths, double minMaxWidth) {
-	double avgStartX = videos[0].date.num;
+	double avgStartX = videos[0].date.n;
 	double avgWidth = monthsToInt(widthInMonths);
 	double avgTimeSpan = monthsToInt(timeSpanInMonths);
 
@@ -732,7 +808,7 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 
 	for(int i = 1; i < videoCount; i++) {
 		YoutubeVideo* vid = videos + i;
-		double timeX = vid->date.num;
+		double timeX = vid->date.n;
 
 		for(int si = 0; si < statCount; si++) {
 			double avgMidX = avgStartX + (si*avgWidth);
@@ -1875,6 +1951,7 @@ struct AppColors {
 	Vec4 outlines;
 
 	Vec4 graphMarkers;
+	Vec4 graphSubMarkers;
 };
 
 struct AppSettings {
@@ -1917,7 +1994,7 @@ struct AppSettings {
 	int titleOffset;
 };
 
-#define Graph_Zoom_Min 60*60*36
+#define Graph_Zoom_Min 24*60*60
 
 struct AppData {
 	// General.
@@ -2317,6 +2394,38 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->sidePanelWidth = ws->currentRes.w*0.25f;
 		ad->sidePanelMax = 0.5f;
+
+
+		if(0) {
+		int count = 10000;
+
+		YoutubePlaylist playlist = {"PLAYLIST_ID", "PLAYLIST_TITLE", count};
+
+		Date d = {5, 1, 1, 0, 0, 0, 0};
+		dateEncode(&d);
+
+		clearTMemory();
+		YoutubeVideo* videos = getTArray(YoutubeVideo, count);
+		for(int i = 0; i < count; i++) {
+			d.n += randomInt(20*60*60,50*60*60);
+			dateDecode(&d);
+
+			char* dateString = fillString("%i %i %i %i:%i:%i", (int)d.y, (int)d.m, (int)d.d, (int)d.h, (int)d.mins, (int)d.secs);
+
+            videos[i] = {"Video_Id", "Video_Title", "Video_Thumbnail_Url", "", 
+                          d, 
+                          randomInt(5000,15000), 
+                          randomInt(100,100), 
+                          randomInt(100,100), 
+                          randomInt(10,10), 
+                          randomInt(10,10) };
+
+           	strCpy(videos[i].dateString, dateString);
+		}
+
+		savePlaylistToFile(&playlist, videos, count, 10000, 0, "PageToken");
+		}
+		
 	}
 
 	// @AppStart.
@@ -2405,6 +2514,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->appColors.mouseHover            = vec4(0.8f,0,0.2f,0.2f);
 			ad->appColors.outlines              = vec4(0,1);
 			ad->appColors.graphMarkers          = vec4(1,0.05f);
+			ad->appColors.graphSubMarkers       = vec4(1,0.01f);
 		}
 
 		{
@@ -2976,7 +3086,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					bool corrupted = false;
 					{
 						YoutubeVideo* vid = tempVids + i;
-						if(vid->date.num < dateToInt(2005,0,0,0,0,0) || vid->date.num > dateToInt(2018,0,0,0,0,0) ||
+						if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
 						   vid->viewCount < 0 || vid->viewCount > 5000000000 ||
 						   vid->likeCount < 0 || vid->likeCount > 100000000 ||
 						   vid->dislikeCount < 0 || vid->dislikeCount > 100000000 ||
@@ -3011,7 +3121,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						bool sw = false;
 
 						for(int i = 0; i < size-1 - off; i++) {
-							if(ad->videos[i+1].date.num < ad->videos[i].date.num) {
+							if(ad->videos[i+1].date.n < ad->videos[i].date.n) {
 								// swap(&off, &size);
 								swapGeneric(YoutubeVideo, ad->videos[i+1], ad->videos[i]);
 								sw = true;
@@ -3036,7 +3146,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
 						updateStatistic(&statComments, video->commentCount);
 
-						if(video->date.num > 0) updateStatistic(&statDates, video->date.num);
+						if(video->date.n > 0) updateStatistic(&statDates, video->date.n);
 					}
 				}
 
@@ -3272,196 +3382,138 @@ extern "C" APPMAINFUNCTION(appMain) {
 		{
 			GraphCam* cam = &ad->cams[0];
 
+			int subStringMargin = font->height/2;
+			float splitOffset = font->height;
+
 			Vec4 mainColor = ac->font1;
 			Vec4 semiColor = ac->font2;
 			Vec4 horiLinesColor = ac->graphMarkers;
-			float markLength = font->height-3;
+			float markLength = font->height - 3;
 			float fontMargin = 0;
 			float div = 10;
-			float splitSizePixels = 200;
+			float splitSizePixels = 1000;
 
 			glLineWidth(1);
 			glEnable(GL_SCISSOR_TEST);
 
 			Rect scaleRect = rBottomText;
-			double splitSize = splitSizePixels * (cam->w / rectW(cam->viewPort));
-			double stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-			// double subSplitSize = font->height * (cam->h / rectH(cam->viewPort));
-			int i = 0;
-			double p = roundModDown(cam->left, stepSize);
-			while(p < cam->right + stepSize) {
-				scissorTestScreen(rGraphs);
 
-				// Vertical lines.
-				{
-					double x = graphCamMapX(cam, p);
-					drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), horiLinesColor); 
-				}
+			i64 oneYearInSeconds = (i64)365*86400;
+			i64 oneMonthInSeconds = (i64)30*86400;
+			i64 oneDayInSeconds = (i64)1*86400;
 
-				scissorTestScreen(scaleRect);
+			float yearInPixels = graphCamCamToScreenSpaceX(cam, oneYearInSeconds);
+			float monthInPixels = graphCamCamToScreenSpaceX(cam, oneMonthInSeconds);
+			float dayInPixels = graphCamCamToScreenSpaceX(cam, oneDayInSeconds);
 
-				// Base markers.
-				{
-					double x = graphCamMapX(cam, p);
-					drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
+			float yearStringSize = getTextDim("0000", font).w;
+			float monthStringSize = getTextDim("00.0000", font).w;
+			float dayStringSize = getTextDim("00.00.0000", font).w;
+			float timeStringSize = getTextDim("00:00", font).w;
 
-					Date d;
-					intToDate(p, &d);
-					char* dateString = fillString("%s%i..%s%i..%i", d.day+1 < 10?"0":"", d.day+1, d.month+1 < 10?"0":"", d.month+1, d.year);
-					drawTextNew(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
-				}
+
+			int zoomStage = 0;
+			if(dayInPixels > dayStringSize + splitOffset) zoomStage = 2;
+			else if(monthInPixels > monthStringSize + splitOffset) zoomStage = 1;
+			else zoomStage = 0;
+
+
+			int subMarkerWidth = 0;
+			int subMarkerCount = 0;
+
+			Date startDate = dateDecode(cam->left);
+			
+			if(zoomStage == 0) {
+				startDate = {startDate.y, 1,1,0,0,0};
+
+				float markerDiff = (yearInPixels - yearStringSize)/(monthStringSize+splitOffset);
+				if(markerDiff > 4-1) subMarkerWidth = 3;
+				else if(markerDiff > 2-1) subMarkerWidth = 6;
+				else subMarkerWidth = 12;
+
+				subMarkerCount = subMarkerWidth>0?12/subMarkerWidth:0;
+
+			} else if(zoomStage == 1) {
+				startDate = {startDate.y, startDate.m, 1,0,0,0};
+
+				float markerDiff = (monthInPixels - monthStringSize)/(dayStringSize+splitOffset);
+				if(markerDiff > 6-1) subMarkerWidth = 5;
+				else if(markerDiff > 3-1) subMarkerWidth = 10;
+				else subMarkerWidth = 30;
+
+				subMarkerCount = subMarkerWidth>0?30/subMarkerWidth:0;
+
+			} else if(zoomStage == 2) {
+				startDate = {startDate.y, startDate.m, startDate.d, 0,0,0};
+
+				float markerDiff = (dayInPixels - dayStringSize)/(timeStringSize+splitOffset);
+				if(markerDiff > 12-1) subMarkerWidth = 2;
+				else if(markerDiff > 6-1) subMarkerWidth = 4;
+				else if(markerDiff > 3-1) subMarkerWidth = 8;
+				else subMarkerWidth = 24;
+
+				subMarkerCount = subMarkerWidth>0?24/subMarkerWidth:0;
+			}
+
+			dateEncode(&startDate);
+
+			for(;;) {
+
+				Date nextDate = startDate;
+				dateIncrement(&nextDate, zoomStage);
+				dateEncode(&nextDate);
+
+				double p = startDate.n;
 
 				// Semi markers.
 				{
-					// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
-					int d = 4;
-					for(int i = 0; i < d; i++) {
-						double x = graphCamMapX(cam, p+i*(stepSize/d) + (stepSize/d)/2);
+					Date d = startDate;
+					dateEncode(&d);
+					double leftX = graphCamMapX(cam, d.n);
+					for(int i = 0; i < subMarkerCount; i++) {
+						double x = graphCamMapX(cam, d.n);
 
-						Date date;
-						intToDate(stepSize/d, &date);
 						char* dateString;
-						if(date.day != 0) dateString = fillString("%id", date.day);
-						else if(date.hours != 0) dateString = fillString("%ih", date.hours);
-						else if(date.minutes != 0) dateString = fillString("%imin", date.minutes);
-						else if(date.seconds != 0) dateString = fillString("%isec", date.seconds);
-						else dateString = fillString("0");
+						if(d.m == 1 && d.d == 1) dateString = fillString("%s%i", d.y<10?"200":"20", d.y);
+						else if(d.d == 1) dateString = fillString("%s%i..%s%i", d.m < 10?"0":"", d.m, d.y<10?"200":"20", d.y);
+						else dateString = fillString("%s%i..%s%i..%s%i", d.d < 10?"0":"", d.d, d.m < 10?"0":"", d.m, d.y<10?"200":"20", d.y);
+						
+						if(zoomStage == 2 && i != 0) dateString = fillString("%s%i:00", d.h<10?"0":"", d.h);
 
-						drawTextNew(dateString, font, vec2(x, scaleRect.top), semiColor, vec2i(0,1));
+						scissorTestScreen(rGraphs);
+						drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), i==0?ac->graphMarkers:ac->graphSubMarkers);
+						scissorTestScreen(scaleRect);
 
-						if(i == 0) continue;
-						{
-							double x = graphCamMapX(cam, p+i*(stepSize/d));
-							drawLineNewOff(vec2(x, scaleRect.top), vec2(0, -markLength*0.5f), semiColor); 
+						drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
+						drawTextNew(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+
+						dateIncrement(&d, subMarkerWidth, zoomStage+1);
+						dateEncode(&d);
+						x = graphCamMapX(cam, d.n);
+
+						int amount = subMarkerWidth;
+						if(i == subMarkerCount-1) {
+							if(zoomStage == 1) {
+								amount = getMonthDayCount(startDate.m, startDate.y) - (i)*subMarkerWidth;
+								x = graphCamMapX(cam, nextDate.n)-1;
+							}
 						}
+
+						char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
+						drawTextNew(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1));
+
+						leftX = x;
 					}
 				}
 
-				p += stepSize;
+				if(startDate.n > cam->right) break;
+				dateIncrement(&startDate, zoomStage);
+
+				dateEncode(&startDate);
 			}
 
 			glDisable(GL_SCISSOR_TEST);
 		}
-
-
-		// {
-		// 	Vec4 mainColor = vec4(0.9f,1);
-		// 	Vec4 semiColor = vec4(0.6f,1);
-		// 	Vec4 horiLinesColor = vec4(1,1,1,0.03f);
-		// 	float markLength = font->height-3;
-		// 	float fontMargin = 0;
-		// 	float div = 10;
-		// 	float splitSizePixels = 200;
-
-		// 	glLineWidth(1);
-		// 	glEnable(GL_SCISSOR_TEST);
-
-		// 	Rect scaleRect = rBottomText;
-		// 	// double splitSize = splitSizePixels * (cam->w / rectW(cam->viewPort));
-		// 	// double stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-		// 	// double subSplitSize = font->height * (cam->h / rectH(cam->viewPort));
-
-		// 	double p = roundDownDouble(cam->left/(double)31556926)*(double)31556926;
-
-		// 	double splitSize = splitSizePixels * (cam->w / rectW(cam->viewPort));
-		// 	addDebugInfo(fillString("%f", splitSize));
-		// 	addDebugInfo(fillString("%f", cam->left));
-		// 	addDebugInfo(fillString("%f", cam->w));
-
-		// 	double temp = (cam->w / rectW(cam->viewPort));
-		// 	int zoomStage = 0;
-		// 	double stepSize = 31556926; // 1 year
-		// 	if(stepSize > 1200 * temp) {
-		// 		stepSize = 2629744;
-		// 		zoomStage++;
-
-		// 		if(stepSize > 2500 * temp) {
-		// 			stepSize = 86400;
-		// 			zoomStage++;
-		// 		}
-		// 	}
-
-		// 	int subDiv = 2;
-		// 	// double subStepSize = 31556926/4;
-		// 	if(zoomStage == 0) {
-		// 		subDiv = 4;
-
-		// 		// if(((double)31556926/subDiv) > 300 * temp) {
-		// 			// subDiv = 4;
-		// 		// }
-		// 	}
-		// 	if(zoomStage == 1) {
-		// 		subDiv = 6;
-		// 	}
-		// 	if(zoomStage == 2) {
-		// 		subDiv = 10;
-		// 	}
-
-		// 	int i = 0;
-		// 	while(p < cam->right + stepSize) {
-		// 		scissorTest(rect(rGraph2.min, rGraph.max), res.h);
-
-		// 		// Vertical lines.
-		// 		{
-		// 			double x = graphCamMapX(cam, p);
-		// 			drawLineNew(vec2(x, scaleRect.bottom),vec2(x, rGraph.top), horiLinesColor); 
-		// 		}
-
-		// 		scissorTest(scaleRect, res.h);
-
-		// 		// Base markers.
-		// 		{
-		// 			double x = graphCamMapX(cam, p);
-		// 			drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
-
-		// 			Date d;
-		// 			intToDate(p, &d);
-		// 			char* dateString;
-		// 			if(zoomStage == 0) dateString = fillString("%i", d.year);
-		// 			else if(zoomStage == 1) dateString = fillString("%s%i..%i", d.month+1 < 10?"0":"", d.month + 1, d.year);
-		// 			else if(zoomStage == 2) dateString = fillString("%s%i..%s%i..%i", d.day+1 < 10?"0":"", d.day + 1, d.month+1 < 10?"0":"", d.month + 1, d.year);
-		// 			drawTextNew(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
-		// 		}
-
-		// 		// Semi markers.
-		// 		{
-		// 			// int d = pow(2, roundFloat(logBase(stepSize/subSplitSize, 2)));
-		// 			for(int i = 0; i < subDiv; i++) {
-		// 				double x = graphCamMapX(cam, p+i*(stepSize/subDiv) + (stepSize/subDiv)/2);
-
-		// 				Date d;
-		// 				intToDate(stepSize/subDiv, &d);
-
-		// 				char* dateString;
-		// 				if(zoomStage == 0) dateString = fillString("%im", d.month+1);
-		// 				if(zoomStage == 1) dateString = fillString("%id", d.day+1);
-		// 				if(zoomStage == 2) dateString = fillString("%ih", d.hours);
-
-		// 				drawTextNew(dateString, font, vec2(x, scaleRect.top), semiColor, vec2i(0,1));
-
-		// 				if(i == 0) continue;
-		// 				{
-		// 					double x = graphCamMapX(cam, p+i*(stepSize/subDiv));
-		// 					drawLineNewOff(vec2(x, scaleRect.top), vec2(0, -markLength*0.5f), semiColor); 
-
-		// 					Date d;
-		// 					intToDate(p+i*(stepSize/subDiv), &d);
-		// 					char* dateString;
-		// 					if(zoomStage == 0) dateString = fillString("%i.", d.month + 1);
-		// 					if(zoomStage == 1) dateString = fillString("%i.", d.day + 1);
-		// 					if(zoomStage == 2) dateString = fillString("%i.", d.hours);
-
-		// 					drawTextNew(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
-
-		// 				}
-		// 			}
-		// 		}
-
-		// 		p += stepSize;
-		// 	}
-
-		// 	glDisable(GL_SCISSOR_TEST);
-		// }
 
 
 
@@ -3513,18 +3565,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			bool lastOneWasOverRight = false;
 			for(int i = 0; i < vidCount; i++) {
-				if(i+1 < vidCount && vids[i+1].date.num < cam->left) continue;
+				if(i+1 < vidCount && vids[i+1].date.n < cam->left) continue;
 				if(lastOneWasOverRight) continue;
-				if(vids[i].date.num > cam->right) lastOneWasOverRight = true;
+				if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
 
-				float x = graphCamMapX(cam, vids[i].date.num) + 1;
+				float x = graphCamMapX(cam, vids[i].date.n) + 1;
 
 				if(graphIndex == 0) {
 					pushVec(vec2(x, graphCamMapY(cam, vids[i].viewCount)));
 				} else if(graphIndex == 1) {
 					pushVec(vec2(x, graphCamMapY(cam, vids[i].likeCount + vids[i].dislikeCount)));
 
-					// float x = graphCamMapX(cam, vids[i].date.num);
+					// float x = graphCamMapX(cam, vids[i].date.n);
 					// if(i == 0) x += lineWidth/2;
 					// else if(i == vidCount-1) x -= lineWidth/2+1;
 
@@ -3581,7 +3633,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				GraphCam* cam = ad->cams + graphIndex;
 
-				double avgStartX = ad->videos[0].date.num;
+				double avgStartX = ad->videos[0].date.n;
 				double avgWidth = monthsToInt(ad->statWidth);
 				double avgTimeSpan = monthsToInt(ad->statTimeSpan);
 
@@ -3622,10 +3674,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 					bool lastElement = i < vidCount-1;
 
 					if(lastElement)
-						if(vids[i+1].date.num < cam->left || vids[i].date.num > cam->right) continue;
+						if(vids[i+1].date.n < cam->left || vids[i].date.n > cam->right) continue;
 
-					float x = graphCamMapX(cam, vids[i].date.num) + 1;
-					float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.num) + 1 : x + 1000000;
+					float x = graphCamMapX(cam, vids[i].date.n) + 1;
+					float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.n) + 1 : x + 1000000;
 
 					if(input->mousePos.x < x + (x2-x)/2) {
 						scissorTestScreen(rGraphs);
@@ -3685,7 +3737,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(ad->selectedVideo != -1) {
 			// Graph selection line.
 			{
-				float x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.num) + 1;
+				float x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.n) + 1;
 				drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
 			}
 
@@ -3841,8 +3893,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				scissorTestScreen(rectTRDim(rPanel.right, yPos, rectW(rPanel)/2 - 1, font->height*lineCount));
 				char* t;
 				for(int i = 0; i < lineCount; i++) {
-					if(i == 0) t = fillString("%i..%i..%i", sv->date.day, sv->date.month, sv->date.year);
-					if(i == 1) t = fillString("%i:%s%i:%s%i.", sv->date.hours, sv->date.minutes<10?"0":"", sv->date.minutes, sv->date.seconds<10?"0":"", sv->date.seconds);
+					if(i == 0) t = fillString("%i..%i..%i", sv->date.d, sv->date.m, sv->date.y);
+					if(i == 1) t = fillString("%s%i:%s%i:%s%i.", sv->date.h<10?"0":"", sv->date.h, sv->date.mins<10?"0":"", sv->date.mins, sv->date.secs<10?"0":"", sv->date.secs);
 					if(i == 2) t = fillString("%i.", sv->viewCount);
 					if(i == 3) t = fillString("%i | %i -> %f", sv->likeCount, sv->dislikeCount, divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount)));
 					if(i == 4) t = fillString("%i", sv->commentCount);
@@ -4153,6 +4205,27 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	newGuiEnd(ad->gui);
 
+	{
+		// DateNew d = {5, 1, 1, 0,0,0};
+		// dateEncode(&d);
+
+
+
+		// addDebugInfo(fillString("%i64", d.num));
+		// addDebugInfo(fillString("%i..%i..%i, %i:%i:%i", (int)d.year, (int)d.month, (int)d.day, (int)d.hours, (int)d.minutes, (int)d.seconds));
+
+		// d.num -= 0;
+
+		// dateDecode(&d);
+		// addDebugInfo(fillString("%i..%i..%i, %i:%i:%i", (int)d.year, (int)d.month, (int)d.day, (int)d.hours, (int)d.minutes, (int)d.seconds));
+
+
+		// Date d;
+		// intToDateNew(date, &d.year, &d.month, &d.day, &d.hours, &d.minutes, &d.seconds);
+
+		// addDebugInfo(fillString("%i %i %i, %i:%i:%i", date));
+
+	}
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
