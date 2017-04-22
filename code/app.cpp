@@ -39,6 +39,9 @@
 	- Standard deviation graph.
 
 	- Draw dots in line graph to distinguish flash lines.
+	- Avg. line of number videos of released in a month or so.
+
+	- Done Today: sub line markers, graph draw mode, mouse hover point + show value, 
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
@@ -1809,7 +1812,8 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Font* font, Vec4 bc, Vec
 	scissorTestScreen(scissor);
 
 	drawLineNew(rectL(br), rectR(br), bc);
-	drawRectNew(sr, sc);
+	// drawRectNew(sr, sc);
+	drawRectRounded(sr, sc, 4);
 
 	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 
@@ -2072,6 +2076,9 @@ struct AppData {
 	YoutubeVideo* videos;
 
 	VideoSnippet videoSnippet;
+	Vec2 hoveredPoint;
+	int hoveredVideo;
+	float hoveredVideoStat;
 	int selectedVideo;
 
 	YoutubePlaylist downloadPlaylist;
@@ -2105,16 +2112,11 @@ struct AppData {
 	float statWidth;
 
 	LineGraph averagesLineGraph;
-	// double* avgPoints[4];
-	// int avgPointsCounts;
-
-	// double avgPoints[1000];
-	// int avgPointsCount;
-	// double avgPointsLikes[1000];
-	// int avgPointsLikesCount;
 
 	char exclusiveFilter[50];
 	char inclusiveFilter[50];
+
+	int graphDrawMode;
 };
 
 
@@ -2426,6 +2428,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		savePlaylistToFile(&playlist, videos, count, 10000, 0, "PageToken");
 		}
 		
+		ad->graphDrawMode = 0;
 	}
 
 	// @AppStart.
@@ -3310,6 +3313,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Vec4 mainColor = ac->font1;
 			Vec4 semiColor = ac->font2;
 			Vec4 horiLinesColor = ac->graphMarkers;
+			Vec4 subHoriLinesColor = ac->graphSubMarkers;
 			float markLength = 10;
 			float fontMargin = 4;
 			float div = 10;
@@ -3345,7 +3349,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					// Base markers.
 					drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
-					// char* text = fillString("%i.",(int)p);
 
 					char* text;
 					if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
@@ -3367,6 +3370,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 						else subText = fillString("%f",(stepSize/subDiv));
 
 						drawTextNew(subText, font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+
+						// Draw horizontal line.
+						scissorTestScreen(cam->viewPort);
+						drawLineNew(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), subHoriLinesColor); 
+						scissorTestScreen(scaleRect);
+
 					}
 
 					p += stepSize;
@@ -3522,46 +3531,41 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		glEnable(GL_SCISSOR_TEST);
 
-		bool drawAgain = true;
-
 		TIMER_BLOCK_BEGIN_NAMED(drawGraphs, "DrawGraphs");
+
+		float settingHoverSearchWidth = 100;
+		float settingHoverDistance = 20;
+		ad->hoveredVideo = -1;
 
 		// Draw Graphs.
 		int graphCount = ad->camCount + 1;
+		int mode = ad->graphDrawMode;
 		for(int graphIndex = 0; graphIndex < graphCount; graphIndex++) {
+
 			Vec4 c1 = ac->graphLine1;
 			Vec4 c2 = ac->graphLine2;
+			Vec4 colors[] = {c1,c1,c2,c2,c1};
 
-			glLineWidth(1);
-			
-			int camIndex = 0;
-			Vec4 color;
+			int camIndexes[] = {0,1,1,2,3};
+			GraphCam* cam = ad->cams + camIndexes[graphIndex];
+			Vec4 color = colors[graphIndex];
+			Rect graphRect = graphRects[camIndexes[graphIndex]];
 
-			if(graphIndex == 0) {
-				color = c1;
-				camIndex = 0;
-
-			}  else if(graphIndex == 1) {
-				color = c1;
-				camIndex = 1;
-
-			} else if(graphIndex == 2) {
-				color = c2;
-				camIndex = 1;
-
-			} else if(graphIndex == 3) {
-				color = c2;
-				camIndex = 2;
-
-			} else if(graphIndex == 4) {
-				color = c1;
-				camIndex = 3;
-			} 
-
-			GraphCam* cam = ad->cams + camIndex;
 			scissorTestScreen(rectExpand(cam->viewPort, 1));
 
-			drawLineStripHeader(color);
+			if(mode == 0) {
+				glLineWidth(1);
+				drawLineStripHeader(color);
+			} else if(mode == 1) {
+				glPointSize(3);
+				drawPointsHeader(color);
+			} else if(mode == 2) {
+				glLineWidth(3);
+				drawLinesHeader(color);
+			}
+
+			float statMouseDiff = FLT_MAX;
+			double searchDistance = graphCamScreenToCamSpaceX(cam, settingHoverSearchWidth);
 
 			bool lastOneWasOverRight = false;
 			for(int i = 0; i < vidCount; i++) {
@@ -3569,55 +3573,35 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(lastOneWasOverRight) continue;
 				if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
 
+				double value;
+				     if(graphIndex == 0) value = vids[i].viewCount;
+				else if(graphIndex == 1) value = vids[i].likeCount + vids[i].dislikeCount;
+				else if(graphIndex == 2) value = vids[i].dislikeCount;
+				else if(graphIndex == 3) value = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
+				else if(graphIndex == 4) value = vids[i].commentCount;
+
 				float x = graphCamMapX(cam, vids[i].date.n) + 1;
+				float y = graphCamMapY(cam, value);
 
-				if(graphIndex == 0) {
-					pushVec(vec2(x, graphCamMapY(cam, vids[i].viewCount)));
-				} else if(graphIndex == 1) {
-					pushVec(vec2(x, graphCamMapY(cam, vids[i].likeCount + vids[i].dislikeCount)));
+				// Get closest point to mouse.
+				if(pointInRect(input->mousePosNegative, graphRect)) {
 
-					// float x = graphCamMapX(cam, vids[i].date.n);
-					// if(i == 0) x += lineWidth/2;
-					// else if(i == vidCount-1) x -= lineWidth/2+1;
+					i64 n = vids[i].date.n;
+					if(valueBetweenDouble(n, n - searchDistance/2, n + searchDistance/2)) {
+						Vec2 p = vec2(x,y);
+						float diff = lenLine(p, input->mousePosNegative);
 
-					#if 0
-					// Drawing likes as bar graphs.
-					{
-					int duration = 1*60*60;
-					float width = graphCamCamToScreenSpaceX(cam, duration);
-					clampMin(&width, 3);
-					bool outlines = true;
-					if(width == 3) outlines = false;
-					float height2 = graphCamCamToScreenSpaceY(cam, vids[i].likeCount);
-					float height = graphCamCamToScreenSpaceY(cam, vids[i].dislikeCount);
-
-					Rect rBottom = rectBDim(x, graphCamMapY(cam, 0), width, height);
-					Rect rTop = rectBDim(x, graphCamMapY(cam, 0) + height, width, height2);
-					drawRectNew(rBottom, c2);
-					drawRectNew(rTop, c1);
-					drawLineNew(rectTL(rBottom), rectTR(rBottom), vec4(0,1));
-
-					if(outlines) {
-						drawRectOutline(rBottom, vec4(0,1), 0);
-						drawRectOutline(rTop, vec4(0,1), 0);
+						if(diff < statMouseDiff && diff < settingHoverDistance) {
+							statMouseDiff = diff;
+							ad->hoveredPoint = p;
+							ad->hoveredVideo = i;
+							ad->hoveredVideoStat = value;
+						}
 					}
-					}
-					#endif
-
-					// pushColor(slc1);
-					// pushVecs(vec2(x, graphCamMapY(cam, 0)), vec2(x, graphCamMapY(cam, vids[i].likeCount)));
-					// pushColor(slc2);
-					// pushVecs(vec2(x, graphCamMapY(cam, vids[i].likeCount)), vec2(x, graphCamMapY(cam, vids[i].dislikeCount + vids[i].likeCount)));
-				} else if(graphIndex == 2) {
-					pushVec(vec2(x, graphCamMapY(cam, vids[i].dislikeCount)));
-
-				} else if(graphIndex == 3) {
-					double div1 = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
-					pushVec(vec2(x, graphCamMapY(cam, div1)));
-
-				} else if(graphIndex == 4) {
-					pushVec(vec2(x, graphCamMapY(cam, vids[i].commentCount)));
 				}
+
+				if(mode < 2) pushVec(vec2(x, y));
+				else pushVecs(vec2(x, graphCamMapY(cam, 0)), vec2(x, y));
 			}
 
 			glEnd();
@@ -3662,56 +3646,54 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		TIMER_BLOCK_END(drawGraphs);
 
-
 		// Mouse hover.
 		{
+			int settingHoverPointSize = 10;
+
 			int id = newGuiIncrementId(ad->gui);
-
 			bool mPosActive = newGuiGoMousePosAction(ad->gui, rGraphs, 0);
-			if(mPosActive) {
-				GraphCam* cam = &ad->cams[0];
-				for(int i = 0; i < vidCount; i++) {
-					bool lastElement = i < vidCount-1;
+			if(mPosActive && ad->hoveredVideo != -1) {
+				scissorTestScreen(rGraphs);
+				glEnable(GL_SCISSOR_TEST);
 
-					if(lastElement)
-						if(vids[i+1].date.n < cam->left || vids[i].date.n > cam->right) continue;
 
-					float x = graphCamMapX(cam, vids[i].date.n) + 1;
-					float x2 = lastElement?graphCamMapX(cam, vids[i+1].date.n) + 1 : x + 1000000;
 
-					if(input->mousePos.x < x + (x2-x)/2) {
-						scissorTestScreen(rGraphs);
-						glEnable(GL_SCISSOR_TEST);
+				int vi = ad->hoveredVideo;
 
-						drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
+				// Draw text top right.
+				Font* font = getFont(as->font, as->fontSize);
+				Vec4 c = ac->font3;
+				Vec2 p = rChart.max - vec2(5);
+				float os = 2;
+				drawTextOutlined(fillString("%s", ad->videos[vi].title), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+				drawTextOutlined(fillString("%s", ad->videos[vi].dateString), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+				drawTextOutlined(fillString("%i", vi), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
 
-						Font* font = getFont(as->font, as->fontSize);
-						Vec4 c = ac->font3;
-						Vec2 p = rChart.max - vec2(5);
-						// drawTextNew(fillString("%s", ad->videos[i].title), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
-						// drawTextNew(fillString("%s", ad->videos[i].dateString), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
-						// drawTextNew(fillString("%i", i), font, p, c, vec2i(1,1), 0, 1); p.y -= font->height;
-		
-						float os = 2;
-						drawTextOutlined(fillString("%s", ad->videos[i].title), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
-						drawTextOutlined(fillString("%s", ad->videos[i].dateString), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
-						drawTextOutlined(fillString("%i", i), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
 
-						glDisable(GL_SCISSOR_TEST);
+				// Draw Point.
+				glPointSize(settingHoverPointSize);
+				// drawTextNew(fillString("%i", ad->videos[vi].viewCount), font, ad->hoveredPoint + vec2(10,10), c, vec2i(-1,-1));
+				char* text;
+				if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
+				else text = fillString("%f", ad->hoveredVideoStat);
+				os = 1;
+				drawTextOutlined(text, font, ad->hoveredPoint + vec2(10,10), os, c, vec4(0,1), vec2i(-1,-1));
+				drawPoint(ad->hoveredPoint, ac->font3);
+				glPointSize(1);
 
-						if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
-							if(i != ad->selectedVideo) {
-								ad->selectedVideo = i;
-								downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
-							}
-						}
 
-						break;
+
+				glDisable(GL_SCISSOR_TEST);
+
+				if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
+					if(vi != ad->selectedVideo) {
+						ad->selectedVideo = vi;
+						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
 					}
 				}
-
 			}
 		}
+
 
 
 		Font* titleFont = getFont(as->fontTitle, as->fontTitleSize);
@@ -3893,7 +3875,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				scissorTestScreen(rectTRDim(rPanel.right, yPos, rectW(rPanel)/2 - 1, font->height*lineCount));
 				char* t;
 				for(int i = 0; i < lineCount; i++) {
-					if(i == 0) t = fillString("%i..%i..%i", sv->date.d, sv->date.m, sv->date.y);
+					if(i == 0) t = fillString("%s%i..%s%i..%s%i", sv->date.d<10?"0":"", sv->date.d, sv->date.m<10?"0":"", sv->date.m, sv->date.y<10?"200":"20", sv->date.y);
 					if(i == 1) t = fillString("%s%i:%s%i:%s%i.", sv->date.h<10?"0":"", sv->date.h, sv->date.mins<10?"0":"", sv->date.mins, sv->date.secs<10?"0":"", sv->date.secs);
 					if(i == 2) t = fillString("%i.", sv->viewCount);
 					if(i == 3) t = fillString("%i | %i -> %f", sv->likeCount, sv->dislikeCount, divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount)));
@@ -3994,8 +3976,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Filters gui.
 		{
-			char* labels[] = {"Avg. line (width/res months): ", "Filter (Incl./Excl.): "};
-			float widths[] = {150, 0, getTextDim(labels[0], font).x, 40, 40, 10, getTextDim(labels[1], font).x, 250, 250};
+			char* labels[] = {"Draw Mode: ", "Avg. line (width/res months): ", "Filter (Incl./Excl.): "};
+			int li = 0;
+			float widths[] = {120, 0, getTextDim(labels[li++], font).x, 80, 10, getTextDim(labels[li++], font).x, 40, 40, 10, getTextDim(labels[li++], font).x, 250, 250};
 			Rect regions[arrayCount(widths)];
 
 			glEnable(GL_SCISSOR_TEST);
@@ -4014,24 +3997,35 @@ extern "C" APPMAINFUNCTION(appMain) {
 			TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, ec, tc, ac->editSelection, ac->editCursor};
 
 			float z = 0;
+			int ri = 0;
+			li = 0;
 
-			if(newGuiQuickButton(ad->gui, regions[0], z, "Panel (F1)", font, bc, tc, scissor)) ds->showMenu = !ds->showMenu;
+			if(newGuiQuickButton(ad->gui, regions[ri++], z, "Panel (F1)", font, bc, tc, scissor)) ds->showMenu = !ds->showMenu;
 
-			drawQuickTextBox(regions[2], labels[0], font, vec4(0,0), tc, vec2i(0,0), scissor);
+			ri++;
+
+			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
+			newGuiQuickSlider(ad->gui, regions[ri++], z, &ad->graphDrawMode, 0,2, 20, font, ac->font2, tc, ac->buttons, scissor);
+			
+			ri++;
+
+			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
 
 			bool updateStats = false;
 
-			if(newGuiQuickTextEdit(ad->gui, regions[3], &ad->statTimeSpan, z, font, editSettings, scissor)) updateStats = true;
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statTimeSpan, z, font, editSettings, scissor)) updateStats = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
-			if(newGuiQuickTextEdit(ad->gui, regions[4], &ad->statWidth, z, font, editSettings, scissor)) updateStats = true;
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statWidth, z, font, editSettings, scissor)) updateStats = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
 
-			drawQuickTextBox(regions[6], labels[1], font, vec4(0,0), tc, vec2i(0,0), scissor);
+			ri++;
 
-			if(newGuiQuickTextEdit(ad->gui, regions[7], ad->inclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->inclusiveFilter))) 
+			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
+
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->inclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->inclusiveFilter))) 
 				ad->startLoadFile = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
-			if(newGuiQuickTextEdit(ad->gui, regions[8], ad->exclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->exclusiveFilter))) 
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->exclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->exclusiveFilter))) 
 				ad->startLoadFile = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
 

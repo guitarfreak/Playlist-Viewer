@@ -221,13 +221,15 @@ float lerp(float percent, float min, float max) {
 
 
 inline bool valueBetween(float v, float min, float max) {
-	bool result = (v >= min && v <= max);
-	return result;
+	return (v >= min && v <= max);
 }
 
 inline bool valueBetweenInt(int v, int min, int max) {
-	bool result = (v >= min && v <= max);
-	return result;
+	return (v >= min && v <= max);
+}
+
+inline bool valueBetweenDouble(double v, double min, double max) {
+	return (v >= min && v <= max);
 }
 
 inline bool valueBetween2(float v, float min, float max) {

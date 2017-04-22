@@ -946,7 +946,7 @@ void scissorTestScreen(Rect r) {
 }
 
 
-void drawLineHeader(Vec4 color) {
+void drawLinesHeader(Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
 	Vec4 c = colorSRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
@@ -958,6 +958,13 @@ void drawLineStripHeader(Vec4 color) {
 	Vec4 c = colorSRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_LINE_STRIP);
+}
+
+void drawPointsHeader(Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
+	Vec4 c = colorSRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBegin(GL_POINTS);
 }
 
 inline void pushVecs(Vec2 p0, Vec2 p1) {
@@ -974,6 +981,7 @@ inline void pushColor(Vec4 c) {
 }
 
 void drawPoint(Vec2 p, Vec4 color) {
+	glBindTexture(GL_TEXTURE_2D, 0);
 	Vec4 c = colorSRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_POINTS);
