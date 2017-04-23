@@ -536,7 +536,8 @@ struct Font {
 	char* fileBuffer;
 	Texture tex;
 	int glyphStart, glyphCount;
-	stbtt_bakedchar* cData;
+	// stbtt_bakedchar* cData;
+	stbtt_packedchar* cData;
 	int height;
 	float baseOffset;
 };
@@ -784,12 +785,18 @@ Font* getFont(int fontId, int height) {
 		font.id = fontId;
 		font.height = height;
 		font.baseOffset = 0.8f;
-		// font.glyphStart = 32;
-		// font.glyphCount = 95;
 		font.glyphStart = Font_Glyph_Start;
 		font.glyphCount = Font_Glyph_End;
-		font.cData = (stbtt_bakedchar*)getPMemory(sizeof(stbtt_bakedchar)*font.glyphCount);
-		stbtt_BakeFontBitmap((unsigned char*)fileBuffer, 0, font.height, fontBitmapBuffer, size.w, size.h, font.glyphStart, font.glyphCount, font.cData);
+		font.cData = (stbtt_packedchar*)malloc(sizeof(stbtt_packedchar)*font.glyphCount);
+
+		stbtt_pack_context context;
+		int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, 1, 0);
+		// stbtt_PackSetOversampling(&context, 2, 2);
+		stbtt_PackSetOversampling(&context, 1, 1);
+		
+		result = stbtt_PackFontRange(&context, (unsigned char*)fileBuffer, 0, font.height, font.glyphStart, font.glyphCount, font.cData);
+		stbtt_PackEnd(&context);
+
 		for(int i = 0; i < size.w*size.h; i++) {
 			fontBitmap[i*4] = fontBitmapBuffer[i];
 			fontBitmap[i*4+1] = fontBitmapBuffer[i];
@@ -1184,21 +1191,21 @@ enum TextStatus {
 	TEXTSTATUS_SIZE, 
 };
 
-void getTextQuad(uchar c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
-	stbtt_aligned_quad q;
-	stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
+// void getTextQuad(uchar c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
+// 	// stbtt_aligned_quad q;
+// 	// stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
 
-	float baseLine = 0.8f;
-	float off = baseLine * font->height;
+// 	float baseLine = 0.8f;
+// 	float off = baseLine * font->height;
 
-	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
-	*uv = rect(q.s0, q.t0, q.s1, q.t1);
-}
+// 	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
+// 	*uv = rect(q.s0, q.t0, q.s1, q.t1);
+// }
 
-float getCharAdvance(uchar c, Font* font) {
-	float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
-	return result;
-}
+// float getCharAdvance(uchar c, Font* font) {
+// 	float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
+// 	return result;
+// }
 
 inline char getRightBits(char n, int count) {
 	int bitMask = 0;
@@ -1235,7 +1242,14 @@ void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	if(c > Font_Glyph_End - Font_Glyph_Start) c = Font_Error_Glyph;
 
 	stbtt_aligned_quad q;
-	stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
+	// stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
+
+	// STBTT_DEF void stbtt_GetPackedQuad(stbtt_packedchar *chardata, int pw, int ph,  // same data as above
+	//                                int char_index,             // character to display
+	//                                float *xpos, float *ypos,   // pointers to current position in screen pixel space
+	//                                stbtt_aligned_quad *q,      // output: quad to draw
+	//                                int align_to_integer);
+	stbtt_GetPackedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q, true);
 
 	float baseLine = 0.8f;
 	float off = baseLine * font->height;
@@ -1246,7 +1260,8 @@ void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 
 float getCharAdvance(int c, Font* font) {
 	if(c > Font_Glyph_End - Font_Glyph_Start) c = Font_Error_Glyph;
-	float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
+	// float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
+	float result = font->cData[c-font->glyphStart].xadvance;
 	return result;
 }
 

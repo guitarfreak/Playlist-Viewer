@@ -2656,9 +2656,9 @@ void stbtt_GetBakedQuad(stbtt_bakedchar *chardata, int pw, int ph, int char_inde
 	float d3d_bias = opengl_fillrule ? 0 : -0.5f;
 	float ipw = 1.0f / pw, iph = 1.0f / ph;
 	stbtt_bakedchar *b = chardata + char_index;
-	int round_x = STBTT_ifloor((xpos + b->xoff) + 0.5f);
 
 	float h = b->y1 - b->y0;
+	int round_x = STBTT_ifloor((xpos + b->xoff) + 0.5f);
 	int round_y = STBTT_ifloor((ypos - (h + b->yoff)) + 0.5f);
 
 	q->x0 = round_x + d3d_bias;
@@ -3132,6 +3132,52 @@ STBTT_DEF void stbtt_GetPackedQuad(stbtt_packedchar *chardata, int pw, int ph, i
    *xpos += b->xadvance;
 }
 
+void stbtt_GetPackedQuad(stbtt_packedchar *chardata, int pw, int ph, int char_index, float xpos, float ypos, stbtt_aligned_quad *q, int align_to_integer)
+{
+   float ipw = 1.0f / pw, iph = 1.0f / ph;
+   stbtt_packedchar *b = chardata + char_index;
+
+   if (align_to_integer) {
+	  // float h = b->y1 - b->y0;
+	  float h = b->yoff2 - b->yoff;
+	  // int h = b->yoff2 - b->yoff;
+      // float y = (float) STBTT_ifloor((ypos + b->yoff) + 0.5f);
+      float x = (float) STBTT_ifloor((xpos + b->xoff) + 0.5f);
+      // float y = (float) STBTT_ifloor((ypos - (h + b->yoff)) + 0.5f);
+      float y = (float) STBTT_ifloor((ypos - (h + b->yoff)) + 0);
+
+      // int x = STBTT_ifloor((xpos + b->xoff) + 0.5f);
+      // int y = STBTT_ifloor((ypos - (h + b->yoff)) + 0.5f);
+
+      q->x0 = x;
+      q->y0 = y;
+      q->x1 = x + b->xoff2 - b->xoff;
+      q->y1 = y + b->yoff2 - b->yoff;
+
+
+
+      // float y = ypos + h;
+
+      // q->x0 = xpos + b->xoff;
+      // // q->y0 = ypos + b->yoff;
+      // q->y0 = y + b->yoff;
+      // q->x1 = xpos + b->xoff2;
+      // // q->y1 = ypos + b->yoff2;
+      // q->y1 = y + b->yoff2;
+
+      
+   } else {
+      q->x0 = xpos + b->xoff;
+      q->y0 = ypos + b->yoff;
+      q->x1 = xpos + b->xoff2;
+      q->y1 = ypos + b->yoff2;
+   }
+
+   q->s0 = b->x0 * ipw;
+   q->t0 = b->y0 * iph;
+   q->s1 = b->x1 * ipw;
+   q->t1 = b->y1 * iph;
+}
 
 //////////////////////////////////////////////////////////////////////////////
 //

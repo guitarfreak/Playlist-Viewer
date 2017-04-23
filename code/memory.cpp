@@ -47,16 +47,18 @@ void pushTMemoryStack(MemoryBlock* memory = 0) {
 	globalMemory->tempStack[globalMemory->tempStackSize++] = globalMemory->tMemory->index;
 }
 
-void popTMemoryStack(MemoryBlock* memory = 0) {
-	if(memory == 0) memory = globalMemory;
-
-	globalMemory->tempStackSize--;
-}
-
 void clearTMemoryToStackIndex(MemoryBlock* memory = 0) {
 	if(memory == 0) memory = globalMemory;
 
 	globalMemory->tMemory->index = globalMemory->tempStack[globalMemory->tempStackSize-1];
+}
+
+void popTMemoryStack(MemoryBlock* memory = 0) {
+	if(memory == 0) memory = globalMemory;
+
+	clearTMemoryToStackIndex(memory);
+
+	globalMemory->tempStackSize--;
 }
 
 #define getPStructDebug(type) 		(type*)(getPMemoryDebug(sizeof(type)))

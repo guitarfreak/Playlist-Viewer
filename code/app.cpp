@@ -20,28 +20,20 @@
 
 
     - Clamp window to monitor.
-	- Sort videos by most commented, most viewed, etc.
 	- Scale font size to windows. (For high resolution monitors.)
 	- Filter -> percentage of views.
-	- Make stress test playlist file with 100k videos.
-	- Enhance performance.
-	- Replace bubble sort.
 	- Make it so downloading spawns a thread that shows progress and a cancel button.
 	  Shuld be more reasonable than what we have now.
 	- Make divs a better system in generell. Add things like min max size in addition to float elements.
 	  - You could also make that system stacking.
 	- Use stb_truetype advance font system for smaller fonts.
-	- Ignore first two digits in year to get more precision and save space.
 	- Cursor image still flickering somtimes. 
 	  Has something to do with the window changing screens, or a specific location on the screen?
-	- Average lines seem off.	
-
 	- Standard deviation graph.
-
-	- Draw dots in line graph to distinguish flash lines.
 	- Avg. line of number videos of released in a month or so.
 
 	- Done Today: sub line markers, graph draw mode, mouse hover point + show value, 
+	  sorting + buttons, changed bubble to radix sort, tried to improve performance, remove glFinish, set msaa to 4.
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
@@ -63,8 +55,12 @@
 #define STBI_ONLY_JPEG
 #include "external\stb_image_write.h"
 
+#define STB_RECT_PACK_IMPLEMENTATION
+#include "external\stb_rect_pack.h"
+
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
+
 
 #include "external\curl\curl.h"
 
@@ -380,8 +376,6 @@ struct SearchResult {
 	char title[151];
 	char id[40];
 };
-
-
 
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
 char* apiKey = "AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw";
@@ -778,9 +772,13 @@ void removePlaylistFile(YoutubePlaylist* playlist) {
 	remove(filePath);
 }
 
-double divZero(double a, double b) {
+inline double divZero(double a, double b) {
 	if(a == 0 || b == 0) return 0;
 	else return a/b;
+}
+
+inline double videoGetLikesDiff(YoutubeVideo* vid) {
+	return divZero(vid->dislikeCount, (vid->likeCount + vid->dislikeCount));
 }
 
 #define Line_Graph_Count 4
@@ -791,6 +789,8 @@ struct LineGraph {
 };
 
 void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGraph, float timeSpanInMonths, float widthInMonths, double minMaxWidth) {
+	TIMER_BLOCK();
+
 	double avgStartX = videos[0].date.n;
 	double avgWidth = monthsToInt(widthInMonths);
 	double avgTimeSpan = monthsToInt(timeSpanInMonths);
@@ -1999,6 +1999,7 @@ struct AppSettings {
 };
 
 #define Graph_Zoom_Min 24*60*60
+#define Graph_Zoom_MinNoDate 10
 
 struct AppData {
 	// General.
@@ -2050,7 +2051,6 @@ struct AppData {
 	GraphCam cams[10];
 	int camCount;
 
-	i64 camMaxWithoutMargin;
 	int heightMoveMode;
 	bool widthMove;
 
@@ -2074,11 +2074,14 @@ struct AppData {
 
 	YoutubePlaylist playlist;
 	YoutubeVideo* videos;
+	int maxVideoCount;
 
 	VideoSnippet videoSnippet;
 	Vec2 hoveredPoint;
 	int hoveredVideo;
 	float hoveredVideoStat;
+
+	Vec2 selectedPoint;
 	int selectedVideo;
 
 	YoutubePlaylist downloadPlaylist;
@@ -2117,13 +2120,17 @@ struct AppData {
 	char inclusiveFilter[50];
 
 	int graphDrawMode;
+
+	bool sortByDate;
+	int sortStat;
 };
 
 
 
 void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
 
-#pragma optimize( "", off )
+// #pragma optimize( "", off )
+#pragma optimize( "", on )
 extern "C" APPMAINFUNCTION(appMain) {
 
 	if(init) {
@@ -2323,7 +2330,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		//
 
 		ad->fieldOfView = 60;
-		ad->msaaSamples = 8;
+		ad->msaaSamples = 4;
 		ad->fboRes = vec2i(0, 120);
 		ad->useNativeRes = true;
 		ad->nearPlane = 0.1f;
@@ -2355,8 +2362,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		//
 
-		int maxVideoCount = 10000;
-		ad->videos = getPArray(YoutubeVideo, maxVideoCount);
+		int maxVideoCount = 5000;
+		ad->maxVideoCount = maxVideoCount;
+
+		// ad->videos = getPArray(YoutubeVideo, maxVideoCount);
+		ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*maxVideoCount);
 		zeroMemory(ad->videos, maxVideoCount * sizeof(YoutubeVideo));
 
 		// curl_global_initX(CURL_GLOBAL_ALL);
@@ -2398,37 +2408,47 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->sidePanelMax = 0.5f;
 
 
-		if(0) {
-		int count = 10000;
+		if(false) 
+		{
+			// int count = 10000;
+			int count = 100000;
+			// int count = 1000;
 
-		YoutubePlaylist playlist = {"PLAYLIST_ID", "PLAYLIST_TITLE", count};
+			YoutubePlaylist playlist = {"PLAYLIST_ID", "PLAYLIST_TITLE", count};
 
-		Date d = {5, 1, 1, 0, 0, 0, 0};
-		dateEncode(&d);
+			Date d = {5, 1, 1, 0, 0, 0, 0};
+			dateEncode(&d);
 
-		clearTMemory();
-		YoutubeVideo* videos = getTArray(YoutubeVideo, count);
-		for(int i = 0; i < count; i++) {
-			d.n += randomInt(20*60*60,50*60*60);
-			dateDecode(&d);
+			clearTMemory();
+			// YoutubeVideo* videos = getTArray(YoutubeVideo, count);
+			YoutubeVideo* videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
+			for(int i = 0; i < count; i++) {
+				// d.n += randomInt(20*60*60,50*60*60);
+				d.n += randomInt(20*60,2*60*60);
+				dateDecode(&d);
 
-			char* dateString = fillString("%i %i %i %i:%i:%i", (int)d.y, (int)d.m, (int)d.d, (int)d.h, (int)d.mins, (int)d.secs);
+				char* dateString = fillString("%i %i %i %i:%i:%i", (int)d.y, (int)d.m, (int)d.d, (int)d.h, (int)d.mins, (int)d.secs);
+				// char* dateString = "";
 
-            videos[i] = {"Video_Id", "Video_Title", "Video_Thumbnail_Url", "", 
-                          d, 
-                          randomInt(5000,15000), 
-                          randomInt(100,100), 
-                          randomInt(100,100), 
-                          randomInt(10,10), 
-                          randomInt(10,10) };
+	            videos[i] = {"Video_Id", "Video_Title", "Video_Thumbnail_Url", "", 
+	                          d, 
+	                          randomInt(5000,15000), 
+	                          randomInt(100,2000), 
+	                          randomInt(10,200), 
+	                          randomInt(10,100), 
+	                          randomInt(10,100) };
 
-           	strCpy(videos[i].dateString, dateString);
-		}
+	           	strCpy(videos[i].dateString, dateString);
+			}
 
-		savePlaylistToFile(&playlist, videos, count, 10000, 0, "PageToken");
+			savePlaylistToFile(&playlist, videos, count, count, 0, "PageToken");
+
+			free(videos);
 		}
 		
 		ad->graphDrawMode = 0;
+		ad->sortByDate = true;
+		ad->sortStat = -1;
 	}
 
 	// @AppStart.
@@ -2974,26 +2994,32 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->startLoadFile = true;
 	}
 
-	// if(init || ad->startLoadFile) {
+	// @Load File.
 	if(ad->startLoadFile && !ad->activeDownload) {
-		ad->startLoadFile = false;
+		TIMER_BLOCK_NAMED("LoadFile");
 
+		TIMER_BLOCK_BEGIN_NAMED(filestart, "LoadFileStart");
+
+		ad->startLoadFile = false;
 
 		YoutubePlaylist tempPlaylist;		
 		loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id));
 		memCpy(&ad->playlist, &tempPlaylist, sizeof(YoutubePlaylist));
 
+		pushTMemoryStack();
+
 		int tempVidCount = tempPlaylist.count;
 		YoutubeVideo* tempVids = getTArray(YoutubeVideo, tempVidCount);
 
-
-
 		bool foundFile = loadPlaylistFromFile(&tempPlaylist, tempVids, &tempVidCount);
-		// bool foundFile = loadPlaylistFromFile(&ad->playlist, ad->videos, &ad->playlist.count);
-		if(foundFile) {
 
+		TIMER_BLOCK_END(filestart);
+
+		if(foundFile) {
 			// Filter videos.
 			{
+				TIMER_BLOCK_NAMED("Filtering");
+
 				int* filteredIndexes = getTArray(int, tempVidCount);
 				int filteredIndexesCount = 0;
 
@@ -3050,63 +3076,80 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
-				bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
-				bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
 
-				for(int i = 0; i < tempVidCount; i++) {
-					char* title = tempVids[i].title;
+				{
+					TIMER_BLOCK_NAMED("ApplyFilter");
 
-					bool inclusiveCorrect;
-					if(inclusiveFilterActive) {
-						inclusiveCorrect = true;
-						for(int fi = 0; fi < inclusiveFilterStringCount; fi++) {
-							char* filter = inclusiveFilterStrings[fi];
-							bool correct = (strFind(title, filter) != -1);
-							if(!correct) {
-								inclusiveCorrect = false;
-								break;
+					bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
+					bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
+
+					for(int i = 0; i < tempVidCount; i++) {
+						char* title = tempVids[i].title;
+
+						bool inclusiveCorrect;
+						if(inclusiveFilterActive) {
+							inclusiveCorrect = true;
+							for(int fi = 0; fi < inclusiveFilterStringCount; fi++) {
+								char* filter = inclusiveFilterStrings[fi];
+								bool correct = (strFind(title, filter) != -1);
+								if(!correct) {
+									inclusiveCorrect = false;
+									break;
+								}
 							}
 						}
-					}
 
-					bool exclusiveCorrect;
-					if(exclusiveFilterActive) {
-						exclusiveCorrect = true;
-						for(int fi = 0; fi < exclusiveFilterStringCount; fi++) {
-							char* filter = exclusiveFilterStrings[fi];
-							bool correct = (strFind(title, filter) == -1);
-							if(!correct) {
-								exclusiveCorrect = false;
-								break;
+						bool exclusiveCorrect;
+						if(exclusiveFilterActive) {
+							exclusiveCorrect = true;
+							for(int fi = 0; fi < exclusiveFilterStringCount; fi++) {
+								char* filter = exclusiveFilterStrings[fi];
+								bool correct = (strFind(title, filter) == -1);
+								if(!correct) {
+									exclusiveCorrect = false;
+									break;
+								}
 							}
 						}
+						
+						if(!inclusiveFilterActive) inclusiveCorrect = true;
+						if(!exclusiveFilterActive) exclusiveCorrect = true;
+
+						// Filter corrupted videos for now.
+						bool corrupted = false;
+						{
+							YoutubeVideo* vid = tempVids + i;
+							if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
+							   vid->viewCount < 0 || vid->viewCount > 5000000000 ||
+							   vid->likeCount < 0 || vid->likeCount > 100000000 ||
+							   vid->dislikeCount < 0 || vid->dislikeCount > 100000000 ||
+							   vid->favoriteCount < 0)
+								corrupted = true;
+
+							int stopForVS = 123;
+						}
+
+						if(inclusiveCorrect && exclusiveCorrect && !corrupted) filteredIndexes[filteredIndexesCount++] = i;
 					}
-					
-					if(!inclusiveFilterActive) inclusiveCorrect = true;
-					if(!exclusiveFilterActive) exclusiveCorrect = true;
-
-					// Filter corrupted videos for now.
-					bool corrupted = false;
-					{
-						YoutubeVideo* vid = tempVids + i;
-						if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
-						   vid->viewCount < 0 || vid->viewCount > 5000000000 ||
-						   vid->likeCount < 0 || vid->likeCount > 100000000 ||
-						   vid->dislikeCount < 0 || vid->dislikeCount > 100000000 ||
-						   vid->favoriteCount < 0)
-							corrupted = true;
-
-						int stopForVS = 123;
-					}
-
-					if(inclusiveCorrect && exclusiveCorrect && !corrupted) filteredIndexes[filteredIndexesCount++] = i;
 				}
 
 				ad->playlist.count = filteredIndexesCount;
 
-				for(int i = 0; i < filteredIndexesCount; i++) {
-					int index = filteredIndexes[i];
-					ad->videos[i] = tempVids[index];
+				{
+					TIMER_BLOCK_NAMED("Cpy Filtered");
+	
+					// Resize ad->videos if not big enough.
+					if(ad->maxVideoCount < filteredIndexesCount) {
+						free(ad->videos);
+						int count = filteredIndexesCount;
+						ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
+						ad->maxVideoCount = count;
+					}
+
+					for(int i = 0; i < filteredIndexesCount; i++) {
+						int index = filteredIndexes[i];
+						ad->videos[i] = tempVids[index];
+					}
 				}
 			}
 
@@ -3117,26 +3160,80 @@ extern "C" APPMAINFUNCTION(appMain) {
 			} else {
 
 				// Sort videos.
-				// if(false)
 				{
-					int size = ad->playlist.count;
-					for(int off = 0; off < size-1; off++) {
-						bool sw = false;
+					TIMER_BLOCK_NAMED("Sorting");
 
-						for(int i = 0; i < size-1 - off; i++) {
-							if(ad->videos[i+1].date.n < ad->videos[i].date.n) {
-								// swap(&off, &size);
-								swapGeneric(YoutubeVideo, ad->videos[i+1], ad->videos[i]);
-								sw = true;
-							}
+					YoutubeVideo* vids = ad->videos;
+					int size = ad->playlist.count;
+
+					struct SortNode {
+						i64 val;
+						int i;	
+					};
+
+					SortNode* list = (SortNode*)malloc(sizeof(SortNode)*size);
+					SortNode* buffer = (SortNode*)malloc(sizeof(SortNode)*size);
+					uchar* bytes = (uchar*)malloc(sizeof(uchar)*size);
+					int stageCount = ad->sortByDate?6:4;
+
+					TIMER_BLOCK_BEGIN_NAMED(pre, "pre");
+
+					if(ad->sortByDate)         for(int i = 0; i < size; i++) list[i].val = vids[i].date.n;
+					else if(ad->sortStat == 0) for(int i = 0; i < size; i++) list[i].val = vids[i].viewCount;
+					else if(ad->sortStat == 1) for(int i = 0; i < size; i++) list[i].val = vids[i].likeCount + vids[i].dislikeCount;
+					else if(ad->sortStat == 3) for(int i = 0; i < size; i++) list[i].val = vids[i].commentCount;
+					else if(ad->sortStat == 2) for(int i = 0; i < size; i++) {
+						float v = videoGetLikesDiff(&vids[i]);
+						list[i].val = *((i64*)(&v));
+					}
+
+					for(int i = 0; i < size; i++) list[i].i = i;
+
+					TIMER_BLOCK_END(pre);
+
+					for(int stage = 0; stage < stageCount; stage++) {
+						SortNode* src = stage%2 == 0 ? list : buffer;
+						SortNode* dst = stage%2 == 0 ? buffer : list;
+						int bucket[257] = {};
+						int offset = 8*stage;
+
+						for(int i = 0; i < size; i++) bytes[i] = src[i].val >> offset;
+						for(int i = 0; i < size; i++) bucket[bytes[i]+1]++;
+						for(int i = 0; i < 256-1; i++) bucket[i+1] += bucket[i];
+
+						TIMER_BLOCK_BEGIN_NAMED(asdf, "SortCpy");
+
+						for(int i = 0; i < size; i++) {
+							uchar byte = bytes[i];
+							dst[bucket[bytes[i]]] = src[i];
+							bucket[byte]++;
 						}
 
-						if(!sw) break;
+						TIMER_BLOCK_END(asdf);
 					}
+
+					TIMER_BLOCK_BEGIN_NAMED(post, "post");
+
+					for(int i = 0; i < size; i++) {
+						int index = list[i].i;
+						tempVids[i] = vids[index];
+					}
+
+					if(ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[i];
+					else if(!ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[size-i-1];
+
+					TIMER_BLOCK_END(post);
+
+					free(buffer);
+					free(bytes);
+					free(list);
+
 				}
 
 				Statistic statViews, statLikes, statDislikes, statDates, statComments;
 				{
+					TIMER_BLOCK_NAMED("Get Stats");
+
 					beginStatistic(&statViews);
 					beginStatistic(&statLikes);
 					beginStatistic(&statDates);
@@ -3153,22 +3250,28 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
-				if(statDates.max - statDates.min < Graph_Zoom_Min) {
-					i64 timeMid = statDates.min != statDates.max ? statDates.min + (statDates.max - statDates.min)/2 : statDates.min;
-					ad->camMaxWithoutMargin = statDates.min + Graph_Zoom_Min/2;
+				// Init cam after loading.
+				{
+					double camLeft, camRight;
 
-					graphCamInit(&ad->cams[0], timeMid - Graph_Zoom_Min/2, statDates.min + Graph_Zoom_Min/2, 0, statViews.max*1.1f);
-					graphCamInit(&ad->cams[1], timeMid - Graph_Zoom_Min/2, statDates.min + Graph_Zoom_Min/2, 0, statLikes.max*1.1f);
-					graphCamInit(&ad->cams[2], timeMid - Graph_Zoom_Min/2, statDates.min + Graph_Zoom_Min/2, 0, 1);
-					graphCamInit(&ad->cams[3], timeMid - Graph_Zoom_Min/2, statDates.min + Graph_Zoom_Min/2, 0, statComments.max*1.1f);
-				} else {
-					i64 width = statDates.max - statDates.min;
-					ad->camMaxWithoutMargin = statDates.max;
+					if(ad->sortByDate) {
+						if(statDates.max - statDates.min < Graph_Zoom_Min) {
+							i64 timeMid = statDates.min != statDates.max ? statDates.min + (statDates.max - statDates.min)/2 : statDates.min;
+							camLeft = timeMid - Graph_Zoom_Min/2;
+							camRight = timeMid + Graph_Zoom_Min/2;
+						} else {
+							camLeft = statDates.min;
+							camRight = statDates.max;
+						}
+					} else {
+						camLeft = 0;
+						camRight = ad->playlist.count;
+					}
 
-					graphCamInit(&ad->cams[0], statDates.min, statDates.max, 0, statViews.max*1.1f);
-					graphCamInit(&ad->cams[1], statDates.min, statDates.max, 0, statLikes.max*1.1f);
-					graphCamInit(&ad->cams[2], statDates.min, statDates.max, 0, 1);
-					graphCamInit(&ad->cams[3], statDates.min, statDates.max, 0, statComments.max*1.1f);
+					graphCamInit(&ad->cams[0], camLeft, camRight, 0, statViews.max*1.1f);
+					graphCamInit(&ad->cams[1], camLeft, camRight, 0, statLikes.max*1.1f);
+					graphCamInit(&ad->cams[2], camLeft, camRight, 0, 1);
+					graphCamInit(&ad->cams[3], camLeft, camRight, 0, statComments.max*1.1f);
 				}
 
 				calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin);
@@ -3176,7 +3279,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			ad->selectedVideo = -1;
 		} 
+
+		popTMemoryStack();
 	}
+
+
 
 	{
 		globalCommandList = &ad->commandList2d;
@@ -3276,7 +3383,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(i == 1) camMinH = 100;
 			if(i == 2) camMinH = 0.1;
 			if(i == 3) camMinH = 10;
-			graphCamSizeClamp(cam, Graph_Zoom_Min, camMinH);
+			if(ad->sortByDate) graphCamSizeClamp(cam, Graph_Zoom_Min, camMinH);
+			else graphCamSizeClamp(cam, Graph_Zoom_MinNoDate, camMinH);
 
 			{
 				NewGui* gui = ad->gui;
@@ -3388,6 +3496,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		// Draw bottom text.
+		if(ad->sortByDate)
 		{
 			GraphCam* cam = &ad->cams[0];
 
@@ -3565,13 +3674,28 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			float statMouseDiff = FLT_MAX;
-			double searchDistance = graphCamScreenToCamSpaceX(cam, settingHoverSearchWidth);
+			double searchDistance = graphCamScreenToCamSpaceX(cam, settingHoverSearchWidth)/2;
+
+			Vec2 mousePos = input->mousePosNegative;
+			bool mouseInGraphRect = pointInRect(mousePos, graphRect);
+
+			float camBottomY = graphCamMapY(cam, 0);
 
 			bool lastOneWasOverRight = false;
 			for(int i = 0; i < vidCount; i++) {
-				if(i+1 < vidCount && vids[i+1].date.n < cam->left) continue;
-				if(lastOneWasOverRight) continue;
-				if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
+
+				double xValue;
+				if(ad->sortByDate) {
+					if(i+1 < vidCount && vids[i+1].date.n < cam->left) continue;
+					if(lastOneWasOverRight) continue;
+					if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
+
+					xValue = vids[i].date.n;
+					// x = graphCamMapX(cam, vids[i].date.n) + 1;
+				} else {
+					if(i < cam->left-1 || i > cam->right+1) continue;
+					xValue = i;
+				}
 
 				double value;
 				     if(graphIndex == 0) value = vids[i].viewCount;
@@ -3580,34 +3704,31 @@ extern "C" APPMAINFUNCTION(appMain) {
 				else if(graphIndex == 3) value = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
 				else if(graphIndex == 4) value = vids[i].commentCount;
 
-				float x = graphCamMapX(cam, vids[i].date.n) + 1;
-				float y = graphCamMapY(cam, value);
+				Vec2 point = graphCamMap(cam, xValue, value);
 
 				// Get closest point to mouse.
-				if(pointInRect(input->mousePosNegative, graphRect)) {
-
-					i64 n = vids[i].date.n;
-					if(valueBetweenDouble(n, n - searchDistance/2, n + searchDistance/2)) {
-						Vec2 p = vec2(x,y);
-						float diff = lenLine(p, input->mousePosNegative);
+				if(mouseInGraphRect) {
+					if(valueBetweenDouble(xValue, xValue - searchDistance, xValue + searchDistance)) {
+						float diff = lenLine(point, mousePos);
 
 						if(diff < statMouseDiff && diff < settingHoverDistance) {
 							statMouseDiff = diff;
-							ad->hoveredPoint = p;
+							ad->hoveredPoint = point;
 							ad->hoveredVideo = i;
 							ad->hoveredVideoStat = value;
 						}
 					}
 				}
 
-				if(mode < 2) pushVec(vec2(x, y));
-				else pushVecs(vec2(x, graphCamMapY(cam, 0)), vec2(x, y));
+				if(mode < 2) pushVec(point);
+				else pushVecs(vec2(point.x, camBottomY), point);
 			}
 
 			glEnd();
 		}
 
 		// Average line.
+		if(ad->sortByDate)
 		{
 			glLineWidth(1);
 			glEnable(GL_SCISSOR_TEST);
@@ -3632,7 +3753,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 					if(xPos - avgWidth > cam->right) break;
 
-					pushVec(graphCamMap(cam, clampMax(xPos, ad->camMaxWithoutMargin), ad->averagesLineGraph.points[graphIndex][i]));
+					pushVec(graphCamMap(cam, xPos, ad->averagesLineGraph.points[graphIndex][i]));
 
 					xPos += avgWidth;
 				}
@@ -3646,17 +3767,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		TIMER_BLOCK_END(drawGraphs);
 
+		glDisable(GL_SCISSOR_TEST);
+
 		// Mouse hover.
 		{
 			int settingHoverPointSize = 10;
+			int settingHoverPointOffset = 10;
 
 			int id = newGuiIncrementId(ad->gui);
 			bool mPosActive = newGuiGoMousePosAction(ad->gui, rGraphs, 0);
 			if(mPosActive && ad->hoveredVideo != -1) {
 				scissorTestScreen(rGraphs);
 				glEnable(GL_SCISSOR_TEST);
-
-
 
 				int vi = ad->hoveredVideo;
 
@@ -3669,7 +3791,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 				drawTextOutlined(fillString("%s", ad->videos[vi].dateString), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
 				drawTextOutlined(fillString("%i", vi), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
 
-
 				// Draw Point.
 				glPointSize(settingHoverPointSize);
 				// drawTextNew(fillString("%i", ad->videos[vi].viewCount), font, ad->hoveredPoint + vec2(10,10), c, vec2i(-1,-1));
@@ -3677,16 +3798,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
 				else text = fillString("%f", ad->hoveredVideoStat);
 				os = 1;
-				drawTextOutlined(text, font, ad->hoveredPoint + vec2(10,10), os, c, vec4(0,1), vec2i(-1,-1));
+
+				// Get text pos and clamp to graph rect.
+				Vec2 hoverPos = ad->hoveredPoint + vec2(settingHoverPointOffset,settingHoverPointOffset);
+				Rect textRect = rectBLDim(hoverPos, getTextDim(text, font));
+				Vec2 offset = rectInsideRectClamp(textRect, rGraphs);
+				textRect = rectTrans(textRect, offset);
+				hoverPos = rectBL(textRect);
+
+				drawTextOutlined(text, font, hoverPos, os, c, vec4(0,1), vec2i(-1,-1));
 				drawPoint(ad->hoveredPoint, ac->font3);
 				glPointSize(1);
-
-
 
 				glDisable(GL_SCISSOR_TEST);
 
 				if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
 					if(vi != ad->selectedVideo) {
+						ad->selectedPoint = ad->hoveredPoint;
 						ad->selectedVideo = vi;
 						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
 					}
@@ -3709,17 +3837,42 @@ extern "C" APPMAINFUNCTION(appMain) {
 			else if(i == 3) text = "Comments";
 			else text = "";
 
-			// drawTextNew(text, titleFont, tp, ac->font1, vec2i(-1,1), 0, 2, vec4(0,1));
+			float textWidth = getTextDim(text, titleFont).w;
+
 			drawTextOutlined(text, titleFont, tp, 2, ac->font1, vec4(0,1), vec2i(-1,1));
+
+			// Sort buttons.
+			{
+				char* text = "Sort";
+				Rect r = rectTLDim(tp + vec2(textWidth + font->height/2, 0), vec2(getTextDim(text, font).w + 4, font->height));
+				glEnable(GL_SCISSOR_TEST);
+
+				if(newGuiQuickButton(ad->gui, r, 1, text, font, ac->buttons, ac->font1, r)) {
+					if(ad->sortStat != i) {
+						ad->startLoadFile = true;
+						ad->sortByDate = false;
+						ad->sortStat = i;
+					}
+				}
+
+				glDisable(GL_SCISSOR_TEST);
+			}
 		}
+
+
 
 		TIMER_BLOCK_BEGIN_NAMED(sidePanel, "SidePanel");
 
 		// Side panel.
 		if(ad->selectedVideo != -1) {
+
 			// Graph selection line.
 			{
-				float x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.n) + 1;
+				float x;
+				if(ad->sortByDate) x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.n) + 1;
+				else x = graphCamMapX(&ad->cams[0], ad->selectedVideo);
+
+				glLineWidth(1);
 				drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
 			}
 
@@ -3861,6 +4014,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			yPos -= font->height;
 
 			float dislikePercent = divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount));
+			glLineWidth(1);
 			drawRectOutlined(rectLDim(rPanel.left, yPos, rectW(rPanel)*(1-dislikePercent), font->height*0.6f), ac->likes, vec4(0,1), 0);
 			drawRectOutlined(rectRDim(rPanel.right, yPos, rectW(rPanel)*dislikePercent, font->height*0.6f), ac->dislikes, vec4(0,1), 0);
 			yPos -= font->height;
@@ -3878,7 +4032,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(i == 0) t = fillString("%s%i..%s%i..%s%i", sv->date.d<10?"0":"", sv->date.d, sv->date.m<10?"0":"", sv->date.m, sv->date.y<10?"200":"20", sv->date.y);
 					if(i == 1) t = fillString("%s%i:%s%i:%s%i.", sv->date.h<10?"0":"", sv->date.h, sv->date.mins<10?"0":"", sv->date.mins, sv->date.secs<10?"0":"", sv->date.secs);
 					if(i == 2) t = fillString("%i.", sv->viewCount);
-					if(i == 3) t = fillString("%i | %i -> %f", sv->likeCount, sv->dislikeCount, divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount)));
+					if(i == 3) t = fillString("%i | %i - %f", sv->likeCount, sv->dislikeCount, divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount)));
 					if(i == 4) t = fillString("%i", sv->commentCount);
 					if(i == 5) t = fillString("%i", sv->favoriteCount);
 				
@@ -3974,11 +4128,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 			glDisable(GL_SCISSOR_TEST);
 		}
 
+		TIMER_BLOCK_END(sidePanel);
+
 		// Filters gui.
 		{
-			char* labels[] = {"Draw Mode: ", "Avg. line (width/res months): ", "Filter (Incl./Excl.): "};
+			char* labels[] = {"Panel (F1)", "Reset", "Draw Mode:", "Avg. (width/res months):", "Filter (Incl./Excl.):"};
 			int li = 0;
-			float widths[] = {120, 0, getTextDim(labels[li++], font).x, 80, 10, getTextDim(labels[li++], font).x, 40, 40, 10, getTextDim(labels[li++], font).x, 250, 250};
+			float bp = font->height;
+			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x, 80, getTextDim(labels[li++], font).x, 40, 40, getTextDim(labels[li++], font).x, 200, 200};
 			Rect regions[arrayCount(widths)];
 
 			glEnable(GL_SCISSOR_TEST);
@@ -3987,8 +4144,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float offset = 2;
 			Rect r = rectExpand(rFilters, vec2(-offset, -offset)*2);
 
-			newGuiDiv(rectW(r), widths, arrayCount(widths), offset);
-			newGuiRectsFromWidths(r, widths, arrayCount(widths), regions, offset);
+			float padding = font->height/3;
+			newGuiDiv(rectW(r), widths, arrayCount(widths), padding);
+			newGuiRectsFromWidths(r, widths, arrayCount(widths), regions, padding);
 
 			Vec4 bc = ac->buttons;
 			Vec4 ec = ac->editBackground;
@@ -4000,14 +4158,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 			int ri = 0;
 			li = 0;
 
-			if(newGuiQuickButton(ad->gui, regions[ri++], z, "Panel (F1)", font, bc, tc, scissor)) ds->showMenu = !ds->showMenu;
+			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], font, bc, tc, scissor)) ds->showMenu = !ds->showMenu;
+			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], font, bc, tc, scissor)) {
+				ad->sortByDate = true;
+				ad->sortStat = -1;
+				ad->startLoadFile = true;
+			}
 
 			ri++;
 
 			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
 			newGuiQuickSlider(ad->gui, regions[ri++], z, &ad->graphDrawMode, 0,2, 20, font, ac->font2, tc, ac->buttons, scissor);
-			
-			ri++;
 
 			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
 
@@ -4017,8 +4178,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
 			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statWidth, z, font, editSettings, scissor)) updateStats = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
-
-			ri++;
 
 			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
 
@@ -4035,7 +4194,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			glDisable(GL_SCISSOR_TEST);	
 		}
 
-		TIMER_BLOCK_END(sidePanel);
 
 		// Draw outlines.
 		{
@@ -4200,25 +4358,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 	newGuiEnd(ad->gui);
 
 	{
-		// DateNew d = {5, 1, 1, 0,0,0};
-		// dateEncode(&d);
+		// Font* font = getFont(FONT_CALIBRI, 20);
+		// drawRectNew(rectBLDim(getScreenRect(ws).min, vec2(font->tex.dim)), vec4(1,1), rect(0,0,1,1), font->tex.id);
 
-
-
-		// addDebugInfo(fillString("%i64", d.num));
-		// addDebugInfo(fillString("%i..%i..%i, %i:%i:%i", (int)d.year, (int)d.month, (int)d.day, (int)d.hours, (int)d.minutes, (int)d.seconds));
-
-		// d.num -= 0;
-
-		// dateDecode(&d);
-		// addDebugInfo(fillString("%i..%i..%i, %i:%i:%i", (int)d.year, (int)d.month, (int)d.day, (int)d.hours, (int)d.minutes, (int)d.seconds));
-
-
-		// Date d;
-		// intToDateNew(date, &d.year, &d.month, &d.day, &d.hours, &d.minutes, &d.seconds);
-
-		// addDebugInfo(fillString("%i %i %i, %i:%i:%i", date));
-
+		// Rect r, uv;
+		// getTextQuad((int)'X', font, vec2(0,0), &r, &uv);
+		// int stop = 234;
 	}
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
@@ -4286,7 +4431,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->updateWindow = false;
 		}
 		swapBuffers(&ad->systemData);
-		glFinish();
+
+		// Slowing things down? Also makes swapBuffers take too long so we only hit half monitor refresh rate.
+		// glFinish();
 
 		if(init) {
 			showWindow(windowHandle);
