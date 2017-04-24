@@ -300,6 +300,8 @@ BOOL CALLBACK monitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMoni
 }
 
 void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, Vec2i res, bool resizable, bool maximizable, bool visible, int monitor = 0) {
+	TIMER_BLOCK();
+
 	systemData->windowsData = wData;
 
 	EnumDisplayMonitors(0, 0, monitorEnumProc, ((LPARAM)ws));
@@ -353,7 +355,11 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
         int dummy = 2;   
     }
 
+	TIMER_BLOCK_BEGIN_NAMED(createWindow, "createWindow");
+
     systemData->windowHandle = CreateWindowEx(0, windowClass.lpszClassName, "", ws->style, wx,wy,ww,wh, 0, 0, systemData->instance, 0);
+
+	TIMER_BLOCK_END(createWindow);
 
     if(!systemData->windowHandle) {
         DWORD errorCode = GetLastError();
@@ -368,22 +374,25 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	// bb.fEnable = TRUE;
 	// DwmEnableBlurBehindWindow(systemData->windowHandle, &bb);
 
+	TIMER_BLOCK_BEGIN_NAMED(setPixelFormat, "setPixelFormat");
+
     PIXELFORMATDESCRIPTOR pixelFormatDescriptor =
     {
         +    sizeof(PIXELFORMATDESCRIPTOR),
         1,
         /*PFD_SUPPORT_COMPOSITION |*/ PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,    //Flags
         PFD_TYPE_RGBA,            //The kind of framebuffer. RGBA or palette.
-        32,                        //Colordepth of the framebuffer.
+        24,                        //Colordepth of the framebuffer.
         0, 0, 0, 0, 0, 0,
         0, //8
         0,
         0,
         0, 0, 0, 0,
         24,                        //Number of bits for the depthbuffer
+        // 32,                        //Number of bits for the depthbuffer
         // 0,                        //Number of bits for the depthbuffer
-        8,                        //Number of bits for the stencilbuffer
-        // 0,                        //Number of bits for the stencilbuffer
+        // 8,                        //Number of bits for the stencilbuffer
+        0,                        //Number of bits for the stencilbuffer
         0,                        //Number of Aux buffers in the framebuffer.
         PFD_MAIN_PLANE,
         0,
@@ -394,11 +403,17 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
     systemData->deviceContext = deviceContext;
     int pixelFormat;
     pixelFormat = ChoosePixelFormat(deviceContext, &pixelFormatDescriptor);
-    SetPixelFormat(deviceContext, pixelFormat, &pixelFormatDescriptor);
+	SetPixelFormat(deviceContext, pixelFormat, &pixelFormatDescriptor);
+	
+	TIMER_BLOCK_END(setPixelFormat);
+
+	TIMER_BLOCK_BEGIN_NAMED(createContext, "CreateContext");
 
     HGLRC openglContext = wglCreateContext(systemData->deviceContext);
     bool result = wglMakeCurrent(systemData->deviceContext, openglContext);
     if(!result) { printf("Could not set Opengl Context.\n"); }
+
+	TIMER_BLOCK_END(createContext);
 
 
     // #ifndef HID_USAGE_PAGE_GENERIC
@@ -437,7 +452,9 @@ Vec2 getMousePos(HWND windowHandle, bool yInverted = true) {
 }
 
 void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
-	// WaitMessage();
+	#ifdef RELEASE_BUILD
+		WaitMessage();
+	#endif
 
 	input->anyKey = false;
 

@@ -59,30 +59,6 @@ StructMemberInfo initMemberInfo(char* name, int type, int offset, ArrayInfo aInf
 
 StructMemberInfo vec3StructMemberInfos[] = {
 	initMemberInfo("x", STRUCTTYPE_FLOAT, offsetof(Vec3, x)),
-	initMemberInfo("y", STRUCTTYPE_FLOAT, offsetof(Vec3, y)),
-	initMemberInfo("z", STRUCTTYPE_FLOAT, offsetof(Vec3, z)),
-};
-
-StructMemberInfo entityStructMemberInfos[] = {
-	initMemberInfo("init", STRUCTTYPE_INT, offsetof(Entity, init)),
-	initMemberInfo("type", STRUCTTYPE_INT, offsetof(Entity, type)),
-	initMemberInfo("id", STRUCTTYPE_INT, offsetof(Entity, id)),
-	initMemberInfo("name", STRUCTTYPE_CHAR, offsetof(Entity, name), {ARRAYTYPE_CONSTANT, 2, memberSize(Entity, name)}),
-	initMemberInfo("pos", STRUCTTYPE_VEC3, offsetof(Entity, pos)),
-	initMemberInfo("dir", STRUCTTYPE_VEC3, offsetof(Entity, dir)),
-	initMemberInfo("rot", STRUCTTYPE_VEC3, offsetof(Entity, rot)),
-	initMemberInfo("rotAngle", STRUCTTYPE_FLOAT, offsetof(Entity, rotAngle)),
-	initMemberInfo("dim", STRUCTTYPE_VEC3, offsetof(Entity, dim)),
-	initMemberInfo("camOff", STRUCTTYPE_VEC3, offsetof(Entity, camOff)),
-	initMemberInfo("vel", STRUCTTYPE_VEC3, offsetof(Entity, vel)),
-	initMemberInfo("acc", STRUCTTYPE_VEC3, offsetof(Entity, acc)),
-	initMemberInfo("movementType", STRUCTTYPE_INT, offsetof(Entity, movementType)),
-	initMemberInfo("spatial", STRUCTTYPE_INT, offsetof(Entity, spatial)),
-	initMemberInfo("deleted", STRUCTTYPE_BOOL, offsetof(Entity, deleted)),
-	initMemberInfo("isMoving", STRUCTTYPE_BOOL, offsetof(Entity, isMoving)),
-	initMemberInfo("isColliding", STRUCTTYPE_BOOL, offsetof(Entity, isColliding)),
-	initMemberInfo("exploded", STRUCTTYPE_BOOL, offsetof(Entity, exploded)),
-	initMemberInfo("playerOnGround", STRUCTTYPE_BOOL, offsetof(Entity, playerOnGround)),
 };
 
 struct StructInfo {
@@ -98,7 +74,6 @@ StructInfo structInfos[] = {
 	{ "char", sizeof(char), 0 },
 	{ "bool", sizeof(bool), 0 },
 	{ "Vec3", sizeof(Vec3), arrayCount(vec3StructMemberInfos), vec3StructMemberInfos }, 
-	{ "Entity", sizeof(Entity), arrayCount(entityStructMemberInfos), entityStructMemberInfos }, 
 };
 
 bool typeIsPrimitive(int type) {
@@ -302,8 +277,8 @@ void guiPrintIntrospection(Gui* gui, int structType, char* data, int depth) {
 
 struct Asset;
 struct DebugState {
-	Asset* assets;
-	int assetCount;
+	// Asset* assets;
+	// int assetCount;
 
 	i64 lastTimeStamp;
 	f64 dt;
@@ -317,12 +292,11 @@ struct DebugState {
 	bool showConsole;
 	bool showHud;
 
-	DrawCommandList commandListDebug;
 	Input* input;
 
 	Timer* timer;
-	Timings timings[120][32];
-	Statistic statistics[120][32];
+	Timings timings[120][TIMER_INFO_SIZE];
+	Statistic statistics[120][TIMER_INFO_SIZE];
 	int cycleIndex;
 	bool stopCollating;
 

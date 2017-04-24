@@ -50,10 +50,11 @@ struct Timings {
 	u64 cyclesOverHits;
 };
 
+#define TIMER_INFO_SIZE 64
 struct  Timer {
 	bool isInitialised;
 	int timerInfoCount;
-	TimerInfo timerInfos[32]; // timerInfoCount
+	TimerInfo timerInfos[TIMER_INFO_SIZE]; // timerInfoCount
 	TimerSlot* timerBuffer;
 	int bufferSize;
 	int bufferIndex;

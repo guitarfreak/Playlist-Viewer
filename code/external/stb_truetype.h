@@ -1915,7 +1915,7 @@ static void stbtt__handle_clipped_edge(float *scanline, int x, stbtt__active_edg
    }
 }
 
-static void stbtt__fill_active_edges_new(float *scanline, float *scanline_fill, int len, stbtt__active_edge *e, float y_top)
+static void stbtt__fill_active_edges_(float *scanline, float *scanline_fill, int len, stbtt__active_edge *e, float y_top)
 {
    float y_bottom = y_top+1;
 
@@ -2136,7 +2136,7 @@ static void stbtt__rasterize_sorted_edges(stbtt__bitmap *result, stbtt__edge *e,
 
       // now process all active edges
       if (active)
-         stbtt__fill_active_edges_new(scanline, scanline2+1, result->w, active, scan_y_top);
+         stbtt__fill_active_edges_(scanline, scanline2+1, result->w, active, scan_y_top);
 
       {
          float sum = 0;

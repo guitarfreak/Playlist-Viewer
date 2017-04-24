@@ -23,14 +23,21 @@ set PATH=C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\amd64;%PATH%
 set INCLUDES=%INCLUDES% -I"C:\Standalone\iaca"
 
 
+set BUILD_MODE=-Od
+set MODE_DEFINE=
+if "%~2"=="-release" (
+	set BUILD_MODE=-O2
+	set MODE_DEFINE=-DRELEASE_BUILD
+)
+
 
 rem -EHsc -GR -MD -MTd -Zi -MP 
-set COMPILER_OPTIONS= -MD -Od -nologo -Oi -FC -wd4838 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHa- -Z7
+set COMPILER_OPTIONS= -MD %BUILD_MODE% -nologo -Oi -FC -wd4838 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHa- -Z7
 set LINKER_OPTIONS= -link -SUBSYSTEM:WINDOWS -OUT:main.exe -incremental:no -opt:ref
 
 del main_*.pdb > NUL 2> NUL
 echo. 2>lock.tmp
-cl %COMPILER_OPTIONS% ..\code\app.cpp -LD %INCLUDES% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %LINKER_INCLUDES% %LINKER_LIBS%
+cl %COMPILER_OPTIONS% ..\code\app.cpp %MODE_DEFINE% -LD %INCLUDES% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %LINKER_INCLUDES% %LINKER_LIBS%
 del lock.tmp
 
 cl %COMPILER_OPTIONS% ..\code\main.cpp %INCLUDES% %LINKER_OPTIONS% %LINKER_INCLUDES% %LINKER_LIBS%

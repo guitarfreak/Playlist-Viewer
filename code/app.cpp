@@ -32,8 +32,12 @@
 	- Standard deviation graph.
 	- Avg. line of number videos of released in a month or so.
 
-	- Done Today: sub line markers, graph draw mode, mouse hover point + show value, 
-	  sorting + buttons, changed bubble to radix sort, tried to improve performance, remove glFinish, set msaa to 4.
+	- Memory leak at startup that goes away when you do something.
+	- Screenshot function not working.
+
+	- Done Today:
+	  Deleted unused rendering code. Fixed Timer Block bug. Reduced startup time. Sleep before swapBuffers. 
+	  Fixed framebuffer size -> Window resize smoother. Release build mode.
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
@@ -86,14 +90,15 @@ struct DebugState;
 struct Timer;
 ThreadQueue* globalThreadQueue;
 GraphicsState* globalGraphicsState;
-DrawCommandList* globalCommandList;
 MemoryBlock* globalMemory;
 DebugState* globalDebugState;
 Timer* globalTimer;
 
 // Internal.
 
-#define TIMER_BLOCKS_ENABLED
+#ifndef RELEASE_BUILD
+	#define TIMER_BLOCKS_ENABLED
+#endif 
 
 #include "rt_types.cpp"
 #include "rt_timer.cpp"
@@ -111,22 +116,9 @@ float globalScreenHeight;
 #include "rendering.cpp"
 #include "gui.cpp"
 
-#include "entity.cpp"
-
 #include "debug.cpp"
 
 
-// struct Date {
-// 	int year, month, day, hours, minutes, seconds;
-// 	i64 num;
-// };
-
-// 2005
-
-/*
-	2005, 01, 01, 00:00:00
-	
-*/
 
 
 
@@ -1735,13 +1727,13 @@ void newGuiRectsFromWidths(Rect r, float* widths, int size, Rect* rects, float o
 
 void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc, Vec2i align, Rect scissor) {
 	scissorTestScreen(scissor);
-	// drawRectNew(r, bc);
+	// drawRect(r, bc);
 	drawRectRounded(r, bc, 4);
 
 	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
 	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
-	drawTextNew(text, font, vec2(xPos, yPos), tc, align);
+	drawText(text, font, vec2(xPos, yPos), tc, align);
 }
 void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc) {
 	drawTextBox(r, bc, text, font, tc, vec2i(0,0), r);
@@ -1759,25 +1751,25 @@ void drawTextEditBox(char* text, Font* font, Rect textRect, TextEditVars editVar
 	if(active) startPos += editVars.scrollOffset;
 
 	scissorTestScreen(scissor);
-	drawRectNew(textRect, editSettings.colorBackground);
+	drawRect(textRect, editSettings.colorBackground);
 
 	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 
 	Vec2i align = vec2i(-1,0);
 	if(active) {
 		// Selection.
-		drawTextSelectionNew(text, font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
+		drawTextSelection(text, font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
 	}
 
 	// Text.
-	drawTextNew(text, font, startPos, editSettings.colorText, align);
+	drawText(text, font, startPos, editSettings.colorText, align);
 
 	if(active) {
 		// Cursor.
 		Vec2 cPos = textIndexToPos(text, font, startPos, editVars.cursorIndex, align);
 		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, font->height));
 		if(editVars.cursorIndex == 0) cRect = rectTrans(cRect, vec2(editSettings.cursorWidth/2));
-		drawRectNew(cRect, editSettings.colorCursor);
+		drawRect(cRect, editSettings.colorCursor);
 	}
 }
 
@@ -1811,14 +1803,14 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Font* font, Vec4 bc, Vec
 	glLineWidth(1);
 	scissorTestScreen(scissor);
 
-	drawLineNew(rectL(br), rectR(br), bc);
-	// drawRectNew(sr, sc);
+	drawLine(rectL(br), rectR(br), bc);
+	// drawRect(sr, sc);
 	drawRectRounded(sr, sc, 4);
 
 	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 
 	char* text = type == 0 ? fillString("%f", *((float*)val)) : fillString("%i", *((int*)val)) ;
-	drawTextNew(text, font, rectCen(br), tc, vec2i(0,0));
+	drawText(text, font, rectCen(br), tc, vec2i(0,0));
 }
 
 void drawSlider(float val, Rect br, Rect sr, Font* font, Vec4 bc, Vec4 tc, Vec4 sc, Rect scissor) {
@@ -2012,9 +2004,7 @@ struct AppData {
 	f64 dt;
 	f64 time;
 	int frameCount;
-
-	DrawCommandList commandList2d;
-	DrawCommandList commandList3d;
+	i64 swapTime;
 
 	bool updateFrameBuffers;
 
@@ -2133,6 +2123,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 #pragma optimize( "", on )
 extern "C" APPMAINFUNCTION(appMain) {
 
+	i64 startupTimer = timerInit();
+
 	if(init) {
 
 		// Init memory.
@@ -2144,10 +2136,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
 
 		ExtendibleMemoryArray* pMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
-		initExtendibleMemoryArray(pMemory, megaBytes(512), info.dwAllocationGranularity, baseAddress);
+		initExtendibleMemoryArray(pMemory, megaBytes(50), info.dwAllocationGranularity, baseAddress);
 
 		ExtendibleBucketMemory* dMemory = &appMemory->extendibleBucketMemories[appMemory->extendibleBucketMemoryCount++];
-		initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(512), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
+		initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
 
 		MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
 		initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
@@ -2161,7 +2153,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		initMemoryArray(tMemoryDebug, megaBytes(30), 0);
 
 		ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
-		initExtendibleMemoryArray(debugMemory, megaBytes(512), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
+		initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
+
 	}
 
 	// Setup memory and globals.
@@ -2201,7 +2194,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		getPMemoryDebug(sizeof(DebugState));
 		*ds = {};
-		ds->assets = getPArrayDebug(Asset, 100);
+		// ds->assets = getPArrayDebug(Asset, 100);
 
 		ds->inputCapacity = 600;
 		ds->recordedInput = (Input*)getPMemoryDebug(sizeof(Input) * ds->inputCapacity);
@@ -2217,6 +2210,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->savedBufferCount = 0;
 		ds->savedBuffer = (GraphSlot*)getPMemoryDebug(sizeof(GraphSlot) * ds->savedBufferMax);
 
+		TIMER_BLOCK_NAMED("Init");
 
 		ds->gui = getPStructDebug(Gui);
 		// gui->init(rectCenDim(vec2(0,1), vec2(300,800)));
@@ -2237,23 +2231,31 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->showHud = true;
 		// ds->guiAlpha = 0.95f;
 		ds->guiAlpha = 1;
-		ds->noCollating = false;
+
+		#ifdef RELEASE_BUILD
+			ds->noCollating = true;
+		#else 
+			ds->noCollating = false;
+		#endif
 
 		for(int i = 0; i < arrayCount(ds->notificationStack); i++) {
 			ds->notificationStack[i] = getPStringDebug(DEBUG_NOTE_LENGTH+1);
 		}
 
-		TIMER_BLOCK_NAMED("Init");
 
 		//
 		// AppData.
 		//
+
+		TIMER_BLOCK_BEGIN_NAMED(initAppData, "Init AppData");
 
 		getPMemory(sizeof(AppData));
 		*ad = {};
 		
 		initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, true, 1);
 		windowHandle = systemData->windowHandle;
+
+	    printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
 
 		loadFunctions();
 
@@ -2272,15 +2274,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 		updateResolution(windowHandle, ws);
 		globalScreenHeight = ws->currentRes.h;
 
-		//
-		// Setup shaders and uniforms.
-		//
+		TIMER_BLOCK_END(initAppData);
 
-		loadShaders();
 
 		//
 		// Setup Textures.
 		//
+
+		TIMER_BLOCK_BEGIN_NAMED(initGraphics, "Init Graphics");
 
 		for(int i = 0; i < TEXTURE_SIZE; i++) {
 			Texture tex;
@@ -2304,26 +2305,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 		glCreateVertexArrays(1, &vao);
 		glBindVertexArray(vao);
 
-		for(int i = 0; i < MESH_SIZE; i++) {
-			Mesh* mesh = getMesh(i);
-
-			MeshMap* meshMap = meshArrays +i;
-
-			glCreateBuffers(1, &mesh->bufferId);
-			glNamedBufferData(mesh->bufferId, meshMap->size, meshMap->vertexArray, GL_STATIC_DRAW);
-			mesh->vertCount = meshMap->size / sizeof(Vertex);
-		}
-
 		// 
 		// Samplers.
 		//
 
 		gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR);
 		// gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_NEAREST, GL_NEAREST_MIPMAP_NEAREST);
-
-		gs->samplers[SAMPLER_VOXEL_1] = createSampler(16.0f, GL_REPEAT, GL_REPEAT, GL_NEAREST, GL_NEAREST_MIPMAP_LINEAR);
-		gs->samplers[SAMPLER_VOXEL_2] = createSampler(16.0f, GL_REPEAT, GL_REPEAT, GL_NEAREST, GL_NEAREST_MIPMAP_LINEAR);
-		gs->samplers[SAMPLER_VOXEL_3] = createSampler(16.0f, GL_REPEAT, GL_REPEAT, GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR);
 
 		//
 		//
@@ -2358,21 +2345,29 @@ extern "C" APPMAINFUNCTION(appMain) {
 			attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8, 0, 0);
 
 			ad->updateFrameBuffers = true;
+
+			Vec2 fRes = vec2(2560, 1440);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, fRes.w, fRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, fRes.w, fRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, fRes.w, fRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, fRes.w, fRes.h);
+			// setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, ws->currentRes.w, ws->currentRes.h);
 		}
 
+		TIMER_BLOCK_END(initGraphics);
+
 		//
+
+		// TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
 
 		int maxVideoCount = 5000;
 		ad->maxVideoCount = maxVideoCount;
 
-		// ad->videos = getPArray(YoutubeVideo, maxVideoCount);
 		ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*maxVideoCount);
-		zeroMemory(ad->videos, maxVideoCount * sizeof(YoutubeVideo));
+		// zeroMemory(ad->videos, maxVideoCount * sizeof(YoutubeVideo));
 
-		// curl_global_initX(CURL_GLOBAL_ALL);
 		ad->curlHandle = curl_easy_initX();
 		curl_easy_setoptX(ad->curlHandle, CURLOPT_WRITEFUNCTION, curlWrite);
-		// curl_easy_setoptX(curlHandle, CURLOPT_WRITEDATA, &internal_struct);
 
 		ad->videoSnippet.thumbnailTexture.id = -1;
 
@@ -2408,6 +2403,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->sidePanelMax = 0.5f;
 
 
+		// Make test file.
 		if(false) 
 		{
 			// int count = 10000;
@@ -2449,7 +2445,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->graphDrawMode = 0;
 		ad->sortByDate = true;
 		ad->sortStat = -1;
+
+		// TIMER_BLOCK_END(initRest);
 	}
+
+
 
 	// @AppStart.
 
@@ -2460,10 +2460,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		SetWindowLongPtr(systemData->windowHandle, GWLP_WNDPROC, (LONG_PTR)mainWindowCallBack);
 
 		globalScreenHeight = ws->currentRes.h;
-
-		if(HOTRELOAD_SHADERS) {
-			loadShaders();
-		}
 
 		loadCurlFunctions(ad->curlDll);
 		curl_easy_setoptX(ad->curlHandle, CURLOPT_WRITEFUNCTION, curlWrite);
@@ -2482,16 +2478,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-
 	clearTMemory();
-
-	// Allocate drawCommandlist.
-
-	int clSize = kiloBytes(1000);
-	drawCommandListInit(&ad->commandList3d, (char*)getTMemory(clSize), clSize);
-	drawCommandListInit(&ad->commandList2d, (char*)getTMemory(clSize), clSize);
-	globalCommandList = &ad->commandList3d;
-
 
 	// Update input.
 	{
@@ -2654,6 +2641,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    if(newGuiGotActive(gui, idResizeRight) || newGuiGotActive(gui, idResizeBottom) || newGuiGotActive(gui, idResizeDR)) setupResize = true;
 	    if(newGuiIsActive(gui, idResizeRight) || newGuiIsActive(gui, idResizeBottom) || newGuiIsActive(gui, idResizeDR)) resize = true;
 
+
+
 		int mode = -1;
         if(newGuiIsActive(gui, idResizeRight)) mode = 0;
 		if(newGuiIsActive(gui, idResizeBottom)) mode = 1;
@@ -2736,13 +2725,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		Vec2i s = ad->cur3dBufferRes;
 		Vec2 reflectionRes = vec2(s);
-
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, ws->currentRes.w, ws->currentRes.h);
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, ws->currentRes.w, ws->currentRes.h);
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, ws->currentRes.w, ws->currentRes.h);
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, ws->currentRes.w, ws->currentRes.h);
-
-		setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, ws->currentRes.w, ws->currentRes.h);
 	}
 	
 
@@ -2834,10 +2816,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		glBindVertexArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindTexture(GL_TEXTURE_2D, 0);
-		Vec2 res = vec2(ws->currentRes);
+
 		glLoadIdentity();
-		glViewport(0,0, ws->currentRes.x, ws->currentRes.y);
-		glOrtho(0, ws->currentRes.w, -ws->currentRes.h, 0, -10,10);
+		Vec2i res = ws->currentRes;
+		glViewport(0,0, res.w, res.h);
+		glOrtho(0, res.w, -res.h, 0, -10,10);
 	}
 
 	TIMER_BLOCK_END(openglInit);
@@ -2859,37 +2842,44 @@ extern "C" APPMAINFUNCTION(appMain) {
 		char* pt = getTString(page_token_size);
 		dInfo->continuedDownload = loadPlaylistHeaderFromFile(&headerPlaylist, fileName, &dInfo->maxVideoCount, pt);
 
+		bool skip = false;
+
 		dInfo->lastVideoCount = 0;
 		strClear(dInfo->pageToken);
 		if(!ad->update && dInfo->continuedDownload) {
 			strCpy(dInfo->pageToken, pt, page_token_size);
 			dInfo->lastVideoCount = headerPlaylist.count;
 
-			if(dInfo->maxVideoCount == headerPlaylist.count) return;
-			if(ad->downloadPlaylist.count + dInfo->lastVideoCount > dInfo->maxVideoCount) {
+			if(dInfo->maxVideoCount == headerPlaylist.count) skip = true;
+			else if(ad->downloadPlaylist.count + dInfo->lastVideoCount > dInfo->maxVideoCount) {
 				ad->downloadPlaylist.count = dInfo->maxVideoCount - dInfo->lastVideoCount;
 			}
 		}
 
-		dInfo->totalCount = 0;
+		if(skip) {
+			ad->startDownload = false;
+		} else {
+			dInfo->totalCount = 0;
 
-		dInfo->buffer = (char*)malloc(megaBytes(3)); 
-		dInfo->tempBuffer = (char*)malloc(kiloBytes(20));
-		dInfo->vids = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*ad->downloadPlaylist.count);
-		dInfo->stringBuffer = (char*)malloc(megaBytes(1));
+			// dInfo->buffer = (char*)malloc(megaBytes(3)); 
+			dInfo->buffer = (char*)malloc(megaBytes(5)); 
+			dInfo->tempBuffer = (char*)malloc(kiloBytes(20));
+			dInfo->vids = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*ad->downloadPlaylist.count);
+			dInfo->stringBuffer = (char*)malloc(megaBytes(1));
 
-		zeroMemory(dInfo->vids, sizeof(YoutubeVideo)*ad->downloadPlaylist.count);
+			zeroMemory(dInfo->vids, sizeof(YoutubeVideo)*ad->downloadPlaylist.count);
 
-		dInfo->playlistId = ad->downloadPlaylist.id;
-		dInfo->count = ad->downloadPlaylist.count;
-		dInfo->curlHandle = ad->curlHandle;
+			dInfo->playlistId = ad->downloadPlaylist.id;
+			dInfo->count = ad->downloadPlaylist.count;
+			dInfo->curlHandle = ad->curlHandle;
 
-		threadQueueAdd(threadQueue, downloadVideos, &ad->dInfo);
+			threadQueueAdd(threadQueue, downloadVideos, &ad->dInfo);
 
-		ad->startDownload = false;
-		ad->activeDownload = true;
+			ad->startDownload = false;
+			ad->activeDownload = true;
 
-		dInfo->finishedDownload = false;
+			dInfo->finishedDownload = false;
+		}
 	}
 
 	if(ad->activeDownload && ad->dInfo.finishedDownload) {
@@ -2988,7 +2978,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(init) {
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 
-		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + 0;
+		int startVideo = 0;
+		for(int i = 0; i < ad->playlistFolderCount; i++) {
+			if(strFind(ad->playlistFolder[i].title, "Rocket Beans TV") != -1) {
+				startVideo = i;
+				break;
+			}
+		}
+		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + startVideo;
 		memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
 
 		ad->startLoadFile = true;
@@ -3286,8 +3283,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 	{
-		globalCommandList = &ad->commandList2d;
-
 		AppColors* ac = &ad->appColors;
 		AppSettings* as = &ad->appSettings;
 
@@ -3329,7 +3324,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		// Draw background.
-		drawRectNew(screenRect, ac->background);
+		drawRect(screenRect, ac->background);
 
 		for(int i = 0; i < ad->camCount; i++) {
 			drawRectNewColored(graphRects[i], ac->graphBackgroundBottom, ac->graphBackgroundTop, ac->graphBackgroundTop, ac->graphBackgroundBottom);
@@ -3452,7 +3447,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					// Horizontal line.
 					scissorTestScreen(cam->viewPort);
-					drawLineNew(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
+					drawLine(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
 					scissorTestScreen(scaleRect);
 
 					// Base markers.
@@ -3462,7 +3457,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
 					else text = fillString("%f",p);
 
-					drawTextNew(text, font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+					drawText(text, font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
 					
 					float textWidth = getTextDim(text, font).w;
 
@@ -3477,11 +3472,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 						if(stepSize/subDiv > 10) subText = fillString("%i.",(int)(stepSize/subDiv));
 						else subText = fillString("%f",(stepSize/subDiv));
 
-						drawTextNew(subText, font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+						drawText(subText, font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
 
 						// Draw horizontal line.
 						scissorTestScreen(cam->viewPort);
-						drawLineNew(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), subHoriLinesColor); 
+						drawLine(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), subHoriLinesColor); 
 						scissorTestScreen(scaleRect);
 
 					}
@@ -3599,11 +3594,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 						if(zoomStage == 2 && i != 0) dateString = fillString("%s%i:00", d.h<10?"0":"", d.h);
 
 						scissorTestScreen(rGraphs);
-						drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), i==0?ac->graphMarkers:ac->graphSubMarkers);
+						drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), i==0?ac->graphMarkers:ac->graphSubMarkers);
 						scissorTestScreen(scaleRect);
 
 						drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
-						drawTextNew(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+						drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
 
 						dateIncrement(&d, subMarkerWidth, zoomStage+1);
 						dateEncode(&d);
@@ -3618,7 +3613,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 
 						char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
-						drawTextNew(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1));
+						drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1));
 
 						leftX = x;
 					}
@@ -3793,7 +3788,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				// Draw Point.
 				glPointSize(settingHoverPointSize);
-				// drawTextNew(fillString("%i", ad->videos[vi].viewCount), font, ad->hoveredPoint + vec2(10,10), c, vec2i(-1,-1));
+				// drawText(fillString("%i", ad->videos[vi].viewCount), font, ad->hoveredPoint + vec2(10,10), c, vec2i(-1,-1));
 				char* text;
 				if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
 				else text = fillString("%f", ad->hoveredVideoStat);
@@ -3873,7 +3868,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				else x = graphCamMapX(&ad->cams[0], ad->selectedVideo);
 
 				glLineWidth(1);
-				drawLineNew(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
+				drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
 			}
 
 			// Panel width slider.
@@ -3892,7 +3887,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			Vec4 sidePanelColor = ac->sidePanel;
-			drawRectNew(rSidePanel, sidePanelColor);
+			drawRect(rSidePanel, sidePanelColor);
 
 			float border = as->marginSidePanel;
 			Rect rPanel = rectExpand(rSidePanel, -vec2(border,border));
@@ -3905,6 +3900,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			Rect infoPanelTop = rPanel;
 			infoPanelTop.min.y = infoPanelTop.top - font->height - as->marginButtonsHeight;
+
+			bool closePanel = false;
 
 			// Top gui.
 			{
@@ -3977,7 +3974,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				{
 					Rect r = buttons[4];
 					if(newGuiGoButtonAction(ad->gui, r, z)) {
-						ad->selectedVideo = -1;
+						// ad->selectedVideo = -1;
+						closePanel = true;
 					}
 
 					// drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "x", font, fc, vec2i(0,0));
@@ -3997,7 +3995,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
 			VideoSnippet* sn = &ad->videoSnippet;
 
-			drawTextNew(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), fc, vec2i(0,1));
+			drawText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), fc, vec2i(0,1));
 
 			yPos -= font->height;
 
@@ -4005,11 +4003,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Vec2 imageDim = vec2(sn->thumbnailTexture.dim);
 			if(imageDim.w > rectW(rPanel)) imageDim = vec2(rectW(rPanel), rectW(rPanel)*(imageDim.h/imageDim.w));
 			Rect imageRect = rectCenDim(rectCenX(rPanel), yPos - imageDim.h/2, imageDim.w, imageDim.h);
-			drawRectNew(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
+			drawRect(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
 			yPos -= rectH(imageRect);
 			yPos -= font->height/2;
 
-			drawTextNew(sv->title, font, vec2(xMid, yPos), fc, vec2i(0,1), width);
+			drawText(sv->title, font, vec2(xMid, yPos), fc, vec2i(0,1), width);
 			yPos -= getTextHeight(sv->title, font, vec2(xMid, yPos), width);
 			yPos -= font->height;
 
@@ -4024,7 +4022,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				int lineCount = 6;
 				scissorTestScreen(rectTLDim(rPanel.left, yPos, rectW(rPanel)/2 - 1, font->height*lineCount));
-				drawTextNew("Date:\nTime:\nViews:\nLikes/Dislikes:\nComments:\nFavorites:", font, vec2(rPanel.left, yPos), fc, vec2i(-1,1));
+				drawText("Date:\nTime:\nViews:\nLikes/Dislikes:\nComments:\nFavorites:", font, vec2(rPanel.left, yPos), fc, vec2i(-1,1));
 
 				scissorTestScreen(rectTRDim(rPanel.right, yPos, rectW(rPanel)/2 - 1, font->height*lineCount));
 				char* t;
@@ -4036,7 +4034,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(i == 4) t = fillString("%i", sv->commentCount);
 					if(i == 5) t = fillString("%i", sv->favoriteCount);
 				
-					drawTextNew(t, font, vec2(rPanel.right, yPos), fc, vec2i(1,1)); 
+					drawText(t, font, vec2(rPanel.right, yPos), fc, vec2i(1,1)); 
 					yPos -= font->height;
 				}
 
@@ -4045,7 +4043,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			yPos -= font->height/2;
 
-			drawTextNew("Comments", font, vec2(xMid, yPos), fc, vec2i(0,1));
+			drawText("Comments", font, vec2(xMid, yPos), fc, vec2i(0,1));
 			yPos -= font->height;
 
 			{
@@ -4057,8 +4055,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				Rect commentRect = rect(rPanel.left, rPanel.bottom, rPanel.right-scrollBarWidth, yPos);
 				Rect scrollBarRect = rect(rPanel.right - scrollBarWidth, rPanel.bottom, rPanel.right, yPos);
 
-				drawRectNew(commentRect, ac->comments);
-				drawRectNew(scrollBarRect, ac->comments);
+				drawRect(commentRect, ac->comments);
+				drawRect(scrollBarRect, ac->comments);
 				Vec4 scrollBarColor = ac->commentScroll;
 
 				rectExpand(&commentRect, vec2(-as->marginComments,0));
@@ -4115,10 +4113,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 				scissorTestScreen(commentRect);
 				float wrapWidth = rectW(commentRect);
 				for(int i = 0; i < sn->selectedCommentCount; i++) {
-					drawTextNew(sn->selectedTopComments[i], font2, vec2(commentRect.left, yPos), fc, vec2i(-1,1), wrapWidth);
+					drawText(sn->selectedTopComments[i], font2, vec2(commentRect.left, yPos), fc, vec2i(-1,1), wrapWidth);
 					yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), wrapWidth);
 					
-					drawTextNew(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(commentRect.right, yPos), ac->font2, vec2i(1,1), wrapWidth);
+					drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(commentRect.right, yPos), ac->font2, vec2i(1,1), wrapWidth);
 					yPos -= font2->height;
 				}
 
@@ -4126,6 +4124,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			glDisable(GL_SCISSOR_TEST);
+
+			if(closePanel) ad->selectedVideo = -1;
 		}
 
 		TIMER_BLOCK_END(sidePanel);
@@ -4229,14 +4229,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 	endOfMainLabel:
 
 
-	{
-		int id = newGuiIncrementId(ad->gui);
-		if(ds->showMenu) {
-			newGuiSetHotAllMouseOver(ad->gui, id, ds->gui->getPanelBackgroundRect(), 5);
-		}
-
-	}
-
 
 	if(false)
 	{
@@ -4298,11 +4290,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			drawTextBox(titleRect, vec4(0,0), "App", font, vec4(0.9f,1.0f), vec2i(0,0));
 
 			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
-			drawRectNew(rClose, vec4(0.4f,0,0,1));
+			drawRect(rClose, vec4(0.4f,0,0,1));
 			rectExpand(&rClose, -rectH(rClose)*0.4f);
 			glLineWidth(2);
-			drawLineNew(rectBL(rClose), rectTR(rClose),  vec4(0.7,1));
-			drawLineNew(rectTL(rClose), rectBR(rClose),  vec4(0.7,1));
+			drawLine(rectBL(rClose), rectTR(rClose),  vec4(0.7,1));
+			drawLine(rectTL(rClose), rectBR(rClose),  vec4(0.7,1));
 
 			insideRect.top -= titleHeight;
 
@@ -4312,7 +4304,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Rect scissor = insideRect;
 			scissorTestScreen(scissor);
 
-			drawRectNew(insideRect, bc);
+			drawRect(insideRect, bc);
 
 			Vec2 writePos = rectTL(insideRect);
 
@@ -4355,15 +4347,30 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	}
 
+	// Block everything for debug panels.
+	{
+		int id = newGuiIncrementId(ad->gui);
+		if(ds->showMenu) {
+			newGuiSetHotAllMouseOver(ad->gui, id, ds->gui->getPanelBackgroundRect(), 5);
+		}
+		if(ds->showStats) {
+			newGuiSetHotAllMouseOver(ad->gui, id, ds->gui2->getPanelBackgroundRect(), 5);
+		}
+	}
+
 	newGuiEnd(ad->gui);
 
 	{
 		// Font* font = getFont(FONT_CALIBRI, 20);
-		// drawRectNew(rectBLDim(getScreenRect(ws).min, vec2(font->tex.dim)), vec4(1,1), rect(0,0,1,1), font->tex.id);
+		// drawRect(rectBLDim(getScreenRect(ws).min, vec2(font->tex.dim)), vec4(1,1), rect(0,0,1,1), font->tex.id);
 
 		// Rect r, uv;
 		// getTextQuad((int)'X', font, vec2(0,0), &r, &uv);
 		// int stop = 234;
+	}
+
+	if(ds->savedBuffer == 0) {
+		int stop = 234;
 	}
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
@@ -4372,15 +4379,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		TIMER_BLOCK_NAMED("Render");
 
-		blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-		blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, ws->currentRes, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+		Vec2i frameBufferRes = getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->dim;
+		Vec2i res = ws->currentRes;
+		Rect frameBufferUV = rect(0,(float)res.h/frameBufferRes.h,(float)res.w/frameBufferRes.w,0);
 
+
+		blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+		blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
 		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
 		bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
-		// glBindTexture(GL_TEXTURE_2D, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
-		drawRectNew(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), vec4(1,1,1,ds->guiAlpha), rect(0,1,1,0), getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
+
+		glLoadIdentity();
+		glViewport(0,0, res.w, res.h);
+		glOrtho(0,1,1,0, -1, 1);
+
+		drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
 
@@ -4398,7 +4413,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			glDisable(GL_BLEND);
-			drawRectNew(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), rect(0,0,1,1), getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+			drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), rect(0,0,1,1), getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
 			glEnable(GL_BLEND);
 
 			int w = ws->currentRes.w;
@@ -4414,8 +4429,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		Vec2 res = vec2(ws->currentRes);
-		drawRectNew(rect(0, -res.h, res.w, 0), rect(0,1,1,0), getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+		glLoadIdentity();
+		glViewport(0,0, res.w, res.h);
+		glOrtho(0,1,1,0, -1, 1);
+		drawRect(rect(0, 1, 1, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
 
 		#if USE_SRGB
 			glDisable(GL_FRAMEBUFFER_SRGB);
@@ -4430,10 +4447,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 			MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
 			ad->updateWindow = false;
 		}
-		swapBuffers(&ad->systemData);
 
-		// Slowing things down? Also makes swapBuffers take too long so we only hit half monitor refresh rate.
-		// glFinish();
+		// Sleep untill monitor refresh.
+		if(!init) {
+			double frameTime = timerUpdate(ad->swapTime);
+			double sleepTime = ((double)1/60) - frameTime;
+			if(sleepTime < 0) sleepTime = ((double)1/30) - frameTime;
+
+			int sleepTimeMS = sleepTime*1000;
+			if(sleepTimeMS > 1) Sleep(sleepTimeMS);
+		}
+
+		swapBuffers(&ad->systemData);
+		ad->swapTime = timerInit();
 
 		if(init) {
 			showWindow(windowHandle);
@@ -4445,7 +4471,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// debugUpdatePlayback(ds, appMemory);
 
-	// @AppEnd.
+	// @App End.
+
+	// if(init) printf("Startup Time: %fs\n", timerUpdate(startupTimer));
 }
 
 
@@ -4471,11 +4499,6 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 	bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
 	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
 	glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-
-	int clSize = megaBytes(2);
-	drawCommandListInit(&ds->commandListDebug, (char*)getTMemoryDebug(clSize), clSize);
-	globalCommandList = &ds->commandListDebug;
-
 
 	ds->gInput = { input->mousePos, input->mouseWheel, input->mouseButtonPressed[0], input->mouseButtonDown[0], 
 					input->keysPressed[KEYCODE_ESCAPE], input->keysPressed[KEYCODE_RETURN], input->keysPressed[KEYCODE_SPACE], input->keysPressed[KEYCODE_BACKSPACE], input->keysPressed[KEYCODE_DEL], input->keysPressed[KEYCODE_HOME], input->keysPressed[KEYCODE_END], 
@@ -4982,7 +5005,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				// if(highlightedIndex == i) {
 				// 	Rect r = gui->getCurrentRegion();
 				// 	Rect line = rect(r.min, vec2(textSectionEnd,r.min.y + fontHeight));
-				// 	drawRectNew(line, highlightColor);
+				// 	drawRect(line, highlightColor);
 				// }
 
 				gui->label(fillString("%s", tInfo->file + 21),0);
@@ -5005,19 +5028,24 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				float rheight = gui->getDefaultHeight();
 				float fontBaseOffset = 4;
 
+				drawLinesHeader(vec4(1,1));
 				float xOffset = 0;
 				for(int statIndex = 0; statIndex < barCount; statIndex++) {
 					Statistic* stat = statistics + i;
 					u64 coh = ds->timings[statIndex][i].cyclesOverHits;
 
+					if(coh == 0) continue;
 					float height = mapRangeClamp(coh, stat->min, stat->max, 1, rheight);
+
 					Vec2 rmin = r.min + vec2(xOffset, fontBaseOffset);
 					float colorOffset = mapRange(coh, stat->min, stat->max, 0, 1);
-					// drawRectNew(rectBLDim(rmin, vec2(barWidth, height)), vec4(colorOffset,1-colorOffset,0,1));
-					drawLineNew(rmin, rmin+vec2(0,height), vec4(colorOffset,1-colorOffset,0,1));
+
+					pushColor(vec4(colorOffset,1-colorOffset,0,1));
+					pushVecs(rmin, rmin+vec2(0,height));
 
 					xOffset += barWidth;
 				}
+				glEnd();
 			}
 		}
 
@@ -5100,10 +5128,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 			// Header.
 			{
-				drawRectNew(cyclesRect, gui->colors.sectionColor);
+				drawRect(cyclesRect, gui->colors.sectionColor);
 				Vec2 cyclesDim = rectDim(cyclesRect);
 
-				drawRectNew(headerRect, vec4(1,1,1,0.1f));
+				drawRect(headerRect, vec4(1,1,1,0.1f));
 				Vec2 headerDim = rectDim(headerRect);
 
 				{
@@ -5118,7 +5146,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						viewAreaRight = viewMid + viewMinSize*0.5;
 					}
 
-					drawRectNew(rect(viewAreaLeft, cyclesRect.min.y, viewAreaRight, cyclesRect.max.y), vec4(1,1,1,0.03f));
+					drawRect(rect(viewAreaLeft, cyclesRect.min.y, viewAreaRight, cyclesRect.max.y), vec4(1,1,1,0.03f));
 				}
 
 				float g = 0.7f;
@@ -5143,7 +5171,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					// Big line.
 					{
 						float h = headerDim.h*heightMod;
-						drawLineNew(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
+						drawLine(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
 					}
 
 					// Text
@@ -5162,7 +5190,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						if(valueBetween(bgRect.min.x, textPos.x - tw/2, textPos.x + tw/2)) textPos.x = bgRect.min.x + tw/2;
 						if(valueBetween(bgRect.max.x, textPos.x - tw/2, textPos.x + tw/2)) textPos.x = bgRect.max.x - tw/2;
 
-						drawTextNew(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, 1, gui->colors.shadowColor);
+						drawText(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, 1, gui->colors.shadowColor);
 					}
 
 					pos += timelineSection;
@@ -5179,7 +5207,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					if((index%(int)div) != 0) {
 						double p = mapRangeDouble(pos, orthoLeft, orthoRight, bgRect.min.x, bgRect.max.x);
 						float h = headerDim.h*heightMod;
-						drawLineNew(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
+						drawLine(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), vec4(g,g,g,1));
 					}
 
 					// Cycle text.
@@ -5195,7 +5223,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						else if(cycles < 1000000000000) s = fillString("%.1fbc", cycles/1000000000);
 						else s = fillString("INF");
 
-						drawTextNew(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, gui->settings.textShadow, gui->colors.shadowColor);
+						drawText(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, gui->settings.textShadow, gui->colors.shadowColor);
 					}
 
 					pos += timelineSection;
@@ -5223,7 +5251,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				if(threadIndex > 0) {
 					Vec2 p = startPos + vec2(0,lineHeight);
 					float g = 0.8f;
-					drawLineNew(p, vec2(bgRect.max.x, p.y), vec4(g,g,g,1));
+					drawLine(p, vec2(bgRect.max.x, p.y), vec4(g,g,g,1));
 				}
 
 				for(int i = 0; i < bufferCount; ++i) {
@@ -5242,7 +5270,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					// Draw vertical line at swap boundaries.
 					if(slot->timerIndex == swapTimerIndex) {
 						float g = 0.8f;
-						drawLineNew(vec2(barRight, bgRect.min.y), vec2(barRight, bgRect.max.y), vec4(g,g,g,1));
+						drawLine(vec2(barRight, bgRect.min.y), vec2(barRight, bgRect.max.y), vec4(g,g,g,1));
 					}
 
 					// Bar min size is 1.
@@ -5274,7 +5302,12 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							if(barLeft < bgRect.min.x) r.min.x = bgRect.min.x;
 							Rect textRect = rect(r.min+vec2(1,1), r.max-vec2(1,1));
 
-							gui->drawTextBox(textRect, fillString("%s %s (%i.c)", tInfo->function, tInfo->name, slot->size), c, 0, rectDim(textRect).w);
+							// gui->drawTextBox(textRect, fillString("%s %s (%i.c)", tInfo->function, tInfo->name, slot->size), c, 0, rectDim(textRect).w);
+
+							gui->drawRect(textRect, c, false);
+							gui->settings.textShadow = 2;
+							gui->drawText(fillString("%s %s (%i.c)", tInfo->function, tInfo->name, slot->size), 0, textRect, rectDim(textRect).w);
+							gui->settings.textShadow = 0;
 						}
 					}
 
@@ -5295,7 +5328,12 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				gui->drawRect(hRect, vec4(g,g,g,1));
 
 				Rect textRect = rect(hRect.min+vec2(1,1), hRect.max-vec2(1,1));
-				gui->drawTextBox(textRect, hText, hc);
+				// gui->drawTextBox(textRect, hText, hc);
+
+				gui->drawRect(textRect, hc, false);
+				gui->settings.textShadow = 2;
+				gui->drawText(hText, 0, textRect, rectDim(textRect).w);
+				gui->settings.textShadow = 0;
 			}
 
 			gui->div(0.1f, 0); 
@@ -5391,8 +5429,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					p += timelineSection;
 					y = mapRange(p, orthoBottom, orthoTop, rBottom, rTop);
 
-					drawLineNew(vec2(rectNumbers.min.x, y), vec2(rectNumbers.min.x + length, y), vec4(1,1,1,1)); 
-					drawTextNew(fillString("%i64.c",(i64)p), gui->font, vec2(rectNumbers.min.x + length + 4, y), vec4(1,1,1,1), vec2i(-1,0));
+					drawLine(vec2(rectNumbers.min.x, y), vec2(rectNumbers.min.x + length, y), vec4(1,1,1,1)); 
+					drawText(fillString("%i64.c",(i64)p), gui->font, vec2(rectNumbers.min.x + length + 4, y), vec4(1,1,1,1), vec2i(-1,0));
 				}
 
 				gui->scissorPop();
@@ -5422,7 +5460,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 				Rect rectNamesAndLines = rect(rectNames.min, rectLines.max);
 				gui->scissorPush(rectNamesAndLines);
-				drawLineNew(vec2(rectLines.min.x - textWidth - 2, yAvg), vec2(rectLines.max.x, yAvg), color);
+				drawLine(vec2(rectLines.min.x - textWidth - 2, yAvg), vec2(rectLines.max.x, yAvg), color);
 				gui->scissorPop();
 
 				gui->scissorPush(rectLines);
@@ -5449,7 +5487,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 					if(lastElementEmpty) np.y = yAvg;
 
-					drawLineNew(p, np, color);
+					drawLine(p, np, color);
 					p = np;
 				}
 
@@ -5473,7 +5511,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 				Vec4 color = vec4(info->color[0], info->color[1], info->color[2], 1);
 				Vec2 pos = vec2(r.min.x + sw+width/2 + i*(width+sw), rc.y);
-				drawRectNew(rectCenDim(pos, vec2(width, height)), color);
+				drawRect(rectCenDim(pos, vec2(width, height)), color);
 			}
 
 		}
@@ -5510,7 +5548,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		float y = -fontSize/2;
 		for(int i = 0; i < ds->notificationCount; i++) {
 			char* note = ds->notificationStack[i];
-			drawTextNew(note, font, vec2(ws->currentRes.w/2, y), color, vec2i(0,0), 0, 2);
+			drawText(note, font, vec2(ws->currentRes.w/2, y), color, vec2i(0,0), 0, 2);
 			y -= fontSize;
 		}
 	}
@@ -5539,12 +5577,12 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			timer = 0;
 		}
 
-		// drawTextNew(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
-		// drawTextNew(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
-		// drawTextNew(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+		// drawText(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+		// drawText(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+		// drawText(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 
 		for(int i = 0; i < ds->infoStackCount; i++) {
-			drawTextNew(fillString("%s", ds->infoStack[i]), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+			drawText(fillString("%s", ds->infoStack[i]), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		}
 
 		ds->infoStackCount = 0;

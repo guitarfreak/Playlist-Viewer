@@ -275,8 +275,8 @@ struct Gui {
 			sColor = shadowColor;
 		}
 
-		// drawTextNew(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, settings.textShadow, colors.shadowColor);
-		drawTextNew(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, textShadow, sColor);
+		// drawText(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, settings.textShadow, colors.shadowColor);
+		::drawText(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, textShadow, sColor);
 
 		scissorPop();
 	}
@@ -289,9 +289,9 @@ struct Gui {
 		else if(align == 2) textPos.x += rectDim(region).w*0.5f;
 
 		// if(cullWidth == -1) 
-			drawTextNew(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, settings.textShadow, colors.shadowColor);		
+			::drawText(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, settings.textShadow, colors.shadowColor);		
 		// else 
-			// drawTextLineCulledNew(text, font, textPos, colors.textColor, vec2i(align-1, 0), cullWidth, settings.textShadow, colors.shadowColor);		
+			// drawTextLineCulled(text, font, textPos, colors.textColor, vec2i(align-1, 0), cullWidth, settings.textShadow, colors.shadowColor);		
 
 		scissorPop();
 	}
@@ -303,7 +303,7 @@ struct Gui {
 
 	void drawRect(Rect r, Vec4 color, bool scissor = false) {
 		if(scissor) scissorPush(getCurrentRegion());
-		drawRectNew(r, color, rect(0,0,1,1), (int)getTexture(TEXTURE_WHITE)->id);
+		::drawRect(r, color, rect(0,0,1,1), (int)getTexture(TEXTURE_WHITE)->id);
 		if(scissor) scissorPop();
 	}
 
@@ -464,7 +464,7 @@ struct Gui {
 		setScissor(true);
 		scissorPush(background);
 		// dcRoundedRect(background, colors.panelColor, 7, 0);
-		drawRectNew(background, colors.panelColor);
+		drawRect(background, colors.panelColor);
 	}
 
 	void endStatic() {
@@ -1597,7 +1597,7 @@ struct Console {
 		}
 
 		if(visible) {
-			drawRectNew(consoleInput, cs.inputColor);
+			drawRect(consoleInput, cs.inputColor);
 		}
 
 		if(isActive) {
@@ -1932,7 +1932,7 @@ struct Console {
 			glEnable(GL_SCISSOR_TEST);
 			scissorTest(inputRect, res.h);
 
-			drawTextNew(inputBuffer, cs.inputFont, inputStartPos, cs.inputFontColor, vec2i(-1,0));
+			drawText(inputBuffer, cs.inputFont, inputStartPos, cs.inputFontColor, vec2i(-1,0));
 
 			glDisable(GL_SCISSOR_TEST);
 
@@ -1948,7 +1948,7 @@ struct Console {
 			Rect cursorRect = rectCenDim(cursorPos, vec2(cWidth, cs.inputFont->height));
 
 			if(cursorAtEnd) cursorRect = rectTrans(cursorRect, vec2(rectDim(cursorRect).w/2, 0));
-			drawRectNew(cursorRect, cs.cursorColor + cmod);
+			drawRect(cursorRect, cs.cursorColor + cmod);
 
 		}
 
@@ -1971,7 +1971,7 @@ struct Console {
 
 
 		if(visible) {
-			drawRectNew(consoleBody, cs.bodyColor);
+			drawRect(consoleBody, cs.bodyColor);
 
 			float scrollOffset = 0;
 
@@ -2053,8 +2053,8 @@ struct Console {
 
 				// Draw scrollbar.
 
-				drawRectNew(scrollRect, cs.scrollBarBackgroundColor);
-				drawRectNew(scrollCursorRect, scrollBarColorFinal);
+				drawRect(scrollRect, cs.scrollBarBackgroundColor);
+				drawRect(scrollCursorRect, scrollBarColorFinal);
 			}
 
 			// Main window.
@@ -2099,7 +2099,7 @@ struct Console {
 
 				for(int i = 0; i < mainBufferSize; i++) {
 					if(i%2 == 0) {
-						drawTextNew(cs.commandPreText, cs.bodyFont, textPos - vec2(preSize,0), cs.bodyFontColor, vec2i(-1,1));
+						drawText(cs.commandPreText, cs.bodyFont, textPos - vec2(preSize,0), cs.bodyFontColor, vec2i(-1,1));
 					} else {
 						if(strIsEmpty(mainBuffer[i])) continue;
 					}
@@ -2128,7 +2128,7 @@ struct Console {
 						}
 
 						Vec4 color = i%2 == 0 ? cs.bodyFontColor : cs.bodyFontResultColor;
-						drawTextNew(mainBuffer[i], cs.bodyFont, textPos, color, vec2i(-1,1), wrappingWidth);
+						drawText(mainBuffer[i], cs.bodyFont, textPos, color, vec2i(-1,1), wrappingWidth);
 					}
 
 					textPos.y -= textHeight;
