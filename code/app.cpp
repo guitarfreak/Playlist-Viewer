@@ -17,6 +17,7 @@
 	- Gui textbox returns true only on new value when hitting enter.
 	- Fixed bug in debugNotifications.
 	- Massive changes in rect functions.
+	- Font system.
 
 
     - Clamp window to monitor.
@@ -33,11 +34,9 @@
 	- Avg. line of number videos of released in a month or so.
 
 	- Memory leak at startup that goes away when you do something.
-	- Screenshot function not working.
+	- Filter duplicate videos.
 
 	- Done Today:
-	  Deleted unused rendering code. Fixed Timer Block bug. Reduced startup time. Sleep before swapBuffers. 
-	  Fixed framebuffer size -> Window resize smoother. Release build mode.
 
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
@@ -64,7 +63,6 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
-
 
 #include "external\curl\curl.h"
 
@@ -1733,7 +1731,8 @@ void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc, Vec2i align, 
 	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
 	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
-	drawText(text, font, vec2(xPos, yPos), tc, align);
+	// drawText(text, font, vec2(xPos, yPos), tc, align);
+	drawText(text, font, vec2(xPos, yPos), tc, align, 0, 2, vec4(0,1)); // Hardcoded for now.
 }
 void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc) {
 	drawTextBox(r, bc, text, font, tc, vec2i(0,0), r);
@@ -1929,6 +1928,8 @@ struct AppColors {
 	Vec4 font1;
 	Vec4 font2;
 	Vec4 font3;
+	Vec4 fontShadow;
+
 	Vec4 background;
 	Vec4 buttons;
 
@@ -1988,6 +1989,8 @@ struct AppSettings {
 	int resizeRegionSize;
 
 	int titleOffset;
+
+	int fontShadow;
 };
 
 #define Graph_Zoom_Min 24*60*60
@@ -2025,6 +2028,8 @@ struct AppData {
 	bool updateWindow;
 	int updateWindowX, updateWindowY;
 	int updateWidth, updateHeight;
+
+	Vec2i frameBufferSize;
 
 	bool screenShotMode;
 
@@ -2193,22 +2198,29 @@ extern "C" APPMAINFUNCTION(appMain) {
 		//
 
 		getPMemoryDebug(sizeof(DebugState));
+
 		*ds = {};
 		// ds->assets = getPArrayDebug(Asset, 100);
 
-		ds->inputCapacity = 600;
-		ds->recordedInput = (Input*)getPMemoryDebug(sizeof(Input) * ds->inputCapacity);
+		#ifndef RELEASE_BUILD
+			ds->inputCapacity = 600;
+			ds->recordedInput = (Input*)getPMemoryDebug(sizeof(Input) * ds->inputCapacity);
 
-		ds->timer = getPStructDebug(Timer);
-		globalTimer = ds->timer;
-		int timerSlots = 50000;
-		ds->timer->bufferSize = timerSlots;
-		ds->timer->timerBuffer = (TimerSlot*)getPMemoryDebug(sizeof(TimerSlot) * timerSlots);
+			ds->timer = getPStructDebug(Timer);
+			globalTimer = ds->timer;
+			int timerSlots = 50000;
+			ds->timer->bufferSize = timerSlots;
+			ds->timer->timerBuffer = (TimerSlot*)getPMemoryDebug(sizeof(TimerSlot) * timerSlots);
 
-		ds->savedBufferMax = 20000;
-		ds->savedBufferIndex = 0;
-		ds->savedBufferCount = 0;
-		ds->savedBuffer = (GraphSlot*)getPMemoryDebug(sizeof(GraphSlot) * ds->savedBufferMax);
+			ds->savedBufferMax = 20000;
+			ds->savedBufferIndex = 0;
+			ds->savedBufferCount = 0;
+			ds->savedBuffer = (GraphSlot*)getPMemoryDebug(sizeof(GraphSlot) * ds->savedBufferMax);
+		#else 
+			ds->timer = getPStructDebug(Timer);
+			ds->timer->bufferSize = 1;
+			globalTimer = ds->timer;
+		#endif
 
 		TIMER_BLOCK_NAMED("Init");
 
@@ -2231,6 +2243,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->showHud = true;
 		// ds->guiAlpha = 0.95f;
 		ds->guiAlpha = 1;
+		ds->noCollating = true;
 
 		#ifdef RELEASE_BUILD
 			ds->noCollating = true;
@@ -2241,7 +2254,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		for(int i = 0; i < arrayCount(ds->notificationStack); i++) {
 			ds->notificationStack[i] = getPStringDebug(DEBUG_NOTE_LENGTH+1);
 		}
-
 
 		//
 		// AppData.
@@ -2346,12 +2358,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			ad->updateFrameBuffers = true;
 
-			Vec2 fRes = vec2(2560, 1440);
+			ad->frameBufferSize = vec2i(2560, 1440);
+			Vec2i fRes = ad->frameBufferSize;
+
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, fRes.w, fRes.h);
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, fRes.w, fRes.h);
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, fRes.w, fRes.h);
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, fRes.w, fRes.h);
-			// setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, ws->currentRes.w, ws->currentRes.h);
+
+			// setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, fRes.w, fRes.h);
 		}
 
 		TIMER_BLOCK_END(initGraphics);
@@ -2510,6 +2525,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->appColors.font1                 = vec4(0.9f,1);
 			ad->appColors.font2                 = vec4(0.6f,1);
 			ad->appColors.font3                 = vec4(1.0f,0.5f,0,1);
+			ad->appColors.fontShadow            = vec4(0,1);
 			ad->appColors.background            = vec4(0.45f, 0.15f, 0.15f, 1);
 			ad->appColors.buttons               = vec4(0.52,0.25,0.20,1);
 			ad->appColors.sidePanel             = vec4(0,0.9f);
@@ -2544,6 +2560,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->appSettings.fontCommentSize = 23;
 			ad->appSettings.fontTitle = FONT_CALIBRI;
 			ad->appSettings.fontTitleSize = 30;
+			ad->appSettings.fontShadow = 2;
 			ad->appSettings.marginBottomText = -3;
 			ad->appSettings.marginLeftText = 2;
 			ad->appSettings.marginSidePanel = 20;
@@ -2694,7 +2711,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(windowSizeChanged(windowHandle, ws)) {
 			if(!windowIsMinimized(windowHandle)) {
 				updateResolution(windowHandle, ws);
-				globalScreenHeight = ws->currentRes.h;
 				ad->updateFrameBuffers = true;
 			}
 		}
@@ -2717,14 +2733,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->updateFrameBuffers = false;
 		ad->aspectRatio = ws->aspectRatio;
+
+		globalScreenHeight = ws->currentRes.h;
 		
 		ad->fboRes.x = ad->fboRes.y*ad->aspectRatio;
 
 		if(ad->useNativeRes) ad->cur3dBufferRes = ws->currentRes;
 		else ad->cur3dBufferRes = ad->fboRes;
 
-		Vec2i s = ad->cur3dBufferRes;
-		Vec2 reflectionRes = vec2(s);
+		if(ad->screenShotMode) {
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, ws->currentRes.w, ws->currentRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, ws->currentRes.w, ws->currentRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, ws->currentRes.w, ws->currentRes.h);
+		}
 	}
 	
 
@@ -3457,7 +3478,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
 					else text = fillString("%f",p);
 
-					drawText(text, font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0));
+					drawText(text, font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0), 0, as->fontShadow, ac->fontShadow);
 					
 					float textWidth = getTextDim(text, font).w;
 
@@ -3472,7 +3493,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						if(stepSize/subDiv > 10) subText = fillString("%i.",(int)(stepSize/subDiv));
 						else subText = fillString("%f",(stepSize/subDiv));
 
-						drawText(subText, font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0));
+						drawText(subText, font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0), 0, as->fontShadow, ac->fontShadow);
 
 						// Draw horizontal line.
 						scissorTestScreen(cam->viewPort);
@@ -3598,7 +3619,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 						scissorTestScreen(scaleRect);
 
 						drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
-						drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+						// drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
+						drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1), 0, as->fontShadow, ac->fontShadow);
 
 						dateIncrement(&d, subMarkerWidth, zoomStage+1);
 						dateEncode(&d);
@@ -3613,7 +3635,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 
 						char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
-						drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1));
+						// drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1));
+						drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1), 0, as->fontShadow, ac->fontShadow);
 
 						leftX = x;
 					}
@@ -3839,7 +3862,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			// Sort buttons.
 			{
 				char* text = "Sort";
-				Rect r = rectTLDim(tp + vec2(textWidth + font->height/2, 0), vec2(getTextDim(text, font).w + 4, font->height));
+				Rect r = rectTLDim(tp + vec2(textWidth + font->height/2, 0), vec2(getTextDim(text, font).w + 8, font->height));
 				glEnable(GL_SCISSOR_TEST);
 
 				if(newGuiQuickButton(ad->gui, r, 1, text, font, ac->buttons, ac->font1, r)) {
@@ -4360,18 +4383,63 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	newGuiEnd(ad->gui);
 
+	if(false)
 	{
-		// Font* font = getFont(FONT_CALIBRI, 20);
-		// drawRect(rectBLDim(getScreenRect(ws).min, vec2(font->tex.dim)), vec4(1,1), rect(0,0,1,1), font->tex.id);
+		// int i = 11;
+		// {
+		// 	Texture* tex = globalGraphicsState->textures + i;
+		// 	drawRect(rectTRDim(rectTR(getScreenRect(ws)), vec2(tex->dim)), vec4(0,1));
+		// 	drawRect(rectTRDim(rectTR(getScreenRect(ws)), vec2(tex->dim)), vec4(1,1), rect(0,0,1,1), tex->id);
+		// }
 
-		// Rect r, uv;
-		// getTextQuad((int)'X', font, vec2(0,0), &r, &uv);
-		// int stop = 234;
+		drawRect(getScreenRect(ws), vec4(0.2f,1));
+
+// void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
+		char* text = "This is a Text, Yo! AV To | 123 _., ABC abc";
+		int fontSize = 15;
+		Font* font;
+		// Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100);
+		Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100) + vec2(1, 0)*(fmod(ad->time*1, 100));
+		Vec4 c = vec4(1,1);
+		// Vec4 c2 = vec4((sin(ad->time*2)+1)/2 , 1);
+		Vec4 c2 = vec4(0,1);
+		int shadow = 0;
+
+		font = getFont(FONT_LIBERATION_MONO, fontSize);
+		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2); 
+		pos.y -= 80;
+
+		font = getFont(FONT_SOURCESANS_PRO, fontSize);
+		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
+		pos.y -= 80;
+
+		font = getFont(FONT_CONSOLAS, fontSize);
+		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
+		pos.y -= 80;
+
+		font = getFont(FONT_ARIAL, fontSize);
+		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
+		pos.y -= 80;
+
+		font = getFont(FONT_CALIBRI, fontSize);
+		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
+		pos.y -= 80;
+
+		// printf("\n\n\n\n\n\n\n");
+		// printf("%f %f %f %f");
+
+		// *isRunning = false;
+
 	}
 
-	if(ds->savedBuffer == 0) {
-		int stop = 234;
-	}
+
+	// bindFrameBuffer(FRAMEBUFFER_ScreenShot);
+	// drawRect(rectCenDim(100,-100,1000,1000), vec4(1,0,0,1));
+
+	// bindFrameBuffer(FRAMEBUFFER_2dMsaa);
+	// drawRect(rectCenDim(220,-220,200,200), vec4(1,1), rect(0,1,1,0), getFrameBuffer(FRAMEBUFFER_ScreenShot)->colorSlot[0]->id);
+
+
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
@@ -4384,20 +4452,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Rect frameBufferUV = rect(0,(float)res.h/frameBufferRes.h,(float)res.w/frameBufferRes.w,0);
 
 
-		blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 		blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-		glBlendEquation(GL_FUNC_ADD);
-		bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
+		if(!ad->screenShotMode) {
+			blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-		glLoadIdentity();
-		glViewport(0,0, res.w, res.h);
-		glOrtho(0,1,1,0, -1, 1);
+			glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+			glBlendEquation(GL_FUNC_ADD);
+			bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
 
-		drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glBlendEquation(GL_FUNC_ADD);
+			glLoadIdentity();
+			glViewport(0,0, res.w, res.h);
+			glOrtho(0,1,1,0, -1, 1);
+
+			drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glBlendEquation(GL_FUNC_ADD);
+		}
 
 
 		#if USE_SRGB 
@@ -4405,12 +4476,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 		#endif 
 
 		if(ad->screenShotMode) {
+			ad->screenShotMode = false;
 			ds->showMenu = true;
 			ad->updateFrameBuffers = true;
 
 			bindFrameBuffer(FRAMEBUFFER_ScreenShot);
-			glClearColor(0,0,0,1);
-			glClear(GL_COLOR_BUFFER_BIT);
+			// glClearColor(0,1,0,1);
+			// glClear(GL_COLOR_BUFFER_BIT);
+			glLoadIdentity();
+			glOrtho(0, res.w, -res.h, 0, -10,10);
 
 			glDisable(GL_BLEND);
 			drawRect(rect(0, -ws->currentRes.h, ws->currentRes.w, 0), rect(0,0,1,1), getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
@@ -4426,18 +4500,21 @@ extern "C" APPMAINFUNCTION(appMain) {
 			int result = stbi_write_png(ad->screenShotFilePath, w, h, 4, buffer, w*4);
 
 			free(buffer);
-		}
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glLoadIdentity();
-		glViewport(0,0, res.w, res.h);
-		glOrtho(0,1,1,0, -1, 1);
-		drawRect(rect(0, 1, 1, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, ad->frameBufferSize.w, ad->frameBufferSize.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, ad->frameBufferSize.w, ad->frameBufferSize.h);
+		} else {
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glLoadIdentity();
+			glViewport(0,0, res.w, res.h);
+			glOrtho(0,1,1,0, -1, 1);
+			drawRect(rect(0, 1, 1, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+			// drawRect(rect(0, 2, 2, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+		}
 
 		#if USE_SRGB
 			glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
-
 	}
 
 	// Swap window background buffer.

@@ -210,10 +210,14 @@ void deleteTexture(Texture* t) {
 
 struct Font {
 	int id;
+
+	stbtt_fontinfo info;
+	float pixelScale;
+
 	char* fileBuffer;
 	Texture tex;
-	int glyphStart, glyphCount;
-	// stbtt_bakedchar* cData;
+	Vec2i glyphRanges[4];
+	int glyphRangeCount;
 	stbtt_packedchar* cData;
 	int height;
 	float baseOffset;
@@ -389,9 +393,7 @@ FrameBuffer* getFrameBuffer(int id) {
 	return fb;
 }
 
-#define Font_Glyph_Start 0
-#define Font_Glyph_End 256
-#define Font_Error_Glyph 164
+#define Font_Error_Glyph (int)0x20-1
 
 Font* getFont(int fontId, int height) {
 
@@ -416,28 +418,65 @@ Font* getFont(int fontId, int height) {
 		Font font;
 		char* path = fontPaths[fontId];
 
-		// font.fileBuffer = (char*)getPMemory(fileSize(path) + 1);
-		char* fileBuffer = getTArray(char, fileSize(path) + 1);
+		char* fileBuffer = (char*)getPMemory(fileSize(path) + 1);
+		// char* fileBuffer = getTArray(char, fileSize(path) + 1);
 
 		readFileToBuffer(fileBuffer, path);
-		Vec2i size = vec2i(512,512);
+		// Vec2i size = vec2i(512,512);
+		Vec2i size = vec2i(800,800);
 		unsigned char* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
 		unsigned char* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
 		
 		font.id = fontId;
 		font.height = height;
 		font.baseOffset = 0.8f;
-		font.glyphStart = Font_Glyph_Start;
-		font.glyphCount = Font_Glyph_End;
-		font.cData = getPArray(stbtt_packedchar, font.glyphCount);
+
+		font.glyphRangeCount = 0;
+		font.glyphRanges[0].x = (int)0x20-1;
+		font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
+		font.glyphRangeCount++;
+		font.glyphRanges[1].x = 0xA0;
+		font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
+		font.glyphRangeCount++;
+		
+		int totalGlyphCount = 0;
+		for(int i = 0; i < font.glyphRangeCount; i++) totalGlyphCount += font.glyphRanges[i].y;
+
+		font.cData = getPArray(stbtt_packedchar, totalGlyphCount);
+
+
+		int fontFileOffset = stbtt_GetFontOffsetForIndex((uchar*)fileBuffer, 0);
+		stbtt_InitFont(&font.info, (uchar*)fileBuffer, fontFileOffset);
+
 
 		stbtt_pack_context context;
 		int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, 1, 0);
-		// stbtt_PackSetOversampling(&context, 2, 2);
-		stbtt_PackSetOversampling(&context, 1, 1);
+
+		int sampling = 2;
+		if(font.height < 25) sampling = 4;
+		stbtt_PackSetOversampling(&context, sampling, sampling);
 		
-		result = stbtt_PackFontRange(&context, (unsigned char*)fileBuffer, 0, font.height, font.glyphStart, font.glyphCount, font.cData);
+		stbtt_pack_range range[4];
+		int cDataOffset = 0;
+		for(int i = 0; i < font.glyphRangeCount; i++) {
+			range[i].first_unicode_codepoint_in_range = font.glyphRanges[i].x;
+			range[i].array_of_unicode_codepoints = NULL;
+			range[i].num_chars                   = font.glyphRanges[i].y;
+			range[i].chardata_for_range          = font.cData + cDataOffset;
+			range[i].font_size                   = font.height;
+
+			cDataOffset += font.glyphRanges[i].y;
+		}
+
+		// We assume glyphRanges in the front have more importance.
+		for(int i = 0; i < font.glyphRangeCount; i++) {
+			stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range + i, 1);
+		}
+		// stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range, font.glyphRangeCount);
+
 		stbtt_PackEnd(&context);
+
+		font.pixelScale = stbtt_ScaleForPixelHeight(&font.info, font.height);
 
 		for(int i = 0; i < size.w*size.h; i++) {
 			fontBitmap[i*4] = fontBitmapBuffer[i];
@@ -450,8 +489,12 @@ Font* getFont(int fontId, int height) {
 		loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
 		font.tex = tex;
 
+		addTexture(tex);
+
 		*fontSlot = font;
 	}
+
+
 
 	return fontSlot;
 }
@@ -744,32 +787,52 @@ int unicodeDecode(uchar* s, int* byteCount) {
 	return unicodeChar;
 }
 
+int getUnicodeRangeOffset(int c, Font* font) {
+	int unicodeOffset = -1;
+
+	bool found = false;
+	for(int i = 0; i < font->glyphRangeCount; i++) {
+		if(valueBetweenInt(c, font->glyphRanges[i].x, font->glyphRanges[i].x+font->glyphRanges[i].y)) {
+			unicodeOffset += c - font->glyphRanges[i].x + 1;
+			found = true;
+			break;
+		}
+		unicodeOffset += font->glyphRanges[i].y;
+	}
+
+	if(!found) {
+		unicodeOffset = getUnicodeRangeOffset(Font_Error_Glyph, font);
+	}
+
+	return unicodeOffset;
+}
+
 void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
-	if(c > Font_Glyph_End - Font_Glyph_Start) c = Font_Error_Glyph;
-
 	stbtt_aligned_quad q;
-	// stbtt_GetBakedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q);
-
-	// STBTT_DEF void stbtt_GetPackedQuad(stbtt_packedchar *chardata, int pw, int ph,  // same data as above
-	//                                int char_index,             // character to display
-	//                                float *xpos, float *ypos,   // pointers to current position in screen pixel space
-	//                                stbtt_aligned_quad *q,      // output: quad to draw
-	//                                int align_to_integer);
-	stbtt_GetPackedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, c-font->glyphStart, pos.x, pos.y, &q, true);
+	int unicodeOffset = getUnicodeRangeOffset(c, font);
+	stbtt_GetPackedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, unicodeOffset, pos.x, pos.y, &q, false);
 
 	float baseLine = 0.8f;
 	float off = baseLine * font->height;
-
 	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
 	*uv = rect(q.s0, q.t0, q.s1, q.t1);
 }
 
 float getCharAdvance(int c, Font* font) {
-	if(c > Font_Glyph_End - Font_Glyph_Start) c = Font_Error_Glyph;
-	// float result = stbtt_GetCharAdvance(font->cData, c-font->glyphStart);
-	float result = font->cData[c-font->glyphStart].xadvance;
+	int unicodeOffset = getUnicodeRangeOffset(c, font);
+	float result = font->cData[unicodeOffset].xadvance;
 	return result;
 }
+
+float getCharAdvance(int c, int c2, Font* font) {
+	int unicodeOffset = getUnicodeRangeOffset(c, font);
+	float result = font->cData[unicodeOffset].xadvance;
+	float kernAdvance = stbtt_GetCodepointKernAdvance(&font->info, c, c2) * font->pixelScale;
+	result += kernAdvance;
+
+	return result;
+}
+
 
 
 struct TextInfo {
@@ -859,7 +922,13 @@ int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPo
 		}
 	} else {
 		getTextQuad(t, font, tsi->pos, &ti->r, &ti->uv);
-		tsi->pos.x += getCharAdvance(t, font);
+		// tsi->pos.x += getCharAdvance(t, font);
+
+		if(text[i+1] != '\0') {
+			int tSize2;
+			int t2 = unicodeDecode((uchar*)(&text[i+tSize]), &tSize2);
+			tsi->pos.x += getCharAdvance(t, t2, font);
+		} else tsi->pos.x += getCharAdvance(t, font);
 	}
 
 	if(ti) {
@@ -921,7 +990,7 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
 
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
-	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
 	glBindTexture(GL_TEXTURE_2D, font->tex.id);
 	Vec4 c = colorSRGB(color);
@@ -946,7 +1015,7 @@ void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = v
 void drawTextOutlined(char* text, Font* font, Vec2 startPos, float outlineSize, Vec4 color, Vec4 colorOutline, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
 
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
-	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
 	glBindTexture(GL_TEXTURE_2D, font->tex.id);
 	Vec4 c = colorSRGB(color);
@@ -983,12 +1052,12 @@ void drawTextOutlined(char* text, Font* font, Vec2 startPos, float outlineSize, 
 	glEnd();
 }
 
-void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align, int wrapWidth, int shadow, Vec4 shadowColor = vec4(0,1)) {
+void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align, int wrapWidth, float shadow, Vec4 shadowColor = vec4(0,1)) {
 
 	Vec2 dr = normVec2(vec2(1,-1));
 
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
-	startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
+	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
 	Vec4 c, sc;
 	glBindTexture(GL_TEXTURE_2D, font->tex.id);
