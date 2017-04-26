@@ -431,9 +431,9 @@ Vec2 getMousePos(HWND windowHandle, bool yInverted = true) {
 	return mousePos;
 }
 
-void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
+void updateInput(Input* input, bool* isRunning, HWND windowHandle, bool waitForMessages) {
 	#ifdef RELEASE_BUILD
-		WaitMessage();
+		if(waitForMessages) WaitMessage();
 	#endif
 
 	input->anyKey = false;
@@ -457,8 +457,7 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
         switch(message.message) {
             case WM_MOUSEWHEEL: {
                 short wheelDelta = HIWORD(message.wParam);
-                if (wheelDelta > 0) input->mouseWheel = 1;
-                if (wheelDelta < 0) input->mouseWheel = -1;
+                input->mouseWheel = wheelDelta / WHEEL_DELTA;
             } break;
 
             case WM_LBUTTONDOWN: { 

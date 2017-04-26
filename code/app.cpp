@@ -36,6 +36,8 @@
 	- Memory leak at startup that goes away when you do something.
 	- Filter duplicate videos.
 
+
+
 	- Done Today:
 
 	Bug:
@@ -312,7 +314,7 @@ void dateIncrement(Date* date, int mode) {
 		}
 	} else if(mode == 2) {
 		date->d++;
-		int daysOfMonth = monthDayCount[date->m-1];
+		int daysOfMonth = getMonthDayCount(date->m, date->y);
 		if(date->d > daysOfMonth) {
 			date->d = 1;
 			dateIncrement(date, mode-1);
@@ -2011,17 +2013,7 @@ struct AppData {
 
 	bool updateFrameBuffers;
 
-	// 
-
-	Vec2i cur3dBufferRes;
 	int msaaSamples;
-	Vec2i fboRes;
-	bool useNativeRes;
-
-	float aspectRatio;
-	float fieldOfView;
-	float nearPlane;
-	float farPlane;
 
 	// Window.
 
@@ -2037,6 +2029,8 @@ struct AppData {
 
 	AppColors appColors;
 	AppSettings appSettings;
+
+	bool appIsBusy;
 
 	Font* font;
 
@@ -2118,8 +2112,26 @@ struct AppData {
 
 	bool sortByDate;
 	int sortStat;
+
+	//
+
+	// float camVelocityX;
+	// float camVelocityW;
+
+	// bool camIsScrolling;
+	// double camNewPos, camNewSize;
+	// float camScrollingTime;
 };
 
+
+float cubicInterpolation(float A, float B, float C, float D, float t) {
+	float a = -A/2.0f + (3.0f*B)/2.0f - (3.0f*C)/2.0f + D/2.0f;
+	float b = A - (5.0f*B)/2.0f + 2.0f*C - D / 2.0f;
+	float c = -A/2.0f + C/2.0f;
+	float d = B;
+	
+	return a*t*t*t + b*t*t + c*t + d;
+}
 
 
 void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
@@ -2328,12 +2340,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		//
 		//
 
-		ad->fieldOfView = 60;
 		ad->msaaSamples = 4;
-		ad->fboRes = vec2i(0, 120);
-		ad->useNativeRes = true;
-		ad->nearPlane = 0.1f;
-		ad->farPlane = 3000;
 		ad->dt = 1/(float)60;
 
 		//
@@ -2498,7 +2505,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// Update input.
 	{
 		TIMER_BLOCK_NAMED("Input");
-		updateInput(ds->input, isRunning, windowHandle);
+		ad->appIsBusy = false;
+		updateInput(ds->input, isRunning, windowHandle, !ad->appIsBusy);
 		ad->input = *ds->input;
 
 		if(ds->console.isActive) {
@@ -2515,6 +2523,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		newGuiBegin(ad->gui, input);
 
 		SetCursor(LoadCursor(0, IDC_ARROW));
+
+		ad->appIsBusy = false;
 
 		{
 			ad->appColors.graphBackgroundBottom = vec4(0.2f, 0.1f, 0.4f, 1);
@@ -2609,6 +2619,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 	bool resize = false;
 	// Window drag.
 	{
+		TIMER_BLOCK_NAMED("WindowDrag");
+
 	    NewGui* gui = ad->gui;
 
 	    float z = 2;
@@ -2710,6 +2722,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(!resize) {
 		if(windowSizeChanged(windowHandle, ws)) {
 			if(!windowIsMinimized(windowHandle)) {
+				TIMER_BLOCK_NAMED("UpdateWindowRes");
+
 				updateResolution(windowHandle, ws);
 				ad->updateFrameBuffers = true;
 			}
@@ -2723,7 +2737,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ws->currentRes.w = ad->screenShotDim.w;
 		ws->currentRes.h = ad->screenShotDim.h;
-		ad->aspectRatio = ws->currentRes.w / ws->currentRes.h;
 
 		ad->updateFrameBuffers = true;
 	}
@@ -2732,14 +2745,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		TIMER_BLOCK_NAMED("Upd FBOs");
 
 		ad->updateFrameBuffers = false;
-		ad->aspectRatio = ws->aspectRatio;
-
 		globalScreenHeight = ws->currentRes.h;
-		
-		ad->fboRes.x = ad->fboRes.y*ad->aspectRatio;
-
-		if(ad->useNativeRes) ad->cur3dBufferRes = ws->currentRes;
-		else ad->cur3dBufferRes = ad->fboRes;
 
 		if(ad->screenShotMode) {
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, ws->currentRes.w, ws->currentRes.h);
@@ -2783,13 +2789,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Clear all the framebuffers and window backbuffer.
 	{
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glClearColor(0,0,0,0);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		// glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		// glClearColor(0,0,0,0);
+		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-		bindFrameBuffer(FRAMEBUFFER_2dMsaa);
-		glClearColor(0,0,0,0);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		// bindFrameBuffer(FRAMEBUFFER_2dMsaa);
+		// glClearColor(0,0,0,0);
+		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
 		glClearColor(0,0,0,0);
@@ -2822,7 +2828,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendEquation(GL_FUNC_ADD);
-
 		// glViewport(0,0, ad->cur3dBufferRes.x, ad->cur3dBufferRes.y);
 
 
@@ -2997,6 +3002,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Load playlist folder.
 	if(init) {
+		TIMER_BLOCK_NAMED("App Init");
+
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 
 		int startVideo = 0;
@@ -3304,6 +3311,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 	{
+		TIMER_BLOCK_BEGIN_NAMED(appIntro, "appIntro");
+
 		AppColors* ac = &ad->appColors;
 		AppSettings* as = &ad->appSettings;
 
@@ -3387,12 +3396,73 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	    		if(i == 0) {
 					if(newGuiGoButtonAction(ad->gui, rGraphs, z, Gui_Focus_MWheel)) {
-						for(int i = 0; i < ad->camCount; i++) {
+						// for(int i = 0; i < ad->camCount; i++) {
 							graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
-						}
+
+							// double newPos, newSize;
+							// graphCamCalcScale(&ad->cams[i], -input->mouseWheel, zoomSpeed, input->mousePosNegative.x, &newPos, &newSize);
+
+							// // addDebugNote(fillString("%i", input->mouseWheel));
+
+							// // ad->cams[i].x = newPos;
+							// // ad->cams[i].w = newSize;
+
+							// // graphCamUpdateSides(&ad->cams[i]);
+
+							// 	// ad->camIsScrolling = true;
+							// 	// ad->camNewPos = newPos;
+							// 	// ad->camNewSize = newSize;
+
+							// double posDiff = newPos - cam->x;
+							// double sizeDiff = newSize - cam->w;	
+
+							// float posDiffPixels = graphCamCamToScreenSpaceX(cam, posDiff);
+							// float sizeDiffPixels = graphCamCamToScreenSpaceX(cam, sizeDiff);
+
+							// ad->camVelocityX += posDiffPixels*0.2f;
+							// ad->camVelocityW += sizeDiffPixels*0.2f;
+						// }
 					}
 	    		}
 			}
+
+			// // Cam smoothing.
+			// if(i == 0) {
+
+			// 	// if(ad->camIsScrolling) {
+			// 	// 	addDebugInfo(fillString("asdf"));
+
+			// 	// 	double posDiff = ad->camNewPos - cam->x;
+			// 	// 	double sizeDiff = ad->camNewSize - cam->w;
+
+			// 	// 	cam->x += posDiff*0.1f;
+			// 	// 	cam->w += sizeDiff*0.1f;
+
+			// 	// 	float posDiffPixels = graphCamCamToScreenSpaceX(cam, posDiff);
+			// 	// 	float sizeDiffPixels = graphCamCamToScreenSpaceX(cam, sizeDiff);
+
+			// 	// 	if(posDiffPixels < 0.1 && sizeDiffPixels < 0.1) {
+			// 	// 		ad->camIsScrolling = false;
+			// 	// 	}
+			// 	// }
+
+
+
+			// 	// float minVelocity = 1.0f;
+			// 	float minVelocity = 0.1f;
+			// 	float velocityMod = 0.85f;
+
+			// 	calculateVelocityMul(&ad->camVelocityX, velocityMod, minVelocity, ad->dt);
+			// 	cam->x += graphCamScreenToCamSpaceX(cam, ad->camVelocityX);
+
+			// 	calculateVelocityMul(&ad->camVelocityW, velocityMod, minVelocity, ad->dt);
+			// 	cam->w += graphCamScreenToCamSpaceX(cam, ad->camVelocityW);
+
+			// } else {
+				cam->x = ad->cams[0].x;
+
+				cam->w = ad->cams[0].w;
+			// }
 
 			double camMinH = 1000;
 			if(i == 0) camMinH = 1000;
@@ -3413,11 +3483,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 		    		if(event > 0) {
 		    			double camX = graphCamScreenToCamSpaceX(cam, -input->mousePosNegative.x - gui->mouseAnchor.x);
 
+		    			// ad->camVelocityX = 0;
+		    			// ad->camVelocityW = 0;
+
 						for(int i = 0; i < ad->camCount; i++) {
 							ad->cams[i].x = camX;
 							graphCamUpdateSides(&ad->cams[i]);
 						}
 					}
+					// if(event == 3) {
+					// 	ad->camVelocityX = -input->mouseDelta.x*1.0f;
+					// }
 				}
 
 				event = newGuiGoDragAction(gui, rLeftText, z, Gui_Focus_MLeft);
@@ -3432,8 +3508,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 			graphCamPosClamp(cam);
 		}
 
+		TIMER_BLOCK_END(appIntro);
+
 		// Draw left text.
 		{
+			TIMER_BLOCK_NAMED("Left Text");
+
 			Vec4 mainColor = ac->font1;
 			Vec4 semiColor = ac->font2;
 			Vec4 horiLinesColor = ac->graphMarkers;
@@ -3499,13 +3579,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 						scissorTestScreen(cam->viewPort);
 						drawLine(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), subHoriLinesColor); 
 						scissorTestScreen(scaleRect);
-
 					}
 
 					p += stepSize;
 				}
 
-				if(calcMaxTextWidth) ad->leftTextWidth = maxTextWidth;
+				if(calcMaxTextWidth) {
+					if(ad->leftTextWidth != maxTextWidth) ad->appIsBusy = true;
+
+					ad->leftTextWidth = maxTextWidth;
+				}
 			}
 
 			glDisable(GL_SCISSOR_TEST);
@@ -3514,6 +3597,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// Draw bottom text.
 		if(ad->sortByDate)
 		{
+			TIMER_BLOCK_NAMED("Bottom Text");
+
 			GraphCam* cam = &ad->cams[0];
 
 			int subStringMargin = font->height/2;
@@ -3631,7 +3716,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 							if(zoomStage == 1) {
 								amount = getMonthDayCount(startDate.m, startDate.y) - (i)*subMarkerWidth;
 								x = graphCamMapX(cam, nextDate.n)-1;
-							}
+							} 
 						}
 
 						char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
@@ -3709,7 +3794,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
 
 					xValue = vids[i].date.n;
-					// x = graphCamMapX(cam, vids[i].date.n) + 1;
 				} else {
 					if(i < cam->left-1 || i > cam->right+1) continue;
 					xValue = i;
@@ -3789,6 +3873,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Mouse hover.
 		{
+			TIMER_BLOCK_NAMED("Mouse Hover");
+
 			int settingHoverPointSize = 10;
 			int settingHoverPointOffset = 10;
 
@@ -3879,10 +3965,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-		TIMER_BLOCK_BEGIN_NAMED(sidePanel, "SidePanel");
-
 		// Side panel.
 		if(ad->selectedVideo != -1) {
+
+			TIMER_BLOCK_NAMED("SidePanel");
 
 			// Graph selection line.
 			{
@@ -4013,7 +4099,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			yPos -= rectH(infoPanelTop) + 8;
 
 			glEnable(GL_SCISSOR_TEST);
-			scissorTestScreen(rPanel);
+			scissorTestScreen(rectExpand(rPanel,2));
 
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
 			VideoSnippet* sn = &ad->videoSnippet;
@@ -4151,10 +4237,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(closePanel) ad->selectedVideo = -1;
 		}
 
-		TIMER_BLOCK_END(sidePanel);
-
 		// Filters gui.
 		{
+			TIMER_BLOCK_NAMED("Filtesr Gui");
+
 			char* labels[] = {"Panel (F1)", "Reset", "Draw Mode:", "Avg. (width/res months):", "Filter (Incl./Excl.):"};
 			int li = 0;
 			float bp = font->height;
@@ -4381,6 +4467,123 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
+
+
+	if(true)
+	{
+		drawRectNewColoredH(getScreenRect(ws), colorHSL(0.5f, 0.5f,0.1f), colorHSL(0.5f, 0.5f,0.2f));
+
+		glLineWidth(2);
+		Rect sr = getScreenRect(ws);
+		Vec2 cen = rectCen(sr);
+		int event;
+
+		static Vec2 lp1 = vec2(cen.x-20,sr.top - 100);
+		Rect rHandle1 = rectCenDim(lp1, vec2(10,10));
+
+		drawRect(rHandle1, vec4(0.8f,1));
+
+		event = newGuiGoDragAction(ad->gui, rHandle1, 5);
+		if(event == 1) ad->gui->mouseAnchor = input->mousePosNegative - lp1;
+		if(event > 0) lp1 = input->mousePosNegative - ad->gui->mouseAnchor;
+
+
+		static Vec2 lp2 = vec2(cen.x+20,sr.top - 100);
+		Rect rHandle2 = rectCenDim(lp2, vec2(10,10));
+
+		drawRect(rHandle2, vec4(0.8f,1));
+
+		event = newGuiGoDragAction(ad->gui, rHandle2, 5);
+		if(event == 1) ad->gui->mouseAnchor = input->mousePosNegative - lp2;
+		if(event > 0) lp2 = input->mousePosNegative - ad->gui->mouseAnchor;
+
+
+
+		Vec2 lp0 = vec2(cen.x-200,sr.top - 200);
+		Vec2 lp3 = vec2(cen.x+200,sr.top - 200);
+
+		drawLine(lp0, lp1, vec4(0.7,0.3f,0,1));
+		drawLine(lp2, lp3, vec4(0.7,0.3f,0,1));
+
+		drawLineStripHeader(vec4(0.4f,0.5f,0.7f,1));
+		int segmentCount = 100;	
+		for(int i = 0; i < segmentCount+1; i++) {
+
+			float a = (float)i/(float)segmentCount;
+ 
+			Vec2 p0 = lerpVec2(a, lp0, lp1);
+			Vec2 p1 = lerpVec2(a, lp1, lp2);
+
+			Vec2 pf0 = lerpVec2(a, p0, p1);
+
+			Vec2 p2 = lerpVec2(a, lp1, lp2);
+			Vec2 p3 = lerpVec2(a, lp2, lp3);
+
+			Vec2 pf1 = lerpVec2(a, p2, p3);
+
+			Vec2 p = lerpVec2(a, pf0, pf1);
+
+			pushVec(p);
+		}
+		glEnd();
+
+
+
+
+
+		static Vec2 lines[1000];
+		static int lineCount = 0;
+
+		glPointSize(5);
+
+
+		if(input->mouseButtonDown[0]) {
+			lines[lineCount++] = input->mousePosNegative;
+		}
+
+		for(int i = 0; i < lineCount; i++) {
+			drawPoint(lines[i], vec4(1,0,0,1));
+		}
+
+
+		if(lineCount >= 4) {
+			glPointSize(5);
+			drawPointsHeader(vec4(1,0,0,1));
+			for(int i = 0; i < lineCount; i++) {
+				pushVec(lines[i]);
+			}
+			glEnd();
+
+			for(int i = 1; i < lineCount-2; i++) {
+
+				Vec2 p0 = lines[i-1];
+				Vec2 p1 = lines[i];
+				Vec2 p2 = lines[i+1];
+				Vec2 p3 = lines[i+2];
+
+				Vec4 c2 = vec4(0.9f,1);
+				{
+					drawLineStripHeader(c2);
+					for(int i = 0; i < segmentCount; i++) {
+						float t = ((float)i/((float)segmentCount-1));
+
+						float x = cubicInterpolation(p0.x, p1.x, p2.x, p3.x, t);
+						float y = cubicInterpolation(p0.y, p1.y, p2.y, p3.y, t);
+
+						Vec2 p = vec2(x,y);
+
+						pushVec(p);
+					}
+					glEnd();
+				}
+
+			}
+		}
+
+
+		glLineWidth(1);
+	}
+
 	newGuiEnd(ad->gui);
 
 	if(false)
@@ -4396,14 +4599,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 // void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
 		char* text = "This is a Text, Yo! AV To | 123 _., ABC abc";
-		int fontSize = 15;
+		int fontSize = 60;
 		Font* font;
-		// Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100);
-		Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100) + vec2(1, 0)*(fmod(ad->time*1, 100));
+		Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100);
+		// Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100) + vec2(1, 0)*(fmod(ad->time*10, 100));
 		Vec4 c = vec4(1,1);
 		// Vec4 c2 = vec4((sin(ad->time*2)+1)/2 , 1);
 		Vec4 c2 = vec4(0,1);
-		int shadow = 0;
+		int shadow = 3;
 
 		font = getFont(FONT_LIBERATION_MONO, fontSize);
 		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2); 
@@ -4429,19 +4632,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// printf("%f %f %f %f");
 
 		// *isRunning = false;
-
 	}
 
 
-	// bindFrameBuffer(FRAMEBUFFER_ScreenShot);
-	// drawRect(rectCenDim(100,-100,1000,1000), vec4(1,0,0,1));
 
-	// bindFrameBuffer(FRAMEBUFFER_2dMsaa);
-	// drawRect(rectCenDim(220,-220,200,200), vec4(1,1), rect(0,1,1,0), getFrameBuffer(FRAMEBUFFER_ScreenShot)->colorSlot[0]->id);
-
-
+	{
+		TIMER_BLOCK_NAMED("DebugBegin");
+	}
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
+
+	{
+		TIMER_BLOCK_NAMED("DebugEnd");
+	}
 
 	// Render.
 	{
@@ -4451,23 +4654,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec2i res = ws->currentRes;
 		Rect frameBufferUV = rect(0,(float)res.h/frameBufferRes.h,(float)res.w/frameBufferRes.w,0);
 
+		{
+			TIMER_BLOCK_NAMED("BlitBuffers");
 
-		blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+			blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-		if(!ad->screenShotMode) {
-			blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+			if(!ad->screenShotMode) {
+				blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-			glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-			glBlendEquation(GL_FUNC_ADD);
-			bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
+				glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+				glBlendEquation(GL_FUNC_ADD);
+				bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
 
-			glLoadIdentity();
-			glViewport(0,0, res.w, res.h);
-			glOrtho(0,1,1,0, -1, 1);
+				glLoadIdentity();
+				glViewport(0,0, res.w, res.h);
+				glOrtho(0,1,1,0, -1, 1);
 
-			drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glBlendEquation(GL_FUNC_ADD);
+				drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glBlendEquation(GL_FUNC_ADD);
+			}
 		}
 
 
@@ -4504,6 +4710,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, ad->frameBufferSize.w, ad->frameBufferSize.h);
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, ad->frameBufferSize.w, ad->frameBufferSize.h);
 		} else {
+			TIMER_BLOCK_NAMED("RenderMainBuffer");
+
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 			glLoadIdentity();
 			glViewport(0,0, res.w, res.h);

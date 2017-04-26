@@ -215,10 +215,8 @@ inline float mapRangeClamp(float value, float min, float max, float rangeMin, fl
 
 // 0 to 1
 float lerp(float percent, float min, float max) {
-	float result = min + percent * (max-min);
-	return result;
+	return min + percent * (max-min);
 }
-
 
 inline bool valueBetween(float v, float min, float max) {
 	return (v >= min && v <= max);
@@ -258,7 +256,7 @@ inline float sign(float p1[2], float p2[2], float p3[2]) {
 	return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1]);
 }
 
-inline int sign(float x) {
+inline float sign(float x) {
 	int s;
 	if(x < 0) s = -1;
 	if(x > 0) s = 1;
@@ -387,6 +385,24 @@ void rgbToHsl(float color[3], double r, double g, double b) {
 
 void vSet3(float res[3], float x, float y, float z);
 void hslToRgb(float color[3], double h, double s, double l) {
+	double c = 0.0, m = 0.0, x = 0.0;
+	c = (1.0 - fabs(2 * l - 1.0)) * s;
+	m = 1.0 * (l - 0.5 * c);
+	// x = c * (1.0 - fabs(fmod(h / 60.0, 2) - 1.0));
+	x = c * (1.0 - fabs(modFloat(h / 60.0, 2) - 1.0));
+	if (h == 360) h = 0;
+	if (h >= 0.0 && h < 60)  vSet3(color, c + m, x + m, m);
+	else if (h >= 60 && h < 120) vSet3(color, x + m, c + m, m);
+	else if (h >= 120 && h < 180) vSet3(color, m, c + m, x + m);
+	else if (h >= 180 && h < 240) vSet3(color, m, x + m, c + m);
+	else if (h >= 240 && h < 300) vSet3(color, x + m, m, c + m);
+	else if (h >= 300 && h < 360) vSet3(color, c + m, m, x + m);
+	else vSet3(color, m, m, m);
+}
+
+void hslToRgbFloat(float color[3], double hPercent, double s, double l) {
+	int h = 360 * hPercent;
+
 	double c = 0.0, m = 0.0, x = 0.0;
 	c = (1.0 - fabs(2 * l - 1.0)) * s;
 	m = 1.0 * (l - 0.5 * c);
@@ -1592,6 +1608,24 @@ inline Vec2 calculateVelocity(Vec2 oldVelocity, Vec2 acceleration, float time) {
 	return oldVelocity;
 }
 
+inline void calculateVelocityMul(float* velocity, float acceleration, float minVelocity, float time) {
+	if(abs(*velocity) >= minVelocity) *velocity *= acceleration;
+	else *velocity = 0;
+}
+
+inline void calculateVelocityAdd(float* velocity, float acceleration, float minVelocity, float time) {
+	if(abs(*velocity) > minVelocity) {
+		if(*velocity > 0) {
+			*velocity -= acceleration;
+			clampMin(&*velocity, 0);
+		}  else if(*velocity < 0) {
+			*velocity += acceleration;
+			clampMax(&*velocity, 0);
+		}
+	} else *velocity = 0;
+}
+
+
 inline Vec2 clampMin(Vec2 v, Vec2 dim) {
 	Vec2 result;
 	result.x = clampMin(v.x, dim.x);
@@ -1711,6 +1745,13 @@ inline bool vecBetweenVecs(Vec2 v, Vec2 left, Vec2 right) {
 	float cb = cross(right,v);
 
 	result = ca < 0 && cb > 0;
+	return result;
+}
+
+inline Vec2 lerpVec2(float percent, Vec2 min, Vec2 max) {
+	Vec2 result;
+	result.x = lerp(percent, min.x, max.x);
+	result.y = lerp(percent, min.y, max.y);
 	return result;
 }
 
@@ -2244,6 +2285,16 @@ inline Mat4 projMatrix(float fov, float ar, float n, float f) {
 	projMatrix(&m, fov, ar, n, f);
 	
 	return m;
+}
+
+inline Vec4 colorHSL(Vec3 hsl) {
+	float c[3];
+	hslToRgbFloat(c, hsl.x, hsl.y, hsl.z);
+	return vec4(c[0], c[1], c[2], 1);
+}
+
+inline Vec4 colorHSL(float h, float s, float l) {
+	return colorHSL(vec3(h,s,l));
 }
 
 //
@@ -3186,6 +3237,21 @@ void graphCamScaleToPos(GraphCam* cam, int xAmount, double xScale, int yAmount, 
 	cam->y += diff * posOffset;
 
 	graphCamUpdateSides(cam);
+}
+
+void graphCamCalcScale(GraphCam* cam, int xAmount, double xScale, float pos, double* newPos, double* newSize) {
+	double diff, offset;
+	float posOffset;
+	double mod;
+
+	diff = cam->w;
+	mod = pow(xScale, abs(xAmount));
+	offset = xAmount > 0 ? mod : 1/mod;
+	*newSize = cam->w * offset;
+
+	diff -= (*newSize);
+	posOffset = mapRange(pos, cam->viewPort.left, cam->viewPort.right, -0.5f, 0.5f);
+	*newPos = cam->x + (diff * posOffset);
 }
 
 void graphCamPosClamp(GraphCam* cam, double xMin, double xMax, double yMin, double yMax) {

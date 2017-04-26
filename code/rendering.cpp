@@ -660,6 +660,21 @@ void drawRectNewColored(Rect r, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3) {
 	glEnd();
 }
 
+void drawRectNewColoredH(Rect r, Vec4 c0, Vec4 c1) {	
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vec4 cs0 = colorSRGB(c0);
+	Vec4 cs1 = colorSRGB(c1);
+
+	glColor4f(1,1,1,1);
+	glBegin(GL_QUADS);
+		glColor4f(cs0.r, cs0.g, cs0.b, cs0.a); glVertex3f(r.left, r.bottom, 0.0);
+		glColor4f(cs1.r, cs1.g, cs1.b, cs1.a); glVertex3f(r.left, r.top, 0.0);
+		glColor4f(cs1.r, cs1.g, cs1.b, cs1.a); glVertex3f(r.right, r.top, 0.0);
+		glColor4f(cs0.r, cs0.g, cs0.b, cs0.a); glVertex3f(r.right, r.bottom, 0.0);
+	glEnd();
+}
+
 void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	if(steps == 0) steps = 6;
 	float s = size;
