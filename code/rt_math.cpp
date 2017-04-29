@@ -625,6 +625,17 @@ float easeInOutCirc(float t, float b, float c, float d) {
 	return c / 2 * (sqrt(1 - t*t) + 1) + b;
 };
 
+
+float cubicInterpolation(float A, float B, float C, float D, float t) {
+	float a = -A/2.0f + (3.0f*B)/2.0f - (3.0f*C)/2.0f + D/2.0f;
+	float b = A - (5.0f*B)/2.0f + 2.0f*C - D / 2.0f;
+	float c = -A/2.0f + C/2.0f;
+	float d = B;
+	
+	return a*t*t*t + b*t*t + c*t + d;
+}
+
+
 int randomInt(int from, int to) {
 	return rand() % (to - from + 1) + from;
 };
@@ -995,6 +1006,10 @@ union Vec2 {
 
 	struct {
 		float w, h;
+	};
+
+	struct {
+		float min, max;
 	};
 
 	float e[2];
@@ -1755,6 +1770,30 @@ inline Vec2 lerpVec2(float percent, Vec2 min, Vec2 max) {
 	return result;
 }
 
+inline Vec2 cubicInterpolationVec2(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, float t) {
+	Vec2 v;
+	v.x = cubicInterpolation(p0.x, p1.x, p2.x, p3.x, t);
+	v.y = cubicInterpolation(p0.y, p1.y, p2.y, p3.y, t);
+	return v;
+}
+
+inline float bezierCurveGuessLength(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3) {
+	float length = lenLine(p0,p1) + lenLine(p1,p2) + lenLine(p2,p3) + lenLine(p3,p0);
+	length = length / 2;
+	return length;
+}
+
+inline void clampVec2(Vec2* v, Vec2 min, Vec2 max) {
+	clamp(&v->x, min.x, max.x);
+	clamp(&v->y, min.y, max.y);
+}
+
+inline Vec2 clampVec2(Vec2 v, Vec2 min, Vec2 max) {
+	v.x = clamp(v.x, min.x, max.x);
+	v.y = clamp(v.y, min.y, max.y);
+	return v;
+}
+
 //
 //
 //
@@ -2509,6 +2548,48 @@ inline Rect rectGetMinMax(Rect r) {
 	return newR;
 }
 
+Vec2 rectAlign(Rect r, Vec2i align) {
+	     if(align == vec2i( 0, 0)) return rectCen(r);
+	else if(align == vec2i(-1,-1)) return rectBL (r);
+	else if(align == vec2i(-1, 0)) return rectL  (r);
+	else if(align == vec2i(-1, 1)) return rectTL (r);
+	else if(align == vec2i( 0, 1)) return rectT  (r);
+	else if(align == vec2i( 1, 1)) return rectTR (r);
+	else if(align == vec2i( 1, 0)) return rectR  (r);
+	else if(align == vec2i( 1,-1)) return rectBR (r);
+	else if(align == vec2i( 0,-1)) return rectB  (r);
+
+	return vec2(0,0);
+}
+
+Rect rectAlignDim(Vec2 v, Vec2i align, Vec2 dim) {
+	     if(align == vec2i(0,  0)) return rectCenDim( v, dim );
+	else if(align == vec2i(-1,-1)) return rectBLDim ( v, dim );
+	else if(align == vec2i(-1, 0)) return rectLDim  ( v, dim );
+	else if(align == vec2i(-1, 1)) return rectTLDim ( v, dim );
+	else if(align == vec2i( 0, 1)) return rectTDim  ( v, dim );
+	else if(align == vec2i( 1, 1)) return rectTRDim ( v, dim );
+	else if(align == vec2i( 1, 0)) return rectRDim  ( v, dim );
+	else if(align == vec2i( 1,-1)) return rectBRDim ( v, dim );
+	else if(align == vec2i( 0,-1)) return rectBDim  ( v, dim );
+
+	return rect(0,0,0,0);
+}
+
+Rect rectAlignDim(Rect r, Vec2i align, Vec2 dim) {
+	     if(align == vec2i(0,  0)) return rectCenDim( rectCen(r), dim );
+	else if(align == vec2i(-1,-1)) return rectBLDim ( rectBL (r), dim );
+	else if(align == vec2i(-1, 0)) return rectLDim  ( rectL  (r), dim );
+	else if(align == vec2i(-1, 1)) return rectTLDim ( rectTL (r), dim );
+	else if(align == vec2i( 0, 1)) return rectTDim  ( rectT  (r), dim );
+	else if(align == vec2i( 1, 1)) return rectTRDim ( rectTR (r), dim );
+	else if(align == vec2i( 1, 0)) return rectRDim  ( rectR  (r), dim );
+	else if(align == vec2i( 1,-1)) return rectBRDim ( rectBR (r), dim );
+	else if(align == vec2i( 0,-1)) return rectBDim  ( rectB  (r), dim );
+
+	return r;
+}
+
 inline bool operator==(Rect r1, Rect r2) { return (r1.min == r2.min) && (r1.max == r2.max); }
 inline bool operator!=(Rect r1, Rect r2) { return (r1.min != r2.min) && (r1.max != r2.max); }
 
@@ -2567,6 +2648,10 @@ bool pointInRectEx(Vec2 p, Rect r) {
 bool rectEmpty(Rect r) {
 	bool result = (r == rect(0,0,0,0));
 	return result;
+}
+
+bool rectZero(Rect r) {
+	return (rectW(r) <= 0.0f || rectH(r) <= 0.0f);
 }
 
 bool rectInsideRect(Rect r0, Rect r1) {

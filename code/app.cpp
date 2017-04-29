@@ -36,10 +36,6 @@
 	- Memory leak at startup that goes away when you do something.
 	- Filter duplicate videos.
 
-
-
-	- Done Today:
-
 	Bug:
 	- Memory leak at text snippet panel above jpg. 
 */
@@ -794,7 +790,7 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 		lineGraph->points[i] = (double*)malloc(statCount*sizeof(double));
 	}
 
-	Statistic* stats[4];
+	Statistic* stats[Line_Graph_Count];
 	for(int i = 0; i < Line_Graph_Count; i++) stats[i] = getTArray(Statistic, statCount);
 
 	for(int i = 0; i < statCount; i++) {
@@ -817,7 +813,6 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 		}
 	}
 
-	double lastValidData = 0;
 	for(int i = 0; i < statCount; i++) {
 		for(int gi = 0; gi < Line_Graph_Count; gi++) {
 			endStatistic(stats[gi] + i);
@@ -1985,14 +1980,13 @@ struct AppSettings {
 	int marginSlider;
 
 	int commentScrollbarWidth;
-
 	int sidePanelMinWidth;
-
 	int resizeRegionSize;
-
 	int titleOffset;
-
 	int fontShadow;
+
+	float cubicCurveSegmentMod;
+	float cubicCurveSegmentMin;
 };
 
 #define Graph_Zoom_Min 24*60*60
@@ -2103,6 +2097,7 @@ struct AppData {
 	float statTimeSpan;
 	float statWidth;
 
+	Statistic stats[Line_Graph_Count];
 	LineGraph averagesLineGraph;
 
 	char exclusiveFilter[50];
@@ -2124,14 +2119,267 @@ struct AppData {
 };
 
 
-float cubicInterpolation(float A, float B, float C, float D, float t) {
-	float a = -A/2.0f + (3.0f*B)/2.0f - (3.0f*C)/2.0f + D/2.0f;
-	float b = A - (5.0f*B)/2.0f + 2.0f*C - D / 2.0f;
-	float c = -A/2.0f + C/2.0f;
-	float d = B;
-	
-	return a*t*t*t + b*t*t + c*t + d;
+
+
+
+
+
+struct LayoutNode {
+	Vec2i align;
+	Rect r;
+
+	LayoutNode* next;
+	LayoutNode* list;
+
+	Vec2 minDim;
+	Vec2 maxDim;
+	Vec2 dim;
+
+	Vec2 finalSize;
+
+	Vec2 padding;
+	Vec2 borderPadding;
+
+	bool vAxis;
+};
+
+LayoutNode layoutNode(Vec2 dim) {
+	LayoutNode node = {};
+	node.dim = dim;
+	return node;;
 }
+
+Rect layoutGetRect(LayoutNode* node) {
+	return rectExpand(node->r, -node->borderPadding*2);
+}
+
+void layoutAddNode(LayoutNode* node, LayoutNode* newNode) {
+	LayoutNode* list = node->list;
+
+	if(list == 0) node->list = newNode;
+	else {
+		while(list->next != 0) list = list->next;
+		list->next = newNode;
+	}
+}
+
+LayoutNode* layoutAddNode(LayoutNode* node, LayoutNode nn) {
+	LayoutNode* list = node->list;
+
+	LayoutNode* newNode = getTStruct(LayoutNode);
+	*newNode = nn;
+
+	if(list == 0) node->list = newNode;
+	else {
+		while(list->next != 0) list = list->next;
+		list->next = newNode;
+	}
+
+	return newNode;
+}
+
+// void layoutCalcSizes(LayoutNode* mainNode) {
+// 	LayoutNode* n;
+// 	bool vAxis = mainNode->vAxis;
+// 	Rect mainRect = layoutGetRect(mainNode);
+
+// 	if(rectZero(mainRect)) return;
+
+// 	float dynamicSum = 0;
+// 	int flowCount = 0;
+// 	float staticSum = 0;
+// 	int staticCount = 0;
+// 	int size = 0;
+
+// 	n = mainNode->list;
+// 	while(n != 0) {
+// 		float val = n->dim.e[vAxis];
+			
+// 		if(val == 0) flowCount++; 			 // float element
+// 		else if(val <= 1) dynamicSum += val; // dynamic element
+// 		else { 								 // static element
+// 			staticSum += val;
+// 			staticCount++;
+// 		}
+
+// 		size++;
+
+// 		n = n->next;
+// 	}
+
+
+// 	if(flowCount) {
+// 		float flowVal = abs(dynamicSum-1)/(float)flowCount;
+
+// 		n = mainNode->list;
+// 		while(n != 0) {
+// 			if(n->dim.e[vAxis] == 0) n->dim.e[vAxis] = flowVal;
+
+// 			n = n->next;
+// 		}
+// 	}
+
+
+// 	float width = rectW(mainRect);
+// 	float offset = mainNode->padding.e[vAxis];
+
+// 	float totalWidth = width - staticSum - offset*(size-1);
+// 	float sum = 0;
+
+// 	n = mainNode->list;
+// 	while(n != 0) {
+
+// 		n->finalSize = n->dim;
+
+// 		// if(sum > width) {
+// 		// 	n->finalSize.e[vAxis] = 0;
+// 		// 	n = n->next;
+// 		// 	continue;
+// 		// }
+
+// 		float val = n->dim.e[vAxis];
+// 		if(val <= 1) {
+// 			if(totalWidth > 0) n->finalSize.e[vAxis] = val * totalWidth;
+// 			else n->finalSize.e[vAxis] = 0;
+// 		} else n->finalSize.e[vAxis] = val;
+
+// 		float added = n->finalSize.e[vAxis] + offset;
+// 		if(false) {
+// 		// if(sum + added > width) {
+// 			n->finalSize.e[vAxis] = width - sum;
+// 			sum += added;
+// 		}
+// 		else sum += added;
+
+// 		n = n->next;
+// 	}
+// }
+
+void layoutCalcSizes(LayoutNode* mainNode) {
+	LayoutNode* n;
+	bool vAxis = mainNode->vAxis;
+	Rect mainRect = layoutGetRect(mainNode);
+
+	if(rectZero(mainRect)) return;
+
+	int size = 0;
+	n = mainNode->list;
+	while(n != 0) {
+		size++;
+		n = n->next;
+	}
+
+	float dim = vAxis==0? rectW(mainRect) : rectH(mainRect);
+	float dim2 = vAxis==1? rectW(mainRect) : rectH(mainRect);
+	float offset = mainNode->padding.e[vAxis];
+	float totalWidth = dim - offset*(size-1);
+
+	float dynamicSum = 0;
+	int flowCount = 0;
+	float staticSum = 0;
+	int staticCount = 0;
+
+	float widthWithoutFloats = 0;
+
+	n = mainNode->list;
+	while(n != 0) {
+		float val = n->dim.e[vAxis];
+			
+		if(val == 0) flowCount++;
+		else if(val <= 1) widthWithoutFloats += val*totalWidth;
+		else widthWithoutFloats += val;
+
+		val = n->dim.e[(vAxis+1)%2];
+		if(val == 0) n->dim.e[(vAxis+1)%2] = dim2;
+		else if(val <= 1) n->dim.e[(vAxis+1)%2] = val * dim2;
+
+		n = n->next;
+	}
+
+
+	float flowVal = flowCount>0 ? (totalWidth-widthWithoutFloats)/flowCount : 0;
+	flowVal = clampMin(flowVal, 0);
+	n = mainNode->list;
+	while(n != 0) {
+		n->finalSize = n->dim;
+
+		float val = n->dim.e[vAxis];
+		if(val == 0) n->finalSize.e[vAxis] = flowVal;
+		else if(val <= 1) n->finalSize.e[vAxis] = val*totalWidth;
+
+		clampMin(&n->finalSize.e[vAxis], 0);
+
+		if(n->minDim.x != 0) clampMin(&n->finalSize.x, n->minDim.x);
+		if(n->maxDim.x != 0) clampMax(&n->finalSize.x, n->maxDim.x);
+		if(n->minDim.y != 0) clampMin(&n->finalSize.y, n->minDim.y);
+		if(n->maxDim.y != 0) clampMax(&n->finalSize.y, n->maxDim.y);
+
+		n = n->next;
+	}
+
+}
+
+void layoutCalcRects(LayoutNode* mainNode) {
+	Rect mainRect = layoutGetRect(mainNode);
+	if(rectZero(mainRect)) return;
+
+	bool vAxis = mainNode->vAxis;
+	LayoutNode* node;
+
+	Vec2 boundingDim = vec2(0,0);
+	node = mainNode->list;
+	while(node != 0) {
+		boundingDim.e[vAxis] += node->finalSize.e[vAxis] + mainNode->padding.e[vAxis];
+		boundingDim.e[(vAxis+1)%2] = max(boundingDim.e[(vAxis+1)%2], node->finalSize.e[(vAxis+1)%2]);
+
+		node = node->next;
+	}
+	boundingDim.e[vAxis] -= mainNode->padding.e[vAxis];
+
+	addDebugInfo(fillString("%f %f", boundingDim.x, boundingDim.y));
+
+	Vec2i align = mainNode->align;
+	Vec2 currentPos = rectAlign(mainRect, align);
+
+	if(vAxis == false) {
+		currentPos.x -= boundingDim.x * (align.x+1)/2;
+		currentPos.y += boundingDim.y * (-align.y)/2;
+
+		node = mainNode->list;
+		while(node != 0) {
+			Vec2 p = currentPos;
+			p.y -= node->finalSize.y/2;
+
+			node->r = rectBLDim(p, node->finalSize);
+			currentPos.x += node->finalSize.x + mainNode->padding.x;
+
+			node = node->next;
+		}
+	} else {
+		currentPos.y -= boundingDim.y * (align.y-1)/2;
+		currentPos.x += boundingDim.x * (-align.x)/2;
+
+		node = mainNode->list;
+		while(node != 0) {
+			Vec2 p = currentPos;
+			p.x -= node->finalSize.x/2;
+
+			node->r = rectTLDim(p, node->finalSize);
+			currentPos.y -= node->finalSize.y + mainNode->padding.y;
+
+			node = node->next;
+		}
+	}
+
+}
+
+void layoutCalc(LayoutNode* mainNode) {
+	layoutCalcSizes(mainNode);
+	layoutCalcRects(mainNode);
+}
+
+
+
 
 
 void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
@@ -2505,8 +2753,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// Update input.
 	{
 		TIMER_BLOCK_NAMED("Input");
-		ad->appIsBusy = false;
 		updateInput(ds->input, isRunning, windowHandle, !ad->appIsBusy);
+		ad->appIsBusy = false;
+
 		ad->input = *ds->input;
 
 		if(ds->console.isActive) {
@@ -2523,8 +2772,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		newGuiBegin(ad->gui, input);
 
 		SetCursor(LoadCursor(0, IDC_ARROW));
-
-		ad->appIsBusy = false;
 
 		{
 			ad->appColors.graphBackgroundBottom = vec4(0.2f, 0.1f, 0.4f, 1);
@@ -2583,6 +2830,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->appSettings.sidePanelMinWidth = 200;
 			ad->appSettings.resizeRegionSize = 10;
 			ad->appSettings.titleOffset = 10;
+
+			ad->appSettings.cubicCurveSegmentMod = 20;
+			ad->appSettings.cubicCurveSegmentMin = 4;
 		}
 	}
 
@@ -2789,13 +3039,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Clear all the framebuffers and window backbuffer.
 	{
-		// glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		// glClearColor(0,0,0,0);
-		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClearColor(0,0,0,0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-		// bindFrameBuffer(FRAMEBUFFER_2dMsaa);
-		// glClearColor(0,0,0,0);
-		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		bindFrameBuffer(FRAMEBUFFER_2dMsaa);
+		glClearColor(0,0,0,0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		bindFrameBuffer(FRAMEBUFFER_DebugMsaa);
 		glClearColor(0,0,0,0);
@@ -3255,13 +3505,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				}
 
-				Statistic statViews, statLikes, statDislikes, statDates, statComments;
+				Statistic statViews, statLikes, statLikesDiff, statDates, statComments;
 				{
 					TIMER_BLOCK_NAMED("Get Stats");
 
 					beginStatistic(&statViews);
 					beginStatistic(&statLikes);
 					beginStatistic(&statDates);
+					beginStatistic(&statLikesDiff);
 					beginStatistic(&statComments);
 
 					for(int i = 0; i < ad->playlist.count; i++) {
@@ -3269,10 +3520,21 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 						updateStatistic(&statViews, video->viewCount);
 						updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
+						updateStatistic(&statLikesDiff, divZero(video->dislikeCount, (video->likeCount + video->dislikeCount)));
 						updateStatistic(&statComments, video->commentCount);
-
-						if(video->date.n > 0) updateStatistic(&statDates, video->date.n);
+						updateStatistic(&statDates, video->date.n);
 					}
+
+					endStatistic(&statViews);
+					endStatistic(&statLikes);
+					endStatistic(&statLikesDiff);
+					endStatistic(&statDates);
+					endStatistic(&statComments);
+
+					ad->stats[0] = statViews;
+					ad->stats[1] = statLikes;
+					ad->stats[2] = statLikesDiff;
+					ad->stats[3] = statComments;
 				}
 
 				// Init cam after loading.
@@ -3830,7 +4092,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		// Average line.
-		if(ad->sortByDate)
 		{
 			glLineWidth(1);
 			glEnable(GL_SCISSOR_TEST);
@@ -3844,23 +4105,52 @@ extern "C" APPMAINFUNCTION(appMain) {
 				double avgWidth = monthsToInt(ad->statWidth);
 				double avgTimeSpan = monthsToInt(ad->statTimeSpan);
 
-				scissorTestScreen(cam->viewPort);
+				scissorTestScreen(rectExpand(cam->viewPort, 1));
 
-				drawLineStripHeader(c);
-				double xPos = avgStartX;
-				for(int i = 0; i < ad->averagesLineGraph.count; i++) {
-					if(xPos + avgWidth < cam->left) {
+				if(ad->sortByDate) {
+					drawLineStripHeader(c);
+					// glPointSize(4);
+					// drawPointsHeader(c);
+
+					double xPos = avgStartX;
+					int endCount = ad->averagesLineGraph.count-1;
+					for(int i = 0; i < endCount; i++) {
+						if(xPos + avgWidth < cam->left) {
+							xPos += avgWidth;
+							continue;
+						}
+						if(xPos - avgWidth > cam->right) break;
+
+						{
+							Vec2 p0, p1, p2, p3;
+
+							p1 = graphCamMap(cam, xPos, ad->averagesLineGraph.points[graphIndex][i]);
+							p2 = graphCamMap(cam, xPos+avgWidth, ad->averagesLineGraph.points[graphIndex][i+1]);
+							
+							if(i != 0) p0 = graphCamMap(cam, xPos-avgWidth, ad->averagesLineGraph.points[graphIndex][i-1]);
+							else p0 = p1 + (p1 - p2);
+							if(i != endCount-1) p3 = graphCamMap(cam, xPos+avgWidth*2, ad->averagesLineGraph.points[graphIndex][i+2]);
+							else p3 = p2 - (p2 - p1);
+
+							int segmentCount = bezierCurveGuessLength(p0, p1, p2, p3)/as->cubicCurveSegmentMod;
+							segmentCount = clampMin(segmentCount, as->cubicCurveSegmentMin);
+
+							for(int i = 0; i < segmentCount; i++) {
+								pushVec(cubicInterpolationVec2(p0, p1, p2, p3, (float)i/(segmentCount-1)));
+							}	
+
+						}
+
 						xPos += avgWidth;
-						continue;
 					}
-					if(xPos - avgWidth > cam->right) break;
+					glEnd();
 
-					pushVec(graphCamMap(cam, xPos, ad->averagesLineGraph.points[graphIndex][i]));
-
-					xPos += avgWidth;
+				} else {
+					Statistic* stat = ad->stats + graphIndex;
+					float y = graphCamMapY(cam, stat->avg);
+					drawLine(vec2(cam->viewPort.left, y), vec2(cam->viewPort.right, y), c);
 				}
 
-				glEnd();
 			}
 
 			glDisable(GL_SCISSOR_TEST);
@@ -3921,6 +4211,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 						ad->selectedPoint = ad->hoveredPoint;
 						ad->selectedVideo = vi;
 						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+
+						ad->appIsBusy = true;
 					}
 				}
 			}
@@ -4034,6 +4326,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 							if(newSelection != ad->selectedVideo) {
 								ad->selectedVideo = newSelection;
 								downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+								ad->appIsBusy = true;
 							}
 						}
 					}
@@ -4070,6 +4363,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 							if(newSelection != ad->selectedVideo) {
 								ad->selectedVideo = newSelection;
 								downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
+								ad->appIsBusy = true;
 							}
 						}
 					}
@@ -4469,8 +4763,95 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-	if(true)
+	if(true) {
+		// Layout test.
+
+		newGuiSetHotAll(ad->gui, 0);
+
+		Rect sr = getScreenRect(ws);
+		Vec2 cen = rectCen(sr);
+
+		float alpha = 1.0f;
+		Vec3 hslColor = vec3(0.5, 0.5f, 0.1f);
+		drawRectNewColoredH(getScreenRect(ws), vec4(colorHSL(hslColor).rgb, alpha), vec4(colorHSL(hslColor+vec3(0,0,0.1f)).rgb, alpha));
+
+		// LayoutNode nodeStack[20] = {};
+		// int nodeStackCount = 0;
+
+
+		LayoutNode* mainNode = getTStruct(LayoutNode);
+		*mainNode = {};
+		// mainNode->align = vec2i(-1,0);
+		mainNode->align = vec2i(0,0);
+		// mainNode->r = rectSetDim(sr, vec2(1000,800));
+		mainNode->r = rectExpand(sr, -vec2(632, 100));
+		// mainNode->borderPadding = vec2(10,10);
+		mainNode->padding = vec2(10,10);
+		mainNode->vAxis = true;
+
+		addDebugInfo(fillString("w %f h %f", rectW(mainNode->r), rectH(mainNode->r)));
+
+		Vec2 sizes[] = { vec2(100  ,100), 
+						 vec2(0.3f  ,0),
+						 vec2(0  ,100), 
+						 vec2(0.5f ,0),  
+						 vec2(100  ,100) };
+		int sizesIndex = 0;
+
+		LayoutNode* ln;
+		
+		layoutAddNode(mainNode, layoutNode(sizes[sizesIndex++]));
+
+		LayoutNode* ln2 = layoutAddNode(mainNode, layoutNode(sizes[sizesIndex++]));
+			ln2->align = vec2i(-1,1);
+			ln2->vAxis = false;
+			ln2->borderPadding = vec2(10,10);
+			ln2->padding = vec2(10,0);
+
+			layoutAddNode(ln2, layoutNode(vec2(0,100)));
+			layoutAddNode(ln2, layoutNode(vec2(150,80)));
+
+		layoutAddNode(mainNode, layoutNode(sizes[sizesIndex++]));
+
+
+
+
+		layoutCalc(mainNode);
+		layoutCalc(ln2);
+
+		drawRect(mainNode->r, vec4(0,0.1f));
+
+		Font* font = getFont(FONT_CALIBRI, 20);
+
+		// Draw all nodes.
+		{
+			int i = 0;
+			LayoutNode* node = mainNode->list;
+			while(node != 0) {
+
+				drawRect(node->r, colorHSL(hslColor+vec3((float)i/20,0,0.1f)));
+				drawText(fillString("%f", node->finalSize.x), font, rectCen(node->r), vec4(0.9,1), vec2i(0,0));
+				i++;
+
+				LayoutNode* node2 = node->list;
+				while(node2 != 0) {
+					drawRect(node2->r, colorHSL(hslColor+vec3((float)i/20,0,0.1f)));
+					drawText(fillString("%f", node2->finalSize.x), font, rectCen(node2->r), vec4(0.9,1), vec2i(0,0));
+
+					node2 = node2->next;
+					i++;
+				}
+
+				node = node->next;
+			}
+		}
+
+	}
+
+	if(false)
 	{
+		newGuiSetHotAll(ad->gui, 0);
+
 		drawRectNewColoredH(getScreenRect(ws), colorHSL(0.5f, 0.5f,0.1f), colorHSL(0.5f, 0.5f,0.2f));
 
 		glLineWidth(2);
@@ -4478,7 +4859,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec2 cen = rectCen(sr);
 		int event;
 
-		static Vec2 lp1 = vec2(cen.x-20,sr.top - 100);
+		static Vec2 lp1 = vec2(cen.x-20, sr.top - 100);
 		Rect rHandle1 = rectCenDim(lp1, vec2(10,10));
 
 		drawRect(rHandle1, vec4(0.8f,1));
@@ -4531,54 +4912,85 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-		static Vec2 lines[1000];
+		static Vec2 lines[1000] = {};
 		static int lineCount = 0;
+
+		static int segmentLineCount[100] = {};
+		static int lineSegmentCount = 2;
+
+		if(init) segmentLineCount[0] = 0;
 
 		glPointSize(5);
 
-
-		if(input->mouseButtonDown[0]) {
+		if(input->mouseButtonDown[0] && input->mouseDelta != vec2(0,0)) {
 			lines[lineCount++] = input->mousePosNegative;
+			segmentLineCount[lineSegmentCount-1] = lineCount;
 		}
 
-		for(int i = 0; i < lineCount; i++) {
-			drawPoint(lines[i], vec4(1,0,0,1));
+		if(input->mouseButtonReleased[0]) {
+			lineSegmentCount++;
 		}
 
+		Vec4 c2 = vec4(0.9f,1);
 
-		if(lineCount >= 4) {
-			glPointSize(5);
-			drawPointsHeader(vec4(1,0,0,1));
-			for(int i = 0; i < lineCount; i++) {
-				pushVec(lines[i]);
-			}
-			glEnd();
+		for(int segmentIndex = 1; segmentIndex < lineSegmentCount; segmentIndex++) {
 
-			for(int i = 1; i < lineCount-2; i++) {
+			int linesStart = segmentLineCount[segmentIndex-1];
+			int linesEnd = segmentLineCount[segmentIndex];
 
-				Vec2 p0 = lines[i-1];
-				Vec2 p1 = lines[i];
-				Vec2 p2 = lines[i+1];
-				Vec2 p3 = lines[i+2];
+			if(linesEnd - linesStart >= 4) {
 
-				Vec4 c2 = vec4(0.9f,1);
-				{
-					drawLineStripHeader(c2);
-					for(int i = 0; i < segmentCount; i++) {
-						float t = ((float)i/((float)segmentCount-1));
+				for(int i = linesStart; i < linesEnd-1; i++) {
 
-						float x = cubicInterpolation(p0.x, p1.x, p2.x, p3.x, t);
-						float y = cubicInterpolation(p0.y, p1.y, p2.y, p3.y, t);
+					Vec2 p0;
+					if(i == linesStart) p0 = lines[i] + (lines[i] - lines[i+1]);
+					else p0 = lines[i-1];
 
-						Vec2 p = vec2(x,y);
+					Vec2 p1 = lines[i];
+					Vec2 p2 = lines[i+1];
+					Vec2 p3;
+					if(i == linesEnd-2) p3 = lines[i+1] + (lines[i+1] - lines[i]);
+					else p3 = lines[i+2];
 
-						pushVec(p);
+					{
+						drawLineStripHeader(c2);
+						for(int i = 0; i < segmentCount; i++) {
+							float t = ((float)i/((float)segmentCount-1));
+
+							float x = cubicInterpolation(p0.x, p1.x, p2.x, p3.x, t);
+							float y = cubicInterpolation(p0.y, p1.y, p2.y, p3.y, t);
+
+							Vec2 p = vec2(x,y);
+
+							pushVec(p);
+						}
+						glEnd();
 					}
-					glEnd();
+
 				}
 
+				// glPointSize(5);
+				// drawPointsHeader(vec4(1,0,0,1));
+				// for(int i = linesStart; i < linesEnd; i++) {
+				// 	pushVec(lines[i]);
+				// }
+				// glEnd();
+
+			} else {
+				drawLineStripHeader(c2);
+				for(int i = linesStart; i < linesEnd; i++) {
+					pushVec(lines[i]);
+				}
+				glEnd();
 			}
 		}
+
+		// glPointSize(3);
+		// drawPointsHeader(vec4(1,0,1,1));
+		// for(int i = 0; i < lineCount; i++) {
+		// 	pushVec(lines[i]);
+		// }
+		// glEnd();
 
 
 		glLineWidth(1);
@@ -4588,6 +5000,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	if(false)
 	{
+		newGuiSetHotAll(ad->gui, 3);
+
 		// int i = 11;
 		// {
 		// 	Texture* tex = globalGraphicsState->textures + i;
