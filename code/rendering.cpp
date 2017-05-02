@@ -526,6 +526,10 @@ void scissorTestScreen(Rect r) {
 	glScissor(sr.min.x, sr.min.y, rectW(sr), rectH(sr));
 }
 
+void scissorState(bool state = true) {
+	if(state) glEnable(GL_SCISSOR_TEST);
+	else glDisable(GL_SCISSOR_TEST);
+}
 
 void drawLinesHeader(Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);

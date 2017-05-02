@@ -262,7 +262,14 @@ struct WindowSettings {
 
 	Vec2i currentRes;
 	float aspectRatio;
+
+	bool customCursor;
 };
+
+void setCursor(WindowSettings* ws, LPCSTR type) {
+	SetCursor(LoadCursor(0, type));
+	ws->customCursor = true;
+}
 
 BOOL CALLBACK monitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor, LPARAM dwData) {
 
@@ -417,6 +424,16 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 
 void showWindow(HWND windowHandle) {
     ShowWindow(windowHandle, SW_SHOW);
+}
+
+float getScalingFactor(HWND windowHandle) {
+    HDC deviceContext = GetDC(windowHandle);
+    int LogicalScreenHeight = GetDeviceCaps(deviceContext, VERTRES);
+    int PhysicalScreenHeight = GetDeviceCaps(deviceContext, DESKTOPVERTRES); 
+
+    float ScreenScalingFactor = (float)PhysicalScreenHeight / (float)LogicalScreenHeight;
+
+    return ScreenScalingFactor;
 }
 
 Vec2 getMousePos(HWND windowHandle, bool yInverted = true) {

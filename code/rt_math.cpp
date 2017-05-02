@@ -309,6 +309,12 @@ inline int roundInt(float i) {
 	return (int)floor(i + 0.5f);
 }
 
+inline int triangularNumber(int n) {
+	return n*(n+1) / 2;
+}
+
+//
+
 inline int colorFloatToInt(float color) {
 	return (int)round(color * 255);
 };
@@ -2328,6 +2334,7 @@ inline Mat4 projMatrix(float fov, float ar, float n, float f) {
 
 inline Vec4 colorHSL(Vec3 hsl) {
 	float c[3];
+	hsl.x = fmod(hsl.x, 1.0f);
 	hslToRgbFloat(c, hsl.x, hsl.y, hsl.z);
 	return vec4(c[0], c[1], c[2], 1);
 }

@@ -1,5 +1,5 @@
 /*
-	Things to add in main app:
+	Things to add to main appk/library after this project is done:
 	- Cam.
 	- Mouse Delta.
 	- Updated rect.
@@ -19,25 +19,32 @@
 	- Massive changes in rect functions.
 	- Font system.
 
+===========================================================================
 
-    - Clamp window to monitor.
-	- Scale font size to windows. (For high resolution monitors.)
+	ToDo:
+	- File app settings.
+
 	- Filter -> percentage of views.
 	- Make it so downloading spawns a thread that shows progress and a cancel button.
 	  Shuld be more reasonable than what we have now.
-	- Make divs a better system in generell. Add things like min max size in addition to float elements.
-	  - You could also make that system stacking.
-	- Use stb_truetype advance font system for smaller fonts.
-	- Cursor image still flickering somtimes. 
-	  Has something to do with the window changing screens, or a specific location on the screen?
+
 	- Standard deviation graph.
 	- Avg. line of number videos of released in a month or so.
 
-	- Memory leak at startup that goes away when you do something.
-	- Filter duplicate videos.
+	Done Today: 
+	- Switched to layout. Tried to filter duplicates but it's too slow. Fixed cursor flickering. 
+	  Resize at every window edge.
 
-	Bug:
-	- Memory leak at text snippet panel above jpg. 
+*/
+
+/*
+	Curl:
+	- downloadVideoSnippet
+	- get videocount from url
+	- download
+	- search.
+	- get playlist count
+	- load playlist from channel
 */
 
 // External.
@@ -776,7 +783,7 @@ struct LineGraph {
 	int count;
 };
 
-void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGraph, float timeSpanInMonths, float widthInMonths, double minMaxWidth) {
+void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGraph, float timeSpanInMonths, float widthInMonths, double minMaxWidth, LineGraph* countLineGraph) {
 	TIMER_BLOCK();
 
 	double avgStartX = videos[0].date.n;
@@ -785,9 +792,13 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 
 	int statCount = (minMaxWidth/avgWidth) + 2;
 	lineGraph->count = statCount;
+	countLineGraph->count = statCount;
 	for(int i = 0; i < Line_Graph_Count; i++) {
 		if(lineGraph->points[i] != 0) free(lineGraph->points[i]);
 		lineGraph->points[i] = (double*)malloc(statCount*sizeof(double));
+
+		if(countLineGraph->points[i] != 0) free(countLineGraph->points[i]);
+		countLineGraph->points[i] = (double*)malloc(statCount*sizeof(double));
 	}
 
 	Statistic* stats[Line_Graph_Count];
@@ -817,6 +828,8 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 		for(int gi = 0; gi < Line_Graph_Count; gi++) {
 			endStatistic(stats[gi] + i);
 			lineGraph->points[gi][i] = stats[gi][i].count > 0 ? stats[gi][i].avg : 0;
+
+			countLineGraph->points[gi][i] = stats[gi][i].count;
 		}
 	}
 }
@@ -2048,6 +2061,9 @@ struct AppData {
 	bool activeDownload;
 	DownloadInfo dInfo;
 
+	bool downloadSnippet;
+	
+
 	//
 
 	NewGui newGui;
@@ -2099,6 +2115,7 @@ struct AppData {
 
 	Statistic stats[Line_Graph_Count];
 	LineGraph averagesLineGraph;
+	LineGraph releaseCountLineGraph;
 
 	char exclusiveFilter[50];
 	char inclusiveFilter[50];
@@ -2120,143 +2137,88 @@ struct AppData {
 
 
 
+#define For_Layout(layout) \
+	for(Layout* l = layout->list; l != 0; l = l->next)
 
-
-
-
-struct LayoutNode {
+struct Layout {
 	Vec2i align;
 	Rect r;
 
-	LayoutNode* next;
-	LayoutNode* list;
+	Layout* next;
+	Layout* list;
 
 	Vec2 minDim;
 	Vec2 maxDim;
 	Vec2 dim;
 
-	Vec2 finalSize;
+	Vec2 finalDim;
 
 	Vec2 padding;
 	Vec2 borderPadding;
-
 	bool vAxis;
 };
 
-LayoutNode layoutNode(Vec2 dim) {
-	LayoutNode node = {};
-	node.dim = dim;
-	return node;;
-}
-
-Rect layoutGetRect(LayoutNode* node) {
-	return rectExpand(node->r, -node->borderPadding*2);
-}
-
-void layoutAddNode(LayoutNode* node, LayoutNode* newNode) {
-	LayoutNode* list = node->list;
-
-	if(list == 0) node->list = newNode;
-	else {
-		while(list->next != 0) list = list->next;
-		list->next = newNode;
-	}
-}
-
-LayoutNode* layoutAddNode(LayoutNode* node, LayoutNode nn) {
-	LayoutNode* list = node->list;
-
-	LayoutNode* newNode = getTStruct(LayoutNode);
-	*newNode = nn;
-
-	if(list == 0) node->list = newNode;
-	else {
-		while(list->next != 0) list = list->next;
-		list->next = newNode;
-	}
+Layout* layoutAlloc(Layout node) {
+	Layout* newNode = getTStruct(Layout);
+	*newNode = node;
 
 	return newNode;
 }
 
-// void layoutCalcSizes(LayoutNode* mainNode) {
-// 	LayoutNode* n;
-// 	bool vAxis = mainNode->vAxis;
-// 	Rect mainRect = layoutGetRect(mainNode);
+Layout layout(Vec2 dim, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+	Layout node = {};
+	node.dim = dim;
+	node.align = align;
+	node.vAxis = vAxis;
+	node.borderPadding = borderPadding;
+	node.padding = padding;
 
-// 	if(rectZero(mainRect)) return;
+	return node;
+}
 
-// 	float dynamicSum = 0;
-// 	int flowCount = 0;
-// 	float staticSum = 0;
-// 	int staticCount = 0;
-// 	int size = 0;
+Layout layout(Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+	Layout node = {};
+	node.r = region;
+	node.align = align;
+	node.vAxis = vAxis;
+	node.borderPadding = borderPadding;
+	node.padding = padding;
 
-// 	n = mainNode->list;
-// 	while(n != 0) {
-// 		float val = n->dim.e[vAxis];
-			
-// 		if(val == 0) flowCount++; 			 // float element
-// 		else if(val <= 1) dynamicSum += val; // dynamic element
-// 		else { 								 // static element
-// 			staticSum += val;
-// 			staticCount++;
-// 		}
+	return node;
+}
+void layout(Layout* node, Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+	*node = layout(region, vAxis, align, padding, borderPadding);
+}
 
-// 		size++;
+Rect layoutGetRect(Layout* node) {
+	return rectExpand(node->r, -node->borderPadding*2);
+}
 
-// 		n = n->next;
-// 	}
+void layoutAdd(Layout* node, Layout* newNode, bool addEnd = true) {
+	Layout* list = node->list;
 
+	if(list == 0) node->list = newNode;
+	else {
+		if(addEnd) {
+			while(list->next != 0) list = list->next;
+			list->next = newNode;
+		} else {
+			newNode->next = list;
+			node->list = newNode;
+		}
+	}
+}
 
-// 	if(flowCount) {
-// 		float flowVal = abs(dynamicSum-1)/(float)flowCount;
+Layout* layoutAdd(Layout* node, Layout nn, bool addEnd = true) {
+	Layout* newNode = getTStruct(Layout);
+	*newNode = nn;
 
-// 		n = mainNode->list;
-// 		while(n != 0) {
-// 			if(n->dim.e[vAxis] == 0) n->dim.e[vAxis] = flowVal;
+	layoutAdd(node, newNode, addEnd);
+	return newNode;
+}
 
-// 			n = n->next;
-// 		}
-// 	}
-
-
-// 	float width = rectW(mainRect);
-// 	float offset = mainNode->padding.e[vAxis];
-
-// 	float totalWidth = width - staticSum - offset*(size-1);
-// 	float sum = 0;
-
-// 	n = mainNode->list;
-// 	while(n != 0) {
-
-// 		n->finalSize = n->dim;
-
-// 		// if(sum > width) {
-// 		// 	n->finalSize.e[vAxis] = 0;
-// 		// 	n = n->next;
-// 		// 	continue;
-// 		// }
-
-// 		float val = n->dim.e[vAxis];
-// 		if(val <= 1) {
-// 			if(totalWidth > 0) n->finalSize.e[vAxis] = val * totalWidth;
-// 			else n->finalSize.e[vAxis] = 0;
-// 		} else n->finalSize.e[vAxis] = val;
-
-// 		float added = n->finalSize.e[vAxis] + offset;
-// 		if(false) {
-// 		// if(sum + added > width) {
-// 			n->finalSize.e[vAxis] = width - sum;
-// 			sum += added;
-// 		}
-// 		else sum += added;
-
-// 		n = n->next;
-// 	}
-// }
-
-void layoutCalcSizes(LayoutNode* mainNode) {
-	LayoutNode* n;
+void layoutCalcSizes(Layout* mainNode) {
+	Layout* n;
 	bool vAxis = mainNode->vAxis;
 	Rect mainRect = layoutGetRect(mainNode);
 
@@ -2301,42 +2263,40 @@ void layoutCalcSizes(LayoutNode* mainNode) {
 	flowVal = clampMin(flowVal, 0);
 	n = mainNode->list;
 	while(n != 0) {
-		n->finalSize = n->dim;
+		n->finalDim = n->dim;
 
 		float val = n->dim.e[vAxis];
-		if(val == 0) n->finalSize.e[vAxis] = flowVal;
-		else if(val <= 1) n->finalSize.e[vAxis] = val*totalWidth;
+		if(val == 0) n->finalDim.e[vAxis] = flowVal;
+		else if(val <= 1) n->finalDim.e[vAxis] = val*totalWidth;
 
-		clampMin(&n->finalSize.e[vAxis], 0);
+		clampMin(&n->finalDim.e[vAxis], 0);
 
-		if(n->minDim.x != 0) clampMin(&n->finalSize.x, n->minDim.x);
-		if(n->maxDim.x != 0) clampMax(&n->finalSize.x, n->maxDim.x);
-		if(n->minDim.y != 0) clampMin(&n->finalSize.y, n->minDim.y);
-		if(n->maxDim.y != 0) clampMax(&n->finalSize.y, n->maxDim.y);
+		if(n->minDim.x != 0) clampMin(&n->finalDim.x, n->minDim.x);
+		if(n->maxDim.x != 0) clampMax(&n->finalDim.x, n->maxDim.x);
+		if(n->minDim.y != 0) clampMin(&n->finalDim.y, n->minDim.y);
+		if(n->maxDim.y != 0) clampMax(&n->finalDim.y, n->maxDim.y);
 
 		n = n->next;
 	}
 
 }
 
-void layoutCalcRects(LayoutNode* mainNode) {
+void layoutCalcRects(Layout* mainNode) {
 	Rect mainRect = layoutGetRect(mainNode);
 	if(rectZero(mainRect)) return;
 
 	bool vAxis = mainNode->vAxis;
-	LayoutNode* node;
+	Layout* node;
 
 	Vec2 boundingDim = vec2(0,0);
 	node = mainNode->list;
 	while(node != 0) {
-		boundingDim.e[vAxis] += node->finalSize.e[vAxis] + mainNode->padding.e[vAxis];
-		boundingDim.e[(vAxis+1)%2] = max(boundingDim.e[(vAxis+1)%2], node->finalSize.e[(vAxis+1)%2]);
+		boundingDim.e[vAxis] += node->finalDim.e[vAxis] + mainNode->padding.e[vAxis];
+		boundingDim.e[(vAxis+1)%2] = max(boundingDim.e[(vAxis+1)%2], node->finalDim.e[(vAxis+1)%2]);
 
 		node = node->next;
 	}
 	boundingDim.e[vAxis] -= mainNode->padding.e[vAxis];
-
-	addDebugInfo(fillString("%f %f", boundingDim.x, boundingDim.y));
 
 	Vec2i align = mainNode->align;
 	Vec2 currentPos = rectAlign(mainRect, align);
@@ -2348,10 +2308,10 @@ void layoutCalcRects(LayoutNode* mainNode) {
 		node = mainNode->list;
 		while(node != 0) {
 			Vec2 p = currentPos;
-			p.y -= node->finalSize.y/2;
+			p.y -= node->finalDim.y/2;
 
-			node->r = rectBLDim(p, node->finalSize);
-			currentPos.x += node->finalSize.x + mainNode->padding.x;
+			node->r = rectBLDim(p, node->finalDim);
+			currentPos.x += node->finalDim.x + mainNode->padding.x;
 
 			node = node->next;
 		}
@@ -2362,10 +2322,10 @@ void layoutCalcRects(LayoutNode* mainNode) {
 		node = mainNode->list;
 		while(node != 0) {
 			Vec2 p = currentPos;
-			p.x -= node->finalSize.x/2;
+			p.x -= node->finalDim.x/2;
 
-			node->r = rectTLDim(p, node->finalSize);
-			currentPos.y -= node->finalSize.y + mainNode->padding.y;
+			node->r = rectTLDim(p, node->finalDim);
+			currentPos.y -= node->finalDim.y + mainNode->padding.y;
 
 			node = node->next;
 		}
@@ -2373,9 +2333,20 @@ void layoutCalcRects(LayoutNode* mainNode) {
 
 }
 
-void layoutCalc(LayoutNode* mainNode) {
+void layoutCalc(Layout* mainNode, bool recursive = true) {
 	layoutCalcSizes(mainNode);
 	layoutCalcRects(mainNode);
+
+	if(recursive) {
+		Layout* node = mainNode->list;
+		while(node != 0) {
+			if(node->list != 0) {
+				layoutCalc(node, true);			
+			}
+
+			node = node->next;
+		}
+	}
 }
 
 
@@ -2771,7 +2742,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->gui = &ad->newGui;
 		newGuiBegin(ad->gui, input);
 
-		SetCursor(LoadCursor(0, IDC_ARROW));
+		if(!ws->customCursor) {
+			SetCursor(LoadCursor(0, IDC_ARROW));
+		}
+		ws->customCursor = false;
+
+		// HDC deviceContext = GetDC(GetDesktopWindow());
+		// int LogicalScreenHeight = GetDeviceCaps(deviceContext, VERTRES);
+		// int PhysicalScreenHeight = GetDeviceCaps(deviceContext, DESKTOPVERTRES); 
+	 //    addDebugInfo(fillString("%i %i", LogicalScreenHeight, PhysicalScreenHeight));
+
+	 //    ReleaseDC(GetDesktopWindow(), deviceContext);
+
+  //   	deviceContext = GetDC(windowHandle);
+  //   	LogicalScreenHeight = GetDeviceCaps(deviceContext, VERTRES);
+  //   	PhysicalScreenHeight = GetDeviceCaps(deviceContext, DESKTOPVERTRES); 
+  //       addDebugInfo(fillString("%i %i", LogicalScreenHeight, PhysicalScreenHeight));
 
 		{
 			ad->appColors.graphBackgroundBottom = vec4(0.2f, 0.1f, 0.4f, 1);
@@ -2866,6 +2852,7 @@ extern "C" APPMAINFUNCTION(appMain) {
     		*isRunning = false;
     }
 
+
 	bool resize = false;
 	// Window drag.
 	{
@@ -2880,8 +2867,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    Vec2i res = ws->currentRes;
 	    Rect screenRect = getScreenRect(ws);
 	    int id = newGuiDragAction(gui, screenRect, z, Gui_Focus_MRight);
+        int id2 = newGuiDragAction(gui, screenRect, 0);
 
-	    if(newGuiGotActive(gui, id)) {
+	    if(newGuiGotActive(gui, id) || newGuiGotActive(gui, id2)) {
 	    	if(!input->keysDown[KEYCODE_CTRL]) {
 	    		gui->mode = 0;
 		    	POINT p;
@@ -2895,7 +2883,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	}
 	    }
 
-	    if(newGuiIsActive(gui, id)) {
+	    if(newGuiIsActive(gui, id) || newGuiIsActive(gui, id2)) {
 	    	POINT p; 
 	    	GetCursorPos(&p);
 	    	RECT r; 
@@ -2909,36 +2897,43 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    }
 
 	    float w = ad->appSettings.resizeRegionSize;
-    	Rect resizeRight = rectSetL(screenRect, screenRect.right - w);
-    	Rect resizeBottom = rectSetT(screenRect, screenRect.bottom + w);
-    	Rect resizeDR = rectSetTL(screenRect, rectBR(screenRect) + vec2(-w,w));
 
-	    int idResizeRight = newGuiDragAction(gui, resizeRight, z, Gui_Focus_MLeft);
-	    int idResizeBottom = newGuiDragAction(gui, resizeBottom, z, Gui_Focus_MLeft);
-	    int idResizeDR = newGuiDragAction(gui, resizeDR, z, Gui_Focus_MLeft);
+	    int i = 0;
+	    Vec2i resizeAlign = vec2i(1,-1);
+	    for(int x = -1; x < 2; x++) {
+	    	for(int y = -1; y < 2; y++) {
+	    		if(x == 0 && y == 0) continue;
 
-	    if(newGuiGotActive(gui, idResizeRight) || newGuiGotActive(gui, idResizeBottom) || newGuiGotActive(gui, idResizeDR)) setupResize = true;
-	    if(newGuiIsActive(gui, idResizeRight) || newGuiIsActive(gui, idResizeBottom) || newGuiIsActive(gui, idResizeDR)) resize = true;
+	    		Vec2i align = vec2i(x,y);
+	    		Vec2 dim = vec2(align.x==0?rectW(screenRect)-w*2:w, align.y==0?rectH(screenRect)-w*2:w);
+	    		Rect r = rectAlignDim(screenRect, align, dim);
 
+	    		int guiId = newGuiDragAction(gui, r, z, Gui_Focus_MLeft);
+			    if(newGuiGotActive(gui, guiId)) setupResize = true;
+			    if(newGuiIsActive(gui, guiId)) {
+			    	resizeAlign = align;
+				    resize = true;
+			    }
 
-
-		int mode = -1;
-        if(newGuiIsActive(gui, idResizeRight)) mode = 0;
-		if(newGuiIsActive(gui, idResizeBottom)) mode = 1;
-		if(newGuiIsActive(gui, idResizeDR)) mode = 2;
-
-		if(newGuiIsWasHotOrActive(gui, idResizeRight)) SetCursor(LoadCursor(0, IDC_SIZEWE));
-		if(newGuiIsWasHotOrActive(gui, idResizeBottom)) SetCursor(LoadCursor(0, IDC_SIZENS));
-		if(newGuiIsWasHotOrActive(gui, idResizeDR)) SetCursor(LoadCursor(0, IDC_SIZENWSE));
+				if(newGuiIsWasHotOrActive(gui, guiId)) {
+					if(align == vec2i(-1,-1) || align == vec2i(1,1)) setCursor(ws, IDC_SIZENESW);
+					if(align == vec2i(-1,1) || align == vec2i(1,-1)) setCursor(ws, IDC_SIZENWSE);
+					if(align == vec2i(-1,0) || align == vec2i(1, 0)) setCursor(ws, IDC_SIZEWE);
+					if(align == vec2i(0,-1) || align == vec2i(0, 1)) setCursor(ws, IDC_SIZENS);
+				}
+	    	}
+	    }
 
 		if(setupResize) {
 			POINT p;
 			GetCursorPos(&p);
-			ScreenToClient(windowHandle, &p);
 			RECT r;
 			GetWindowRect(windowHandle, &r);
 
-			gui->mouseAnchor = vec2((r.right - r.left) - p.x, (r.bottom - r.top) - p.y);
+			if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - r.left;
+			if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - r.right;
+			if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - r.top;
+			if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - r.bottom;
 		}
 
         if(resize) {
@@ -2947,20 +2942,37 @@ extern "C" APPMAINFUNCTION(appMain) {
         	RECT r; 
         	GetWindowRect(windowHandle, &r);
 
-	    	ScreenToClient(windowHandle, &p);
+	    	int nx = r.left, ny = r.top, nw = r.right-r.left, nh = r.bottom-r.top;
 
-	    	int newWidth = mode == 1 ? r.right - r.left : clampMin(p.x + gui->mouseAnchor.x, ad->appSettings.windowMinWidth);
-	    	int newHeight = mode == 0 ? r.bottom - r.top : clampMin(p.y + gui->mouseAnchor.y, ad->appSettings.windowMinHeight);
+	    	int minWidth = ad->appSettings.windowMinWidth;
+	    	int minHeight = ad->appSettings.windowMinHeight;
+
+	    	if(resizeAlign.x == -1) {
+	    		nx = p.x - gui->mouseAnchor.x;
+	    		nx = clampMax(nx, r.right - minWidth);
+	    		nw = r.right-nx;
+	    	}
+	    	if(resizeAlign.y == 1) {
+	    		ny = p.y - gui->mouseAnchor.y;
+	    		ny = clampMax(ny, r.bottom - minHeight);
+	    		nh = r.bottom-ny;
+	    	}
+	    	if(resizeAlign.x == 1) nw = (p.x - gui->mouseAnchor.x) - r.left;
+	    	if(resizeAlign.y == -1) nh = (p.y - gui->mouseAnchor.y) - r.top;
+
+	    	nw = clampMin(nw, minWidth);
+	    	nh = clampMin(nh, minHeight);
+
 
 	    	ad->updateWindow = true;
 
-	    	ad->updateWindowX = r.left;
-	    	ad->updateWindowY = r.top;
-	    	ad->updateWidth = newWidth;
-	    	ad->updateHeight = newHeight;
+	    	ad->updateWindowX = nx;
+	    	ad->updateWindowY = ny;
+	    	ad->updateWidth = nw;
+	    	ad->updateHeight = nh;
 
-	    	ws->currentRes.w = newWidth-2;
-	    	ws->currentRes.h = newHeight-2;
+	    	ws->currentRes.w = nw-2;
+	    	ws->currentRes.h = nh-2;
 	    	ws->aspectRatio = ws->currentRes.x / (float)ws->currentRes.y;
 
 	    	ad->updateFrameBuffers = true;	
@@ -2968,6 +2980,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	globalScreenHeight = ws->currentRes.h;
         }
 	}	
+
+
 
 	if(!resize) {
 		if(windowSizeChanged(windowHandle, ws)) {
@@ -3126,6 +3140,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			strCpy(dInfo->pageToken, pt, page_token_size);
 			dInfo->lastVideoCount = headerPlaylist.count;
 
+			if(headerPlaylist.count == 0) skip = true;
+
 			if(dInfo->maxVideoCount == headerPlaylist.count) skip = true;
 			else if(ad->downloadPlaylist.count + dInfo->lastVideoCount > dInfo->maxVideoCount) {
 				ad->downloadPlaylist.count = dInfo->maxVideoCount - dInfo->lastVideoCount;
@@ -3250,6 +3266,58 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// 	loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 	// }
 
+
+
+
+	// void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo* vid) {
+	if(ad->downloadSnippet) {
+		char* buffer = (char*)getTMemory(megaBytes(1)); 
+
+		// Download thumbnail and upload texture.
+		// {
+		// 	int size = curlRequest(curlHandle, vid->thumbnail, buffer);
+		// 	if(snippet->thumbnailTexture.id != -1) deleteTexture(&snippet->thumbnailTexture);
+		// 	loadTextureFromMemory(&snippet->thumbnailTexture, buffer, size, -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
+		// }
+
+		// // Get comments.
+		// {
+		// 	int commentCount = 10;
+		// 	snippet->selectedCommentCount = 0;
+		// 	requestCommentThread(curlHandle, buffer, vid->id, commentCount);
+
+		// 	int totalResults = strToInt(getJSONInt(buffer, "totalResults"));
+
+		// 	char* commentBuffer = getTString(kiloBytes(1)); strClear(commentBuffer);
+
+		// 	char* content;
+		// 	int advance;
+		// 	for(int i = 0; i < totalResults; i++) {
+		// 		int commentStart = strFindRight(buffer, "\"textOriginal\": \"");
+		// 		if(commentStart == -1) break;
+
+		// 		buffer += commentStart;
+		// 		copyOverTextAndFixTokens(commentBuffer, buffer);
+
+		// 		char* s = getPString(strLen(commentBuffer)+1);
+		// 		strCpy(s, commentBuffer);
+
+		// 		buffer += strLen(commentBuffer);
+
+		// 		snippet->selectedTopComments[snippet->selectedCommentCount] = s;
+
+		// 		content = getJSONInt(buffer, "likeCount", &buffer);
+		// 		snippet->selectedCommentLikeCount[snippet->selectedCommentCount] = strToInt(content);
+
+		// 		content = getJSONInt(buffer, "totalReplyCount", &buffer);
+		// 		snippet->selectedCommentReplyCount[snippet->selectedCommentCount] = strToInt(content);
+
+		// 		snippet->selectedCommentCount++;
+		// 	}
+		// }
+	}
+
+
 	// Load playlist folder.
 	if(init) {
 		TIMER_BLOCK_NAMED("App Init");
@@ -3358,6 +3426,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
 					bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
 
+					bool notFiltered;
 					for(int i = 0; i < tempVidCount; i++) {
 						char* title = tempVids[i].title;
 
@@ -3390,8 +3459,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 						if(!inclusiveFilterActive) inclusiveCorrect = true;
 						if(!exclusiveFilterActive) exclusiveCorrect = true;
 
+						notFiltered = inclusiveCorrect && exclusiveCorrect;
+
 						// Filter corrupted videos for now.
 						bool corrupted = false;
+						if(notFiltered)
 						{
 							YoutubeVideo* vid = tempVids + i;
 							if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
@@ -3402,9 +3474,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 								corrupted = true;
 
 							int stopForVS = 123;
+
+							notFiltered = notFiltered && !corrupted;
 						}
 
-						if(inclusiveCorrect && exclusiveCorrect && !corrupted) filteredIndexes[filteredIndexesCount++] = i;
+						// // Filter dupllicates.
+						// bool duplicate = false;
+						// if(notFiltered)
+						// {
+						// 	YoutubeVideo* vid = tempVids + i;
+						// 	for(int j = i+1; j < tempVidCount; j++) {
+						// 		if(strCompare(tempVids[i].id, tempVids[j].id)) {
+						// 			duplicate = true;
+						// 			break;
+						// 		}
+						// 	}
+
+						// 	notFiltered = notFiltered && !duplicate;
+						// }
+
+						if(notFiltered) filteredIndexes[filteredIndexesCount++] = i;
 					}
 				}
 
@@ -3561,7 +3650,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					graphCamInit(&ad->cams[3], camLeft, camRight, 0, statComments.max*1.1f);
 				}
 
-				calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin);
+				calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
 			}
 
 			ad->selectedVideo = -1;
@@ -3584,36 +3673,76 @@ extern "C" APPMAINFUNCTION(appMain) {
 		float zoomSpeed = 1.2;
 
 		// Screen layout.
-		Rect screenRect, rChart, rFilters, rSidePanel, rBottomText, rLeftTexts, rGraphs;
-
-		screenRect = getScreenRect(ws);
-
-		// float sidePanelWidth = ad->selectedVideo!=-1 ? rectW(screenRect)*0.25f : 0;
 		float sidePanelWidth = ad->selectedVideo!=-1 ? ad->sidePanelWidth : 0;
+		clamp(&ad->sidePanelWidth, as->sidePanelMinWidth, ws->currentRes.w*ad->sidePanelMax);
 		float filtersHeight = font->height + as->marginFilters;
 		float bottomTextHeight = font->height*2 + as->marginBottomText;
-		float leftTextMargin = as->marginLeftText;
+		float leftTextWidth = ad->leftTextWidth + as->marginLeftText;
 
-		clamp(&ad->sidePanelWidth, as->sidePanelMinWidth, ws->currentRes.w*ad->sidePanelMax);
 
-		rSidePanel = rectSetL(screenRect, screenRect.right-sidePanelWidth);
-		rFilters = rectSetBR(screenRect, vec2(screenRect.right-sidePanelWidth, screenRect.top-filtersHeight));
-		rChart = rectSetTR(screenRect, vec2(screenRect.right-sidePanelWidth, screenRect.top-filtersHeight));
+		// Layout* lay = layoutAlloc(layout(getScreenRect(ws), false));
 
-		rBottomText = rectSetTL(rChart, vec2(rChart.left+ad->leftTextWidth+leftTextMargin, rChart.bottom+bottomTextHeight));
-		rLeftTexts = rectSetBR(rChart, vec2(rChart.left+ad->leftTextWidth+leftTextMargin, rChart.bottom+bottomTextHeight));
+		// Layout* lLeft = layoutAdd(lay, layout(vec2(0,0), true));
+		// Layout* lSidePanel = ad->selectedVideo!=-1?layoutAdd(lay, layout(vec2(sidePanelWidth,0))):0;
 
-		rGraphs = rectSetBL(rChart, vec2(rChart.left+ad->leftTextWidth+leftTextMargin, rChart.bottom+bottomTextHeight));
+		// Layout* lFilters = layoutAdd(lLeft, layout(vec2(0, filtersHeight)));
+		// Layout* lChart = layoutAdd(lLeft, layout(vec2(0,0), true, vec2i(-1,1)));
+		// Layout* bottom = layoutAdd(lLeft, layout(vec2(0,bottomTextHeight)));
+		// 	layoutAdd(bottom, layout(vec2(leftTextWidth,0)));
+		// 	Layout* lBottom = layoutAdd(bottom, layout(vec2(0,0)));
+
+		// Layout* lGraphs[Line_Graph_Count];
+		// for(int i = 0; i < ad->camCount; i++) {
+		// 	lGraphs[i] = layoutAdd(lChart, layout(vec2(0,ad->graphOffsets[i+1]-ad->graphOffsets[i])));
+		// 	layoutAdd(lGraphs[i], layout(vec2(leftTextWidth, 0)));
+		// 	layoutAdd(lGraphs[i], layout(vec2(0, 0)));
+		// }
+
+
+		Layout* lay = layoutAlloc(layout(getScreenRect(ws), true));
+		
+		Layout* lFilters = layoutAdd(lay, layout(vec2(0,filtersHeight)));
+		Layout* lMain = layoutAdd(lay, layout(vec2(0,0)));
+
+		Layout* lLeft = layoutAdd(lMain, layout(vec2(0,0), true));
+		Layout* lSidePanel = ad->selectedVideo!=-1?layoutAdd(lMain, layout(vec2(sidePanelWidth,0))):0;
+
+		Layout* lChart = layoutAdd(lLeft, layout(vec2(0,0), true, vec2i(-1,1)));
+		Layout* bottom = layoutAdd(lLeft, layout(vec2(0,bottomTextHeight)));
+			layoutAdd(bottom, layout(vec2(leftTextWidth,0)));
+			Layout* lBottom = layoutAdd(bottom, layout(vec2(0,0)));
+
+		Layout* lGraphs[Line_Graph_Count];
+		for(int i = 0; i < ad->camCount; i++) {
+			lGraphs[i] = layoutAdd(lChart, layout(vec2(0,ad->graphOffsets[i+1]-ad->graphOffsets[i])));
+			layoutAdd(lGraphs[i], layout(vec2(leftTextWidth, 0)));
+			layoutAdd(lGraphs[i], layout(vec2(0, 0)));
+		}
+
+
+
+		layoutCalc(lay);
+
+		Rect screenRect = getScreenRect(ws);
+		Rect rChart = lChart->r;
+		Rect rFilters = lFilters->r;
+		Rect rSidePanel = lSidePanel!=0?lSidePanel->r:rect(0,0,0,0);
+		Rect rBottomText = lBottom->r;
+
+		Rect rLeftTexts = rectSetBR(rChart, vec2(rChart.left + leftTextWidth, rChart.bottom));
+		Rect rGraphs    = rectSetBL(rChart, vec2(rChart.left + leftTextWidth, rChart.bottom));
 
 		Rect graphRects[10];
 		Rect leftTextRects[10];
-
-		float tempHeight = rGraphs.top;
-		float gh = rectH(rGraphs);
 		for(int i = 0; i < ad->camCount; i++) {
-			graphRects[i] = rect(rGraphs.left, rGraphs.top-ad->graphOffsets[i+1]*gh, rGraphs.right, rGraphs.top-ad->graphOffsets[i]*gh);
-			leftTextRects[i] = rect(rLeftTexts.left, rGraphs.top-ad->graphOffsets[i+1]*gh, rLeftTexts.right, rGraphs.top-ad->graphOffsets[i]*gh);
+			leftTextRects[i] = lGraphs[i]->list->r;
+			graphRects[i] = lGraphs[i]->list->next->r;
 		}
+
+
+
+
+
 
 		// Draw background.
 		drawRect(screenRect, ac->background);
@@ -3635,10 +3764,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 					ad->graphOffsets[i+1] = (input->mousePos - ad->gui->mouseAnchor).y/rectH(rGraphs);
 					clamp(&ad->graphOffsets[i+1], ad->graphOffsets[i] + as->graphHeightMin/2, ad->graphOffsets[i+2] - as->graphHeightMin/2);
 
-					SetCursor(LoadCursor(0, IDC_SIZENS));
+					setCursor(ws, IDC_SIZENS);
 				}
 
-				if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_SIZENS));
+				if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_SIZENS);
 			}
 		}
 
@@ -3722,7 +3851,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			// } else {
 				cam->x = ad->cams[0].x;
-
 				cam->w = ad->cams[0].w;
 			// }
 
@@ -4108,9 +4236,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				scissorTestScreen(rectExpand(cam->viewPort, 1));
 
 				if(ad->sortByDate) {
+
 					drawLineStripHeader(c);
-					// glPointSize(4);
-					// drawPointsHeader(c);
 
 					double xPos = avgStartX;
 					int endCount = ad->averagesLineGraph.count-1;
@@ -4137,8 +4264,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 							for(int i = 0; i < segmentCount; i++) {
 								pushVec(cubicInterpolationVec2(p0, p1, p2, p3, (float)i/(segmentCount-1)));
-							}	
-
+							}
 						}
 
 						xPos += avgWidth;
@@ -4212,6 +4338,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 						ad->selectedVideo = vi;
 						downloadVideoSnippet(ad->curlHandle, &ad->videoSnippet, ad->videos + ad->selectedVideo);
 
+						// ad->downloadSnippet = true;
+
 						ad->appIsBusy = true;
 					}
 				}
@@ -4284,7 +4412,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					clamp(&ad->sidePanelWidth, as->sidePanelMinWidth, ws->currentRes.w*ad->sidePanelMax);
 				}
 
-				if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_SIZEWE));
+				if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_SIZEWE);
 			}
 
 			Vec4 sidePanelColor = ac->sidePanel;
@@ -4311,8 +4439,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 				float offset = as->marginButtons;
 				float divs[] = {40,0,0,40, 30};
 				Rect buttons[arrayCount(divs)];
-				newGuiDiv(rectW(infoPanelTop), divs, arrayCount(divs), offset);
-				newGuiRectsFromWidths(infoPanelTop, divs, arrayCount(divs), buttons, offset);
+
+				Layout* lay = layoutAlloc(layout(infoPanelTop, false, vec2i(-1,0), vec2(as->marginButtons, 0)));
+				for(int i = 0; i < arrayCount(divs); i++) layoutAdd(lay, layout(vec2(divs[i], 0)));
+				layoutCalc(lay);
+
+				int i = 0;
+				For_Layout(lay) buttons[i++] = l->r;
+
+
+
 
 				float z = 1;
 				Vec4 buttonColor = ac->sidePanelButtons;
@@ -4330,8 +4466,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 							}
 						}
 					}
-
-					// drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "<-", font, fc, vec2i(0,0));
 
 					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
 					drawTriangle(rectCen(r), font->height/3, vec2(-1,0), fc);
@@ -4368,8 +4502,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 					}
 
-					// drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "->", font, fc, vec2i(0,0));
-
 					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
 					drawTriangle(rectCen(r), font->height/3, vec2(1,0), fc);
 				}
@@ -4381,14 +4513,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 						closePanel = true;
 					}
 
-					// drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "x", font, fc, vec2i(0,0));
-
 					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
 					drawCross(rectCen(r), font->height/3, 2, vec2(0,1), fc);
 				}
 
 				glDisable(GL_SCISSOR_TEST);
 			}
+
 
 			yPos -= rectH(infoPanelTop) + 8;
 
@@ -4541,16 +4672,21 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x, 80, getTextDim(labels[li++], font).x, 40, 40, getTextDim(labels[li++], font).x, 200, 200};
 			Rect regions[arrayCount(widths)];
 
-			glEnable(GL_SCISSOR_TEST);
-			Rect scissor = rFilters;
+			scissorState();
 
-			float offset = 2;
-			Rect r = rectExpand(rFilters, vec2(-offset, -offset)*2);
-
+			float borderPadding = 2;
 			float padding = font->height/3;
-			newGuiDiv(rectW(r), widths, arrayCount(widths), padding);
-			newGuiRectsFromWidths(r, widths, arrayCount(widths), regions, padding);
 
+			Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(padding,0), vec2(borderPadding)));
+			for(int i = 0; i < arrayCount(widths); i++) layoutAdd(lay, layout(vec2(widths[i], 0)));
+			layoutCalc(lay);
+
+			int i = 0;
+			For_Layout(lay) regions[i++] = l->r;
+
+
+
+			Rect scissor = rFilters;
 			Vec4 bc = ac->buttons;
 			Vec4 ec = ac->editBackground;
 			Vec4 tc = ac->font1;
@@ -4578,24 +4714,25 @@ extern "C" APPMAINFUNCTION(appMain) {
 			bool updateStats = false;
 
 			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statTimeSpan, z, font, editSettings, scissor)) updateStats = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statWidth, z, font, editSettings, scissor)) updateStats = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 
 			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
 
 			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->inclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->inclusiveFilter))) 
 				ad->startLoadFile = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->exclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->exclusiveFilter))) 
 				ad->startLoadFile = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) SetCursor(LoadCursor(0, IDC_IBEAM));
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 
 
-			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin);
+			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
 
-			glDisable(GL_SCISSOR_TEST);	
+			scissorState(false);
 		}
+
 
 
 		// Draw outlines.
@@ -4625,6 +4762,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			drawRectOutline(rectSetTR(rChart, rectTL(rBottomText)), color, offset);
 
 		}
+		
 	}
 
 	TIMER_BLOCK_END(appMain);
@@ -4672,12 +4810,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			clamp(&panelPos.y, sr.bottom+rectH(panelRect), sr.top);
 			panelRect = rectTLDim(panelPos, panelDim);
 		}
-
-		// float offset = 4;
-		// float divs[] = {40,0,0,40, 30};
-		// Rect buttons[arrayCount(divs)];
-		// newGuiDiv(rectW(infoPanelTop), divs, arrayCount(divs), offset);
-		// newGuiRectsF
 
 		// drawRectRounded(panelRect, vec4(0.4,0.2,0.6,1) + newGuiColorMod(gui), 5);
 		drawRectRounded(panelRect, vec4(0.4,0.2,0.6,1), 5);
@@ -4763,7 +4895,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-	if(true) {
+	if(false) {
 		// Layout test.
 
 		newGuiSetHotAll(ad->gui, 0);
@@ -4775,71 +4907,44 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec3 hslColor = vec3(0.5, 0.5f, 0.1f);
 		drawRectNewColoredH(getScreenRect(ws), vec4(colorHSL(hslColor).rgb, alpha), vec4(colorHSL(hslColor+vec3(0,0,0.1f)).rgb, alpha));
 
-		// LayoutNode nodeStack[20] = {};
-		// int nodeStackCount = 0;
 
 
-		LayoutNode* mainNode = getTStruct(LayoutNode);
-		*mainNode = {};
-		// mainNode->align = vec2i(-1,0);
-		mainNode->align = vec2i(0,0);
-		// mainNode->r = rectSetDim(sr, vec2(1000,800));
-		mainNode->r = rectExpand(sr, -vec2(632, 100));
-		// mainNode->borderPadding = vec2(10,10);
-		mainNode->padding = vec2(10,10);
-		mainNode->vAxis = true;
 
-		addDebugInfo(fillString("w %f h %f", rectW(mainNode->r), rectH(mainNode->r)));
+		Layout* mainNode = getTStruct(Layout);
+		layout(mainNode, rectExpand(sr, -vec2(632, 100)), false, vec2i(0,1), vec2(10,10));
 
-		Vec2 sizes[] = { vec2(100  ,100), 
-						 vec2(0.3f  ,0),
-						 vec2(0  ,100), 
-						 vec2(0.5f ,0),  
-						 vec2(100  ,100) };
-		int sizesIndex = 0;
-
-		LayoutNode* ln;
+		layoutAdd(mainNode, layout(vec2(100,100)));
+		Layout* ln2 = layoutAdd(mainNode, layout(vec2(300,300), false, vec2i(-1,1), vec2(10,10), vec2(10,10)));
+		layoutAdd(mainNode, layout(vec2(100,100)));
 		
-		layoutAddNode(mainNode, layoutNode(sizes[sizesIndex++]));
+		layoutAdd(ln2, layout(vec2(50,50)));
+		layoutAdd(ln2, layout(vec2(50,50)));
 
-		LayoutNode* ln2 = layoutAddNode(mainNode, layoutNode(sizes[sizesIndex++]));
-			ln2->align = vec2i(-1,1);
-			ln2->vAxis = false;
-			ln2->borderPadding = vec2(10,10);
-			ln2->padding = vec2(10,0);
+		layoutAdd(mainNode, layout(vec2(120,40)), false);
+		layoutAdd(mainNode, layout(vec2(120,40)));
 
-			layoutAddNode(ln2, layoutNode(vec2(0,100)));
-			layoutAddNode(ln2, layoutNode(vec2(150,80)));
-
-		layoutAddNode(mainNode, layoutNode(sizes[sizesIndex++]));
+		layoutCalc(mainNode, true);
 
 
-
-
-		layoutCalc(mainNode);
-		layoutCalc(ln2);
 
 		drawRect(mainNode->r, vec4(0,0.1f));
-
 		Font* font = getFont(FONT_CALIBRI, 20);
 
 		// Draw all nodes.
 		{
 			int i = 0;
-			LayoutNode* node = mainNode->list;
+			Layout* node = mainNode->list;
 			while(node != 0) {
 
-				drawRect(node->r, colorHSL(hslColor+vec3((float)i/20,0,0.1f)));
-				drawText(fillString("%f", node->finalSize.x), font, rectCen(node->r), vec4(0.9,1), vec2i(0,0));
-				i++;
+				drawRect(node->r, colorHSL(hslColor+0.2f+vec3((float)i++/20,0,0.1f)));
+				drawText(fillString("%f", node->finalDim.x), font, rectCen(node->r), vec4(0.9,1), vec2i(0,0));
 
-				LayoutNode* node2 = node->list;
+				Layout* node2 = node->list;
 				while(node2 != 0) {
-					drawRect(node2->r, colorHSL(hslColor+vec3((float)i/20,0,0.1f)));
-					drawText(fillString("%f", node2->finalSize.x), font, rectCen(node2->r), vec4(0.9,1), vec2i(0,0));
+					drawRect(node2->r, colorHSL(hslColor+0.2f+vec3((float)i++/20,0,0.1f)));
+					drawText(fillString("%f", node2->finalDim.x), font, rectCen(node2->r), vec4(0.9,1), vec2i(0,0));
 
 					node2 = node2->next;
-					i++;
 				}
 
 				node = node->next;
