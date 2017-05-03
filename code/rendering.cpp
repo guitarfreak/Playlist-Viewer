@@ -712,6 +712,16 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	glEnd();
 };
 
+void drawRectProgress(Rect r, float p, Vec4 c0, Vec4 c1, bool outlined, Vec4 oc) {	
+	if(outlined) {
+		drawRectOutlined(rectSetR(r, r.left + rectW(r)*p), c0, oc, 0);
+		drawRectOutlined(rectSetL(r, r.right - rectW(r)*(1-p)), c1, oc, 0);
+	} else {
+		drawRect(rectSetR(r, r.left + rectW(r)*p), c0);
+		drawRect(rectSetL(r, r.right - rectW(r)*(1-p)), c1);
+	}
+}
+
 void drawTriangle(Vec2 p, float size, Vec2 dir, Vec4 color, float z = 0) {
 	glBindTexture(GL_TEXTURE_2D, 0);
 
