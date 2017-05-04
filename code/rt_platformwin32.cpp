@@ -252,13 +252,16 @@ struct MonitorData {
 
 struct WindowSettings {
 	Vec2i res;
-	Vec2i fullRes;
+	// Vec2i fullRes;
 	bool fullscreen;
 	uint style;
-	WINDOWPLACEMENT g_wpPrev;
+	// WINDOWPLACEMENT g_wpPrev;
+
+	RECT windowedRect;
 
 	MonitorData monitors[3];
 	int monitorCount;
+	Vec2i biggestMonitorSize;
 
 	Vec2i currentRes;
 	float aspectRatio;
@@ -278,8 +281,8 @@ BOOL CALLBACK monitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMoni
 
 	WindowSettings* ws = (WindowSettings*)(dwData);
 	MonitorData* md = ws->monitors + ws->monitorCount;
-	md->fullRect = rect(mi.rcMonitor.left, mi.rcMonitor.bottom, mi.rcMonitor.right, mi.rcMonitor.top);
-	md->workRect = rect(mi.rcWork.left, mi.rcWork.bottom, mi.rcWork.right, mi.rcWork.top);
+	md->fullRect = rect(mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom);
+	md->workRect = rect(mi.rcWork.left, mi.rcWork.top, mi.rcWork.right, mi.rcWork.bottom);
 	md->handle = hMonitor;
 	ws->monitorCount++;
 
@@ -293,10 +296,17 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 
 	EnumDisplayMonitors(0, 0, monitorEnumProc, ((LPARAM)ws));
 
+	ws->biggestMonitorSize = vec2i(0,0);
+	for(int i = 0; i < arrayCount(ws->monitors); i++) {
+		Rect r = ws->monitors[i].fullRect;
+		ws->biggestMonitorSize.w = maxInt(ws->biggestMonitorSize.w, rectW(r));
+		ws->biggestMonitorSize.h = maxInt(ws->biggestMonitorSize.h, rectH(r));
+	}
+
 	ws->currentRes = res;
 	ws->fullscreen = false;
-	ws->fullRes.x = GetSystemMetrics(SM_CXSCREEN);
-	ws->fullRes.y = GetSystemMetrics(SM_CYSCREEN);
+	// ws->fullRes.x = GetSystemMetrics(SM_CXSCREEN);
+	// ws->fullRes.y = GetSystemMetrics(SM_CYSCREEN);
 	ws->aspectRatio = (float)res.w / (float)res.h;
 
 	// ws->style = WS_OVERLAPPED;
@@ -305,8 +315,12 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	// if(maximizable) ws->style |= WS_MAXIMIZEBOX;
 	// if(visible) ws->style |= WS_VISIBLE;
 
+	// ws->style |= WS_POPUP;
 	// ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
-	ws->style = WS_POPUP | WS_BORDER;
+
+	// ws->style = WS_POPUP | WS_BORDER;
+	ws->style = WS_POPUP;
+
 	// ws->style = WS_POPUP | WS_VISIBLE | WS_CAPTION;
 	// ws->style = WS_POPUP;
 
@@ -700,31 +714,49 @@ void updateResolution(HWND windowHandle, WindowSettings* ws) {
 
 void setWindowMode(HWND hwnd, WindowSettings* wSettings, int mode) {
 	if(mode == WINDOW_MODE_FULLBORDERLESS && !wSettings->fullscreen) {
-		wSettings->g_wpPrev = {};
+		// wSettings->g_wpPrev = {};
 
-		DWORD dwStyle = getWindowStyle(hwnd);
-		if (dwStyle & WS_OVERLAPPEDWINDOW) {
-		  MONITORINFO mi = { sizeof(mi) };
-		  if (GetWindowPlacement(hwnd, &wSettings->g_wpPrev) &&
-		      GetMonitorInfo(MonitorFromWindow(hwnd,
-		                     MONITOR_DEFAULTTOPRIMARY), &mi)) {
-		    SetWindowLong(hwnd, GWL_STYLE,
-		                  dwStyle & ~WS_OVERLAPPEDWINDOW);
-			setWindowStyle(hwnd, dwStyle & ~WS_OVERLAPPEDWINDOW);
+		// DWORD dwStyle = getWindowStyle(hwnd);
+		// if (dwStyle & WS_OVERLAPPEDWINDOW) {
+		//   MONITORINFO mi = { sizeof(mi) };
+		//   if (GetWindowPlacement(hwnd, &wSettings->g_wpPrev) &&
+		//       GetMonitorInfo(MonitorFromWindow(hwnd,
+		//                      MONITOR_DEFAULTTOPRIMARY), &mi)) {
+		//     SetWindowLong(hwnd, GWL_STYLE,
+		//                   dwStyle & ~WS_OVERLAPPEDWINDOW);
+		// 	setWindowStyle(hwnd, dwStyle & ~WS_OVERLAPPEDWINDOW);
 
-		    SetWindowPos(hwnd, HWND_TOP,
-		                 mi.rcMonitor.left, mi.rcMonitor.top,
-		                 mi.rcMonitor.right - mi.rcMonitor.left,
-		                 mi.rcMonitor.bottom - mi.rcMonitor.top,
-		                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-		  }
-		}
+		//     SetWindowPos(hwnd, HWND_TOP,
+		//                  mi.rcMonitor.left, mi.rcMonitor.top,
+		//                  mi.rcMonitor.right - mi.rcMonitor.left,
+		//                  mi.rcMonitor.bottom - mi.rcMonitor.top,
+		//                  SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+		//   }
+		// }
+
+		wSettings->res = wSettings->currentRes;
+    	GetWindowRect(hwnd, &wSettings->windowedRect);
+
+		MONITORINFO mi = { sizeof(mi) };
+		GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+		SetWindowPos(hwnd, HWND_TOP,
+		             mi.rcMonitor.left, mi.rcMonitor.top,
+		             mi.rcMonitor.right - mi.rcMonitor.left,
+		             mi.rcMonitor.bottom - mi.rcMonitor.top,
+		             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
 
 		wSettings->fullscreen = true;
 	} else if(mode == WINDOW_MODE_WINDOWED && wSettings->fullscreen) {
-		setWindowStyle(hwnd, wSettings->style);
-		SetWindowPlacement(hwnd, &wSettings->g_wpPrev);
-		SetWindowPos(hwnd, NULL, 0,0, wSettings->res.w, wSettings->res.h, SWP_NOZORDER | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+		// setWindowStyle(hwnd, wSettings->style);
+		// SetWindowPlacement(hwnd, &wSettings->g_wpPrev);
+		// SetWindowPos(hwnd, NULL, 0,0, wSettings->res.w, wSettings->res.h, SWP_NOZORDER | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
+		RECT r = wSettings->windowedRect;
+		// r.left;
+
+		// SetWindowPos(hwnd, NULL, r.left, r.top, r.right-r.left, r.bottom-r.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+		SetWindowPos(hwnd, NULL, r.left, r.top, r.right-r.left, r.bottom-r.top, SWP_NOZORDER | SWP_NOOWNERZORDER);
 
 		wSettings->fullscreen = false;
 	}
@@ -806,6 +838,13 @@ void shellExecute(char* command) {
 
 bool windowIsMinimized(HWND windowHandle) {	
 	return IsIconic(windowHandle);
+}
+
+bool windowIsMaximized(HWND windowHandle) {	
+	WINDOWPLACEMENT placement = {sizeof(WINDOWPLACEMENT)};
+	GetWindowPlacement(windowHandle, &placement);
+	if(placement.showCmd == SW_SHOWMAXIMIZED) return true;
+	else return false;
 }
 
 void shellExecuteNoWindow(char* command, bool wait = true) {

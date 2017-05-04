@@ -712,6 +712,13 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	glEnd();
 };
 
+void drawRectHollow(Rect r, float size, Vec4 c, float z = 0) {
+	drawRect(rectSetB(r, r.top-size), c);
+	drawRect(rectSetL(r, r.right-size), c);
+	drawRect(rectSetT(r, r.bottom+size), c);
+	drawRect(rectSetR(r, r.left+size), c);
+}
+
 void drawRectProgress(Rect r, float p, Vec4 c0, Vec4 c1, bool outlined, Vec4 oc) {	
 	if(outlined) {
 		drawRectOutlined(rectSetR(r, r.left + rectW(r)*p), c0, oc, 0);
