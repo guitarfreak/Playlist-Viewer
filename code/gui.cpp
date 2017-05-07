@@ -78,6 +78,55 @@ struct GuiSettings {
 	int textShadow;
 };
 
+
+
+
+// static Vec2 panelPos = vec2(800,-100);
+// static Vec2 panelDim = vec2(400,600);
+// static bool resizeMode = false;
+// static bool clampToWindow = true;
+// static bool resizable = false;
+// static bool moveable = true;
+
+// NewGui* gui = ad->gui;
+// Font* font = ad->font;
+
+// Rect panelRect = rectTLDim(panelPos, panelDim);
+// float z = 2;
+
+// newGuiSetHotAllMouseOver(ad->gui, panelRect, z);
+
+// int event = newGuiGoDragAction(gui, panelRect, z);
+// if(event == 1) {
+// 	resizeMode = input->keysDown[KEYCODE_CTRL];
+
+// 	if(!resizeMode) gui->mouseAnchor = input->mousePosNegative - panelPos;
+// 	else gui->mouseAnchor = input->mousePos - panelDim;
+// }
+// if(event > 0) {
+// 	if(!resizeMode) panelPos = input->mousePosNegative - gui->mouseAnchor;
+// 	else panelDim = input->mousePos - gui->mouseAnchor;
+
+// 	panelRect = rectTLDim(panelPos, panelDim);
+// }
+
+// if(clampToWindow) {
+// 	Rect sr = getScreenRect(ws);
+// 	if(resizeMode) {
+// 		clamp(&panelDim.w, 100, rectW(sr) - panelPos.x);
+// 		clamp(&panelDim.h, 100, rectH(sr) + panelPos.y);
+// 		panelRect = rectTLDim(panelPos, panelDim);
+// 	} else if(!resizeMode && moveable) {
+// 		clamp(&panelPos.x, sr.left, sr.right-rectW(panelRect));
+// 		clamp(&panelPos.y, sr.bottom+rectH(panelRect), sr.top);
+// 		panelRect = rectTLDim(panelPos, panelDim);
+// 	}
+// }
+
+
+
+
+
 struct Gui;
 bool guiCreateSettingsFile();
 void guiSave(Gui* gui, int element, int slot);
@@ -95,6 +144,8 @@ struct Gui {
 	GuiInput input;
 	Font* font;
 	Vec2i screenRes;
+
+	Rect windowRect;
 
 	Vec2 startPos;
 	float panelWidth;
@@ -303,7 +354,7 @@ struct Gui {
 
 	void drawRect(Rect r, Vec4 color, bool scissor = false) {
 		if(scissor) scissorPush(getCurrentRegion());
-		::drawRect(r, color, rect(0,0,1,1), (int)getTexture(TEXTURE_WHITE)->id);
+		::drawRect(r, color);
 		if(scissor) scissorPop();
 	}
 
@@ -341,13 +392,17 @@ struct Gui {
 		{
 			Vec2 dragDelta = vec2(0,0);
 			Vec2 oldPos = cornerPos;
-			if(!input.ctrl && drag(background, &dragDelta) && moveable) {
+
+			Vec2 mp = input.mousePos;
+			bool mouseInsideScreen = valueBetween(mp.x, 0, screenRes.x) && valueBetween(mp.y, -screenRes.y, 0);
+
+			if(!input.ctrl && mouseInsideScreen && drag(background, &dragDelta) && moveable) {
 				cornerPos += dragDelta;
 			}
 
 			// clamp(&cornerPos, rect(0, -res.y, res.x - rectDim(background).w+1, 0.5f));
-			if(clipToWindow)
-				clamp(&cornerPos, rect(0, -res.y + rectDim(background).h, res.x - rectDim(background).w+1, 0.5f));
+			// if(clipToWindow)
+				// clamp(&cornerPos, rect(0, -res.y + rectDim(background).h, res.x - rectDim(background).w+1, 0.5f));
 			background = rectTrans(background, cornerPos - oldPos);
 		}
 
@@ -361,14 +416,14 @@ struct Gui {
 
 			if(input.ctrl) {
 				if(drag(background, &dragDelta) && resizeable) {
-					panelStartDim.h += -dragDelta.y;
+					// panelStartDim.h += -dragDelta.y;
 					panelStartDim.w += dragDelta.x;
 				}
 			}
 			{
 				incrementId();
 				if(drag(resizeRegion, &dragDelta) && resizeable) {
-					panelStartDim.h += -dragDelta.y;
+					// panelStartDim.h += -dragDelta.y;
 					panelStartDim.w += dragDelta.x;
 				}
 			}
@@ -377,12 +432,12 @@ struct Gui {
 			if(dragDelta != vec2(0,0) && resizeable) {
 				Rect screenRect = rect(0,-screenRes.h,screenRes.w,0);
 				dragDelta.x = clampMax(dragDelta.x, screenRect.max.x - background.max.x +1);
-				dragDelta.y = clampMin(dragDelta.y, screenRect.min.y - background.min.y);
+				// dragDelta.y = clampMin(dragDelta.y, screenRect.min.y - background.min.y);
 				panelStartDim.w = oldPanelWidth + dragDelta.x;
-				panelStartDim.h = oldMainScrollHeight - dragDelta.y;
+				// panelStartDim.h = oldMainScrollHeight - dragDelta.y;
 			}
 		
-			panelStartDim.h = clamp(panelStartDim.h, settings.minSize.y, screenRes.h+settings.border.h*2+1);
+			// panelStartDim.h = clamp(panelStartDim.h, settings.minSize.y, screenRes.h+settings.border.h*2+1);
 			panelStartDim.w = clamp(panelStartDim.w, settings.minSize.x, screenRes.w-settings.border.w*2+1);
 
 			Vec2 dragAfterClamp = vec2(panelStartDim.w - oldPanelWidth, oldMainScrollHeight - panelStartDim.h);
@@ -390,11 +445,12 @@ struct Gui {
 			resizeRegion = rectTrans(resizeRegion, dragAfterClamp);
 			background = rectSetBR(background, rectBR(background)+dragAfterClamp);
 
-			if(clipToWindow)
-				clamp(&cornerPos, rect(0, -res.y + rectDim(background).h, res.x - rectDim(background).w+1, 0.5f));
+			// if(clipToWindow)
+				// clamp(&cornerPos, rect(0, -res.y + rectDim(background).h, res.x - rectDim(background).w+1, 0.5f));
 		}
 
 		setScissor(true);
+		if(!rectZero(windowRect)) scissorPush(windowRect);
 		scissorPush(background);
 
 		// drawRect(background, colors.panelColor, false);
@@ -412,7 +468,7 @@ struct Gui {
 
 		// panel scrollbar
 		{
-			beginScroll(mainScrollHeight, &mainScrollAmount);
+			// beginScroll(mainScrollHeight, &mainScrollAmount);
 		}
 	}
 
@@ -423,9 +479,10 @@ struct Gui {
 
 		// panel scrollbar
 		{
-			endScroll();
+			// endScroll();
 		}
 
+		if(!rectZero(windowRect)) scissorPop();
 		scissorPop();
 		setScissor(false);
 	}
@@ -628,6 +685,17 @@ struct Gui {
 		post();
 	}
 
+	void beginVPadding() {
+		float indent = panelWidth*settings.sectionIndent;
+		startPos.x += indent*0.5f;
+		panelWidth -= indent;
+	}
+
+	void endVPadding() {
+		panelWidth = panelWidth*(1/(1-settings.sectionIndent));
+		startPos.x -= panelWidth*settings.sectionIndent*0.5f;
+	}
+
 	bool beginSection(char* text, bool* b) {
 		heightPush(settings.sectionOffset);
 		defaultWidth();
@@ -636,16 +704,13 @@ struct Gui {
 		settings.textShadow = 0;
 		heightPop();
 
-		float indent = panelWidth*settings.sectionIndent;
-		startPos.x += indent*0.5f;
-		panelWidth -= indent;
+		beginVPadding();
 
 		return *b;
 	}
 
 	void endSection() {
-		panelWidth = panelWidth*(1/(1-settings.sectionIndent));
-		startPos.x -= panelWidth*settings.sectionIndent*0.5f;
+		endVPadding();
 	}
 
 	void beginScroll(int scrollHeight, float* scrollAmount) {
@@ -953,7 +1018,7 @@ struct Gui {
 	}
 
 
-	bool textBox(void* value, int type, int textSize, int textCapacity) {
+	bool textBox(void* value, int type, int textSize, int textCapacity, char* defaultText) {
 		if(!pre()) return false;
 
 		bool activeBefore = getActive();
@@ -1127,7 +1192,10 @@ struct Gui {
 			if(input.escape) activeId = 0;
 
 		} else {
-			if(type == 0) drawText((char*)value, 0);
+			if(type == 0) {
+				if((strLen((char*)value) == 0 && strLen(defaultText) > 0)) drawText(defaultText, 1);
+				else drawText((char*)value, 0);
+			}
 			else { 
 				char* buffer = getTString(50); // unfortunate
 				strClear(buffer);
@@ -1146,13 +1214,16 @@ struct Gui {
 	}
 
 	bool textBoxChar(char* text, int textSize = 0, int textCapacity = 0) {
-		return textBox(text, 0, textSize, textCapacity);
+		return textBox(text, 0, textSize, textCapacity, "");
+	}
+	bool textBoxCharDefault(char* text, int textSize = 0, int textCapacity = 0, char* defaultText = "") {
+		return textBox(text, 0, textSize, textCapacity, defaultText);
 	}
 	bool textBoxInt(int* number) {
-		return textBox(number, 1, 0, arrayCount(textBoxText));
+		return textBox(number, 1, 0, arrayCount(textBoxText), "");
 	}
 	bool textBoxFloat(float* number) {
-		return textBox(number, 2, 0, arrayCount(textBoxText));
+		return textBox(number, 2, 0, arrayCount(textBoxText), "");
 	}
 };
 

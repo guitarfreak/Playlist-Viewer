@@ -4,6 +4,8 @@ const int INTERNAL_TEXTURE_FORMAT = USE_SRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
 
 #define editor_executable_path "C:\\Program Files\\Sublime Text 3\\sublime_text.exe"
 
+#define APP_FONT_COUNT 4
+
 //
 
 // const char* watchFolders[] = {

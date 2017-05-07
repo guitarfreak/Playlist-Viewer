@@ -9,6 +9,11 @@
 #define mallocArray(type, count) (type*)malloc(sizeof(type)*count);
 #define mallocStruct(type) (type*)malloc(sizeof(type));
 
+#define PVEC2(v) v.x, v.y
+#define PVEC3(v) v.x, v.y, v.z
+#define PVEC4(v) v.x, v.y, v.z, v.w
+#define PRECT(r) r.left, r.bottom, r.right, r.top
+
 int myAssert(bool check) {
 	if(!check) {
 
@@ -599,6 +604,20 @@ void writeStringToFile(String str, char* fileName) {
 	writeBufferToFile(str.data, fileName, str.size);
 }
 
+void writeDataToFile(char* data, int size, char* fileName) {
+	FILE* file = fopen(fileName, "wb");
+	fwrite(data, size, 1, file);
+	fclose(file);
+}
+
+void readDataFile(char* data, char* fileName) {
+	FILE* file = fopen(fileName, "rb");
+
+	int size = fileSize(file);
+	fread(data, size, 1, file);
+	fclose(file);
+}
+
 //
 // ???
 //
@@ -962,3 +981,53 @@ void endStatistic(Statistic* stat) {
 }
 
 //
+//
+//
+
+bool charIsSign(char c) { return c == '-' || c == '+'; }
+bool charIsDigit(char c) { return (c >= '0') && (c <= '9'); }
+bool charIsLetter(char c) { return ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')); }
+bool charIsUppercaseLetter(char c) { return c >= 'A' && c <= 'Z'; }
+bool charIsLowercaseLetter(char c) { return c >= 'a' && c <= 'z'; }
+bool charIsAlphaNumeric(char c) { return charIsDigit(c) || charIsLetter(c); }
+bool charIsWhiteSpace(char c) { return c==' ' || c=='\n' || c=='\t' || c=='\v' || c=='\f' || c=='\r'; }
+
+char* eatWhiteSpaces(char* str) {
+	int index = 0;
+	while(charIsWhiteSpace(str[index])) index++;
+	return str + index;
+}
+
+char* eatSpaces(char* str) {
+	int index = 0;
+	while(str[index] == ' ') index++;
+	return str + index;
+}
+
+int parseNumber(char* s) {
+	int i = 0;
+	if(charIsSign(s[i])) i++;
+
+	if(!charIsDigit(s[i++])) return 0;
+	while(charIsDigit(s[i++]));
+
+	if(s[i] == '.') i++;
+
+	while(charIsDigit(s[i++]));
+
+	return i-1;
+}
+
+int parseString(char* s) {
+	int i = 0;
+	if(!(s[i++] == '\"')) return 0;
+
+	for(;;) {
+		int pos = strFind(s + i, '\"');
+		if(!pos) return 0;
+
+		i += pos;
+		if(s[i-1] != '\\') return i;
+	}
+
+}

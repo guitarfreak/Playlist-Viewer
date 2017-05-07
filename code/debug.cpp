@@ -385,6 +385,7 @@ void addDebugInfoVec2i(Vec2i v) { addDebugInfo(fillString("{%i, %i}", v.x, v.y))
 void addDebugInfoVec2 (Vec2 v)  { addDebugInfo(fillString("{%f, %f}", v.x, v.y)); }
 void addDebugInfoVec3 (Vec3 v)  { addDebugInfo(fillString("{%f, %f, %f}", v.x, v.y, v.z)); }
 void addDebugInfoVec4 (Vec4 v)  { addDebugInfo(fillString("{%f, %f, %f, %f}", v.r, v.g, v.g, v.a)); }
+void addDebugInfoRect (Rect r)  { addDebugInfo(fillString("{%f, %f, %f, %f}", PRECT(r))); }
 
 
 

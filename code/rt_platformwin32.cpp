@@ -202,8 +202,7 @@ struct SystemData {
 	HDC deviceContext;
 	HWND windowHandle;
 	
-	// 1. Misc, 2. CubeMaps, 3. Minecraft
-	HANDLE folderHandles[3]; 
+	HANDLE folderHandle; 
 };
 
 void systemDataInit(SystemData* sd, HINSTANCE instance) {
@@ -235,6 +234,22 @@ LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LP
             SetCursor(GetCursor());
             return true;
         } break;
+
+        // case WM_ERASEBKGND: {
+        // 	return 1;
+        // } break;
+
+        // case WM_PAINT: {
+	       //  PAINTSTRUCT ps;
+	       //  HDC hdc = BeginPaint(window, &ps);
+
+	       //  // FillRect(hdc, &ps.rcPaint, (HBRUSH) (COLOR_WINDOW+1));
+	       //  // FillRect(hdc, &ps.rcPaint, (HBRUSH) CreateSolidBrush(RGB(250,30,30)));
+	       //  FillRect(hdc, &ps.rcPaint, (HBRUSH) CreateSolidBrush(RGB(0,0,0)));
+	        
+	       //  EndPaint(window, &ps);
+	       //  return 0;
+        // } break;
 
         default: {
             return DefWindowProc(window, message, wParam, lParam);
@@ -319,10 +334,11 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	// ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
 
 	// ws->style = WS_POPUP | WS_BORDER;
-	ws->style = WS_POPUP;
+	ws->style = WS_POPUPWINDOW;
+	// ws->style = WS_POPUP;
+	// ws->style = WS_BORDER;
 
 	// ws->style = WS_POPUP | WS_VISIBLE | WS_CAPTION;
-	// ws->style = WS_POPUP;
 
 	RECT cr = {0, 0, res.w, res.h};
 	AdjustWindowRectEx(&cr, ws->style, 0, 0);
@@ -341,6 +357,8 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 
     WNDCLASS windowClass = {};
     windowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
+    // windowClass.style = CS_OWNDC;
+
     // windowClass.style = CS_HREDRAW|CS_VREDRAW;
     // windowClass.style = CS_OWNDC;
     windowClass.lpfnWndProc = mainWindowCallBack;
@@ -349,7 +367,9 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
     // windowClass.hCursor = LoadCursor(0, IDC_ARROW);
     windowClass.hCursor = 0;
     // windowClass.hbrBackground = CreateSolidBrush(RGB(30,30,30));
+    // windowClass.hbrBackground = CreateSolidBrush(RGB(0,0,0));
     // windowClass.hbrBackground = (HBRUSH)CreateSolidBrush(0x00000000);
+    // windowClass.hbrBackground = 0;
 
     if(!RegisterClass(&windowClass)) {
         DWORD errorCode = GetLastError();
@@ -462,11 +482,7 @@ Vec2 getMousePos(HWND windowHandle, bool yInverted = true) {
 	return mousePos;
 }
 
-void updateInput(Input* input, bool* isRunning, HWND windowHandle, bool waitForMessages) {
-	#ifdef RELEASE_BUILD
-		if(waitForMessages) WaitMessage();
-	#endif
-
+void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 	input->anyKey = false;
 
     input->mouseWheel = 0;
@@ -847,6 +863,7 @@ bool windowIsMaximized(HWND windowHandle) {
 	else return false;
 }
 
+// Command line execution: "cmd.exe /c start"
 void shellExecuteNoWindow(char* command, bool wait = true) {
 	STARTUPINFO si = {};
 	PROCESS_INFORMATION pi = {};

@@ -26,16 +26,20 @@
 	- Video duration.
 	- Standard deviation graph.
 	- Avg. line of number videos of released in a month or so.
-	- Save position of sliders.
+	- Two modes for windows border or self made border.
+	- True JSon parser.
+	- Make UI look more 3D instead of plain flat.
+	- Fix layout system.
+	- Show download speed.
 
-	- File app settings.
-	- Save window position.
+
 
 	Done Today: 
-
+	
 
 	Bugs:
-
+	- Drag with other window white trail.
+	
 */
 
 
@@ -578,6 +582,12 @@ void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo*
 		int size = curlRequest(curlHandle, vid->thumbnail, buffer);
 		if(snippet->thumbnailTexture.id != -1) deleteTexture(&snippet->thumbnailTexture);
 		loadTextureFromMemory(&snippet->thumbnailTexture, buffer, size, -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
+		// glBindTexture(GL_TEXTURE_2D, snippet->thumbnailTexture.id);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+		// glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
 	// Get comments.
@@ -719,17 +729,11 @@ char* downloadChannelIdFromUserName(CURL* curlHandle, char* userName) {
 	return channelId;
 }
 
-char* eatWhiteSpace(char* str) {
-	int index = 0;
-	while(str[index] == ' ') index++;
-	return str + index;
-}
-
 void quickSearch(CURL* curlHandle, SearchResult* searchResults, int* channelCount, char* searchString, bool searchForChannels = true) {
 	char* buffer = (char*)getTMemory(kiloBytes(50));
 	char* search = getTString(strLen(searchString)+1); strClear(search);
 	for(;;) {
-		searchString = eatWhiteSpace(searchString);
+		searchString = eatSpaces(searchString);
 		int pos = strFind(searchString, ' ');
 		if(pos != 0) {
 			strAppend(search, searchString, pos-1);
@@ -1494,7 +1498,7 @@ struct NewGui {
 
 	// Temp vars for convenience.
 
-	Vec2 mouseAnchor;
+	Vec2 mouseAnchor, mouseAnchor2;
 	int mode;
 
 	char editText[100];
@@ -1846,26 +1850,52 @@ void newGuiRectsFromWidths(Rect r, float* widths, int size, Rect* rects, float o
 
 //
 
-void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc, Vec2i align, Rect scissor) {
-	scissorTestScreen(scissor);
-	// drawRect(r, bc);
-	drawRectRounded(r, bc, 4);
+struct TextBoxSettings {
+	Font* font;
+	float shadow;
+	Vec4 textColor;
+	Vec4 shadowColor;
 
-	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	Vec4 backgroundColor;
+	float roundedCorner;
+};
+TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor, float roundedCorners) {
+	return {font, shadow, textColor, shadowColor, backgroundColor, roundedCorners};
+}
+TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor) {
+	return textBoxSettings(font, backgroundColor, textColor, shadow, shadowColor, 0);
+}
+TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor) {
+	return {font, 0, textColor, vec4(0,0), backgroundColor, 0};
+}
+TextBoxSettings textBoxSettings(Font* font, Vec4 textColor) {
+	return textBoxSettings(font, vec4(0,0), textColor);
+}
+
+void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
+	scissorTestScreen(scissor);
+
+	if(settings.roundedCorner == 0) drawRect(r, settings.backgroundColor);
+	drawRectRounded(r, settings.backgroundColor, settings.roundedCorner);
+
+	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	scissorTestScreen(scissor);
 	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
 	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
-	// drawText(text, font, vec2(xPos, yPos), tc, align);
-	drawText(text, font, vec2(xPos, yPos), tc, align, 0, 2, vec4(0,1)); // Hardcoded for now.
+
+	if(settings.shadow == 0) drawText(text, settings.font, vec2(xPos, yPos), settings.textColor, align);
+	else drawText(text, settings.font, vec2(xPos, yPos), settings.textColor, align, 0, settings.shadow, settings.shadowColor);
 }
-void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc) {
-	drawTextBox(r, bc, text, font, tc, vec2i(0,0), r);
+void drawTextBox(Rect r, char* text, Vec2i align, TextBoxSettings settings) {
+	drawTextBox(r, text, align, r, settings);
 }
-void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc, Vec2i align) {
-	drawTextBox(r, bc, text, font, tc, align, r);
+void drawTextBox(Rect r, char* text, Rect scissor, TextBoxSettings settings) {
+	drawTextBox(r, text, vec2i(0,0), scissor, settings);
 }
-void drawTextBox(Rect r, Vec4 bc, char* text, Font* font, Vec4 tc, Rect scissor) {
-	drawTextBox(r, bc, text, font, tc, vec2i(0,0), scissor);
+void drawTextBox(Rect r, char* text, TextBoxSettings settings) {
+	drawTextBox(r, text, vec2i(0,0), r, settings);
 }
+
 
 
 void drawTextEditBox(char* text, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active, Rect scissor) {
@@ -1926,8 +1956,8 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Font* font, Vec4 bc, Vec
 	scissorTestScreen(scissor);
 
 	drawLine(rectL(br), rectR(br), bc);
-	// drawRect(sr, sc);
-	drawRectRounded(sr, sc, 4);
+	drawRect(sr, sc);
+	// drawRectRounded(sr, sc, 4);
 
 	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 
@@ -1957,19 +1987,29 @@ bool getRectScissor(Rect* scissor, Rect r) {
 	return true;
 }
 
-bool newGuiQuickButton(NewGui* gui, Rect r, float z, char* text, Font* font, Vec4 bc, Vec4 tc, Rect scissor) {
+bool newGuiQuickButton(NewGui* gui, Rect r, float z, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
 	if(!getRectScissor(&scissor, r)) return false;
 
 	bool active = newGuiGoButtonAction(gui, scissor, z);
-	drawTextBox(r, bc + newGuiColorModB(gui), text, font, tc, scissor);
+	settings.backgroundColor += newGuiColorModB(gui);
+	drawTextBox(r, text, align, scissor, settings);
 
 	return active;
 }
+bool newGuiQuickButton(NewGui* gui, Rect r, float z, char* text, Rect scissor, TextBoxSettings settings) {
+	return newGuiQuickButton(gui, r, z, text, vec2i(0,0), scissor, settings);
+}
+bool newGuiQuickButton(NewGui* gui, Rect r, float z, char* text, TextBoxSettings settings) {
+	return newGuiQuickButton(gui, r, z, text, vec2i(0,0), r, settings);
+}
 
-void drawQuickTextBox(Rect r, char* t, Font* font, Vec4 bc, Vec4 tc, Vec2i align, Rect scissor) {
+void drawQuickTextBox(Rect r, char* t, Vec2i align, Rect scissor, TextBoxSettings settings) {
 	if(!getRectScissor(&scissor, r)) return;
 
-	drawTextBox(r, bc, t, font, tc, align, scissor);
+	drawTextBox(r, t, align, scissor, settings);
+}
+void drawQuickTextBox(Rect r, char* t, Rect scissor, TextBoxSettings settings) {
+	return drawQuickTextBox(r, t, vec2i(0,0), scissor, settings);
 }
 
 bool newGuiQuickSlider(NewGui* gui, Rect r, float z, float* val, float min, float max, float sliderSize, Font* font, Vec4 bc, Vec4 tc, Vec4 cc, Rect scissor) {
@@ -2086,58 +2126,78 @@ void downloadModeSet(int newMode, int* downloadMode, int* downloadStep, bool* ap
 }
 
 
-struct AppColors {
-	Vec4 graphBackgroundBottom;
-	Vec4 graphBackgroundTop;
-	Vec4 graphLine1;
-	Vec4 graphLine2;
-	Vec4 graphLineAvg;
-	Vec4 font1;
-	Vec4 font2;
-	Vec4 font3;
-	Vec4 fontShadow;
+union AppColors {
+	struct {
+		Vec4 graphBackgroundBottom;
+		Vec4 graphBackgroundTop;
+		Vec4 graphLine1;
+		Vec4 graphLine2;
+		Vec4 graphLineAvg;
+		Vec4 font1;
+		Vec4 font2;
+		Vec4 font3;
+		Vec4 fontShadow;
+		Vec4 background;
+		Vec4 buttons;
+		Vec4 sidePanel;
+		Vec4 likes;
+		Vec4 dislikes;
+		Vec4 comments;
+		Vec4 commentScroll;
+		Vec4 sidePanelButtons;
+		Vec4 editBackground;
+		Vec4 editSelection;
+		Vec4 editCursor;
+		Vec4 mouseHover;
+		Vec4 outlines;
+		Vec4 graphMarkers;
+		Vec4 graphSubMarkers;
+		Vec4 windowBorder;
+	};
 
-	Vec4 background;
-	Vec4 buttons;
+	Vec4 e[25];
+};
 
-	Vec4 sidePanel;
-	Vec4 likes;
-	Vec4 dislikes;
-	Vec4 comments;
-	Vec4 commentScroll;
-	Vec4 sidePanelButtons;
-
-	Vec4 editBackground;
-	Vec4 editSelection;
-	Vec4 editCursor;
-	Vec4 mouseHover;
-
-	Vec4 outlines;
-
-	Vec4 graphMarkers;
-	Vec4 graphSubMarkers;
-
-	Vec4 windowBorder;
+char* appColorsStrings[] = {
+	"graphBackgroundBottom",
+	"graphBackgroundTop",
+	"graphLine1",
+	"graphLine2",
+	"graphLineAvg",
+	"font1",
+	"font2",
+	"font3",
+	"fontShadow",
+	"background",
+	"buttons",
+	"sidePanel",
+	"likes",
+	"dislikes",
+	"comments",
+	"commentScroll",
+	"sidePanelButtons",
+	"editBackground",
+	"editSelection",
+	"editCursor",
+	"mouseHover",
+	"outlines",
+	"graphMarkers",
+	"graphSubMarkers",
+	"windowBorder",
 };
 
 union AppSettings {
 	struct {
-		int windowX;
-		int windowY;
-		int windowW;
-		int windowH;
+		char* font;
+		char* fontComment;
+		char* fontTitle;
+		char* fontPanel;
 
-		int windowMinWidth;
-		int windowMinHeight;
-
-		int font;
 		int fontSize;
-
-		int fontComment;
 		int fontCommentSize;
-
-		int fontTitle;
 		int fontTitleSize;
+		int fontPanelSize;
+		int fontShadow;
 
 		int marginBottomText;
 		int marginLeftText;
@@ -2147,43 +2207,30 @@ union AppSettings {
 		int marginButtonsHeight;
 		int marginFilters;
 		int marginSlider;
-
 		int commentScrollbarWidth;
-		int sidePanelMinWidth;
 		int resizeRegionSize;
 		int titleOffset;
-		int fontShadow;
 
-		float sidePanelWidth;
-		float graphHeights[4];
-		float graphHeightMin;
-
-		float cubicCurveSegmentMod;
-		float cubicCurveSegmentMin;
-
-		float windowBorder;
-		float windowTitleHeight;
+		int windowBorder;
+		int windowTitleHeight;
 	};
 
 	struct {
-		int e1[25];
-		float e2[7];
+		char* fonts[APP_FONT_COUNT];
+		int e[17];
 	};
 };
 
 char* appSettingsStrings[] = {
-	"windowX",
-	"windowY",
-	"windowW",
-	"windowH",
-	"windowMinWidth",
-	"windowMinHeight",
 	"font",
-	"fontSize",
 	"fontComment",
-	"fontCommentSize",
 	"fontTitle",
+	"fontPanel",
+	"fontSize",
+	"fontCommentSize",
 	"fontTitleSize",
+	"fontPanelSize",
+	"fontShadow",
 	"marginBottomText",
 	"marginLeftText",
 	"marginSidePanel",
@@ -2193,40 +2240,276 @@ char* appSettingsStrings[] = {
 	"marginFilters",
 	"marginSlider",
 	"commentScrollbarWidth",
-	"sidePanelMinWidth",
 	"resizeRegionSize",
 	"titleOffset",
-	"fontShadow",
-	"sidePanelWidth",
-	"graphHeights",
-	"graphHeightMin",
-	"cubicCurveSegmentMod",
-	"cubicCurveSegmentMin",
 	"windowBorder",
 	"windowTitleHeight",
 };
 
-char* appSettingsFilePath = "..\\appSettings.txt";
+void appWriteSettings(char* filePath, AppSettings* as, AppColors* ac) {
+	char* text;
+	int maxString;
+	int offset;
 
-void appWriteSettings(char* filePath, AppSettings* as) {
 	FILE* file = fopen(filePath, "wb");
 
-	// char* text = fillString("asdfreawg#@$#### %i %f", 3, 45.3332f);
-	// fwrite(text, strLen(text)+1, 1, file);
-
+	maxString = 0;
 	for(int i = 0; i < arrayCount(appSettingsStrings); i++) {
-		char* text;
-		if(i < 25) text = fillString("%s: %i\n", appSettingsStrings[i], as->e1[i]);
-		else text = fillString("%s: %f\n", appSettingsStrings[i], as->e2[i-25]);
+		maxString = max(maxString, strLen(appSettingsStrings[i]));
+	}
+
+
+	text = "Notes \r\n";
+	fwrite(text, strLen(text), 1, file);
+
+	text = "- Settings are hotloaded. \r\n";
+	fwrite(text, strLen(text), 1, file);
+	text = "- App and windows font folders are checked for fonts. \r\n";
+	fwrite(text, strLen(text), 1, file);
+	text = "- Delete this file to get back to the default settings. \r\n";
+	fwrite(text, strLen(text), 1, file);
+
+	text = "\r\n";
+	fwrite(text, strLen(text), 1, file);
+
+	text = "\\\\ ============ App Settings. ============ \\\\\r\n \r\n";
+	fwrite(text, strLen(text), 1, file);
+
+
+	offset = maxString + 2;
+	for(int ai = 0; ai < arrayCount(appSettingsStrings); ai++) {
+		text = fillString("%s:", appSettingsStrings[ai]);
+		fwrite(text, strLen(text), 1, file);
+
+		char space = ' ';
+		int a = offset-strlen(text);
+		for(int i = 0; i < a; i++) fwrite(&space, 1, 1, file);
+	
+		if(ai < APP_FONT_COUNT)	text = fillString("\"%s\"\r\n", as->fonts[ai]);
+		else text = fillString("%i\r\n", as->e[ai-APP_FONT_COUNT]);
 
 		fwrite(text, strLen(text), 1, file);
+	}
+
+
+
+	maxString = 0;
+	for(int i = 0; i < arrayCount(appColorsStrings); i++) {
+		maxString = max(maxString, strLen(appColorsStrings[i]));
+	}
+
+	text = "\r\n\\\\ ============ App Colors. ============ \\\\\r\n \r\n";
+	fwrite(text, strLen(text), 1, file);
+
+	offset = maxString + 2;
+	for(int i = 0; i < arrayCount(appColorsStrings); i++) {
+		char* text1 = fillString("%s:", appColorsStrings[i]);
+		char* text2 = fillString("{%f, %f, %f, %f}\r\n", PVEC4(ac->e[i]));
+
+		fwrite(text1, strLen(text1), 1, file);
+
+		char space = ' ';
+		int a = offset-strlen(text1);
+		for(int i = 0; i < a; i++) fwrite(&space, 1, 1, file);
+		
+		fwrite(text2, strLen(text2), 1, file);
 	}
 
 	fclose(file);
 }
 
+void appReadSettings(char* filePath, AppSettings* as, AppColors* ac) {
+	int fSize = fileSize(filePath);
+	char* buffer = getTString(fSize)+1;
+	readFileToBuffer(buffer, filePath);
+
+	char* value = getTString(20);
+
+	for(int i = 0; i < arrayCount(appSettingsStrings); i++) {
+		int pos = strFind(buffer, ':');
+		buffer += pos;
+
+		buffer = eatSpaces(buffer);
+
+		int size = 0;
+		if(i < APP_FONT_COUNT) {
+			int size = parseString(buffer);
+			as->fonts[i] = getPString(size-1);
+			strCpy(as->fonts[i], buffer+1, size-2);
+		} else {
+			int size = parseNumber(buffer);
+			strCpy(value, buffer, size);
+			as->e[i-APP_FONT_COUNT] = strToInt(value);
+		}
+
+		buffer += size;
+	}
+
+	for(int i = 0; i < arrayCount(appColorsStrings); i++) {
+		int pos = strFind(buffer, ':');
+		buffer += pos;
+
+		Vec4 c;
+		buffer += strFind(buffer, '{');
+
+		buffer--;
+		for(int j = 0; j < 4; j++) {
+			buffer++;
+			buffer = eatSpaces(buffer);
+
+			int size = parseNumber(buffer);
+			strCpy(value, buffer, size);
+			c.e[j] = strToFloat(value);
+
+			buffer += size;
+			buffer = eatSpaces(buffer);
+		}
+
+		ac->e[i] = c;
+	}
+}
+
+void appSettingsDefault(AppSettings* as, AppColors* ac) {
+		ac->graphBackgroundBottom = vec4(0.2f, 0.1f, 0.4f, 1);
+		ac->graphBackgroundTop    = vec4(0.1f, 0.1f, 0.2f, 1);
+		ac->graphLine1            = vec4(0,0.7f,1,1);
+		ac->graphLine2            = vec4(0.9f,0.5f,1,1);
+		ac->graphLineAvg          = vec4(0,0.9f,0.3f,0.8f);
+		ac->font1                 = vec4(0.9f,1);
+		ac->font2                 = vec4(0.6f,1);
+		ac->font3                 = vec4(1.0f,0.5f,0,1);
+		ac->fontShadow            = vec4(0,1);
+		ac->background            = vec4(0.45f, 0.15f, 0.15f, 1);
+		ac->buttons               = vec4(0.52,0.25,0.20,1);
+		ac->sidePanel             = vec4(0.13f,0.02f,0.02f, 1.0f);
+		ac->likes                 = vec4(0.2f,0.2f,0.5f,1);
+		ac->dislikes              = vec4(0.5f,0.2f,0.2f,1);
+		ac->comments              = vec4(0.2f,0.1f,0,1);
+		ac->commentScroll         = vec4(0.3f,0.15f,0,1);
+		ac->sidePanelButtons      = vec4(0.3f,0.1f,0,1);
+		ac->editBackground        = vec4(0.33,0.11,0.11,1);
+		ac->editSelection         = vec4(0.24,0.41,0.59,1); 
+		ac->editCursor            = vec4(0.2f,0.7f,0,1);
+		ac->mouseHover            = vec4(0.8f,0,0.2f,0.2f);
+		ac->outlines              = vec4(0,1);
+		ac->graphMarkers          = vec4(1,0.05f);
+		ac->graphSubMarkers       = vec4(1,0.01f);
+		ac->windowBorder          = ac->background - vec4(0.2f,0.1f,0,0);
+
+		as->font = "OpenSans-Bold.ttf";
+		as->fontComment = "SourceSansPro-Regular.ttf";
+		as->fontTitle = "OpenSans-Bold.ttf";
+		as->fontPanel = "calibri.ttf";
+		as->fontSize = 22;
+		as->fontCommentSize = 23;
+		as->fontTitleSize = 30;
+		as->fontPanelSize = 20;
+		as->fontShadow = 2;
+
+		as->marginBottomText = -3;
+		as->marginLeftText = 2;
+		as->marginSidePanel = 10;
+		as->marginComments = 10;
+		as->marginButtons = 4;
+		as->marginButtonsHeight = 4;
+		as->marginFilters = 5;
+		as->marginSlider = 7;
+		as->commentScrollbarWidth = 20;
+		as->resizeRegionSize = 5;
+		as->titleOffset = 10;
+		as->windowBorder = 5;
+		as->windowTitleHeight = as->fontSize;
+}
+
+struct AppTempSettings {
+	Rect windowRect;
+	float sidePanelWidth;
+	float graphOffsets[Line_Graph_Count+1];
+	int playlistFolderIndex;
+};
+
+void appWriteTempSettings(char* filePath, AppTempSettings* at) {
+	writeDataToFile((char*)at, sizeof(AppTempSettings), filePath);
+}
+
+void appReadTempSettings(char* filePath, AppTempSettings* at) {
+	readDataFile((char*)at, filePath);
+}
+
+void appTempDefault(AppTempSettings* at, Rect monitor) {
+	Rect r = monitor;
+	Vec2 center = vec2(rectCenX(r), (r.top - r.bottom)/2);
+	Vec2 dim = vec2(rectW(r), -rectH(r));
+	at->windowRect = rectCenDim(center, dim*0.85f);
+
+	at->sidePanelWidth = rectW(at->windowRect)*0.25f;
+
+	at->graphOffsets[0] = 0.0f;
+	at->graphOffsets[1] = 0.4f;
+	at->graphOffsets[2] = 0.6f;
+	at->graphOffsets[3] = 0.8f;
+	at->graphOffsets[4] = 1.0f;
+
+	at->playlistFolderIndex = 0;
+}
+
+
+
+enum JSonType {
+	JSON_STRING = 0,
+	JSON_NUMBER,
+	JSON_BOOL,
+	JSON_OBJECT,
+	JSON_ARRAY,
+};
+
+union JSonValue {
+	char type;
+
+	char* string;
+	float number;
+	bool b;
+
+	struct {
+		char* string;
+		JSonValue* value;
+	};
+
+	struct {
+		JSonValue* array; 
+		int size;
+	};
+};
+
+
+
+
 #define Graph_Zoom_Min 24*60*60
 #define Graph_Zoom_MinNoDate 10
+#define Window_Min_Size_X 300
+#define Window_Min_Size_Y 300
+#define Side_Panel_Min_Width 200
+
+#define Graph_Min_Height 0.1f
+#define Cam_Min_Height_0 1000
+#define Cam_Min_Height_1 100
+#define Cam_Min_Height_2 0.1
+#define Cam_Min_Height_3 10
+
+#define Cubic_Curve_Segment_Mod 20
+#define Cubic_Curve_Segment_Min 4
+
+#define appFontPath "..\\data\\Fonts\\"
+#define windowsFontPath "C:\\Windows\\Fonts\\"
+#define Default_Font "calibri.ttf"
+#define Playlist_Folder "..\\playlists"
+
+#define appFolder "..\\app\\"
+#define appSettingsFilePath "..\\app\\appSettings.txt"
+#define appSaveFilePath "..\\app\\appSave.txt"
+#define screenshotFilePath "..\\app\\screenshot.png"
+
+#define UI_Rounding 5
 
 struct AppData {
 	// General.
@@ -2247,6 +2530,8 @@ struct AppData {
 
 	// Window.
 
+	Rect clientRect;
+
 	bool updateWindow;
 	int updateWindowX, updateWindowY;
 	int updateWidth, updateHeight;
@@ -2257,12 +2542,18 @@ struct AppData {
 
 	// App.
 
+	bool reloadSettings;
+	FILETIME settingsFileLastWriteTime;
+
 	AppColors appColors;
 	AppSettings appSettings;
 
 	bool appIsBusy;
 
 	Font* font;
+	Font* fontComment;
+	Font* fontTitle;
+	Font* fontPanel;
 
 	CURL* curlHandle;
 	HMODULE curlDll;
@@ -2275,7 +2566,7 @@ struct AppData {
 
 	float leftTextWidth;
 
-	float graphOffsets[5];
+	float graphOffsets[Line_Graph_Count+1];
 	float sidePanelWidth;
 	float sidePanelMax;
 
@@ -2299,6 +2590,7 @@ struct AppData {
 
 	//
 
+	int playlistFolderIndex;
 	YoutubePlaylist playlist;
 	YoutubeVideo* videos;
 	int maxVideoCount;
@@ -2319,6 +2611,8 @@ struct AppData {
 	Vec2i screenShotDim;
 
 	char* searchString;
+	char* searchStringPlaylists;
+	char* searchStringChannels;
 
 	bool startDownload;
 	bool update;
@@ -2448,13 +2742,6 @@ Layout* layoutAdd(Layout* node, Layout nn, bool addEnd = true) {
 
 	layoutAdd(node, newNode, addEnd);
 	return newNode;
-}
-
-void layoutAdd(Layout* node, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
-	layoutAdd(node, layout(node->vAxis ? vec2(s1,0) : vec2(0,s1)));
-	if(s2 != -1) layoutAdd(node, layout(node->vAxis ? vec2(s2,0) : vec2(0,s2)));
-	if(s3 != -1) layoutAdd(node, layout(node->vAxis ? vec2(s3,0) : vec2(0,s3)));
-	if(s4 != -1) layoutAdd(node, layout(node->vAxis ? vec2(s4,0) : vec2(0,s4)));
 }
 
 void layoutCalcSizes(Layout* mainNode) {
@@ -2590,6 +2877,18 @@ void layoutCalc(Layout* mainNode, bool recursive = true) {
 			node = node->next;
 		}
 	}
+}
+
+Layout* layoutQuickRow(Layout* node, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
+	node->list = 0;
+	layoutAdd(node, layout(!node->vAxis ? vec2(s1,0) : vec2(0,s1)));
+	if(s2 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s2,0) : vec2(0,s2)));
+	if(s3 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s3,0) : vec2(0,s3)));
+	if(s4 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s4,0) : vec2(0,s4)));
+
+	layoutCalc(node);
+
+	return node->list;
 }
 
 
@@ -2738,7 +3037,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		getPMemory(sizeof(AppData));
 		*ad = {};
 		
-		initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), false, true, false, 1);
+		initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, false, 1);
 		windowHandle = systemData->windowHandle;
 
 	    printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
@@ -2847,6 +3146,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
 
+
+		HANDLE fileChangeHandle  = FindFirstChangeNotification(appFolder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
+		if(fileChangeHandle == INVALID_HANDLE_VALUE) {
+			printf("Could not set folder change notification.\n");
+		}
+		systemData->folderHandle = fileChangeHandle;
+		ad->settingsFileLastWriteTime = getLastWriteTime(appSettingsFilePath);
+
+
+
 		int maxVideoCount = 5000;
 		ad->maxVideoCount = maxVideoCount;
 
@@ -2868,24 +3177,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->selectedVideo = -1;
 
 		ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
-		strCpy(ad->channelId, rocketBeansId);
-
 		ad->userName = (char*)getPMemory(100); strClear(ad->userName);
 		ad->searchString = (char*)getPMemory(100); strClear(ad->searchString);
+		ad->searchStringPlaylists = (char*)getPMemory(100); strClear(ad->searchStringPlaylists);
+		ad->searchStringChannels = (char*)getPMemory(100); strClear(ad->searchStringChannels);
 
 		ad->statTimeSpan = 3.0f;
 		ad->statWidth = 1.0f;
 
-		strCpy(ad->downloadPlaylist.id, "UUaTznQhurW5AaiYPbhEA-KA");
-
 		strClear(ad->screenShotFilePath);
-		strCpy(ad->screenShotFilePath, "..\\screenshot.png");
+		strCpy(ad->screenShotFilePath, screenshotFilePath);
 		ad->screenShotDim = vec2i(5000, 1000);
 
 		ad->leftTextWidth = 100;
 		ad->camCount = 4;
-
-		ad->font = getFont(FONT_CALIBRI, 20);
 
 		ad->graphOffsets[0] = 0.0f;
 		ad->graphOffsets[1] = 0.4f;
@@ -2977,10 +3282,36 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	clearTMemory();
 
-	// Update input.
+	// Update input. (And other stuff.)
 	{
 		TIMER_BLOCK_NAMED("Input");
-		updateInput(ds->input, isRunning, windowHandle, !ad->appIsBusy);
+
+		int inputWaitMask = 0;
+		int waitTimeout = 0;
+		#ifdef RELEASE_BUILD
+			inputWaitMask = QS_ALLINPUT;
+			waitTimeout = INFINITE;
+		#endif
+
+		// if(!ad->appIsBusy) WaitMessage();
+		int message;
+		if(!ad->appIsBusy) message = MsgWaitForMultipleObjects(1, &systemData->folderHandle, false, waitTimeout, inputWaitMask);
+
+		if(message == WAIT_OBJECT_0) {
+			FindNextChangeNotification(systemData->folderHandle);
+
+			FILETIME newWriteTime = getLastWriteTime(appSettingsFilePath);
+
+			if(CompareFileTime(&newWriteTime, &ad->settingsFileLastWriteTime) != 0) {
+				ad->reloadSettings = true;
+				ad->settingsFileLastWriteTime = newWriteTime;
+			}
+
+		} else if(message == WAIT_OBJECT_0+1) {
+			// Input happened.
+		}
+
+		updateInput(ds->input, isRunning, windowHandle);
 		ad->appIsBusy = false;
 
 		ad->input = *ds->input;
@@ -3003,88 +3334,76 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 		ws->customCursor = false;
 
-		// HDC deviceContext = GetDC(GetDesktopWindow());
-		// int LogicalScreenHeight = GetDeviceCaps(deviceContext, VERTRES);
-		// int PhysicalScreenHeight = GetDeviceCaps(deviceContext, DESKTOPVERTRES); 
-	 //    addDebugInfo(fillString("%i %i", LogicalScreenHeight, PhysicalScreenHeight));
 
-	 //    ReleaseDC(GetDesktopWindow(), deviceContext);
 
-  //   	deviceContext = GetDC(windowHandle);
-  //   	LogicalScreenHeight = GetDeviceCaps(deviceContext, VERTRES);
-  //   	PhysicalScreenHeight = GetDeviceCaps(deviceContext, DESKTOPVERTRES); 
-  //       addDebugInfo(fillString("%i %i", LogicalScreenHeight, PhysicalScreenHeight));
+		if(init || ad->reloadSettings) {
+			ad->reloadSettings = false;
 
-		{
-			ad->appColors.graphBackgroundBottom = vec4(0.2f, 0.1f, 0.4f, 1);
-			ad->appColors.graphBackgroundTop    = vec4(0.1f, 0.1f, 0.2f, 1);
-			ad->appColors.graphLine1            = vec4(0,0.7f,1,1);
-			ad->appColors.graphLine2            = vec4(0.9f,0.5f,1,1);
-			ad->appColors.graphLineAvg          = vec4(0,0.9f,0.3f,0.8f);
-			ad->appColors.font1                 = vec4(0.9f,1);
-			ad->appColors.font2                 = vec4(0.6f,1);
-			ad->appColors.font3                 = vec4(1.0f,0.5f,0,1);
-			ad->appColors.fontShadow            = vec4(0,1);
-			ad->appColors.background            = vec4(0.45f, 0.15f, 0.15f, 1);
-			ad->appColors.buttons               = vec4(0.52,0.25,0.20,1);
-			ad->appColors.sidePanel             = vec4(0.13f,0.02f,0.02f, 1.0f);
-			ad->appColors.likes                 = vec4(0.2f,0.2f,0.5f,1);
-			ad->appColors.dislikes              = vec4(0.5f,0.2f,0.2f,1);
-			ad->appColors.comments              = vec4(0.2f,0.1f,0,1);
-			ad->appColors.commentScroll         = vec4(0.3f,0.15f,0,1);
-			ad->appColors.sidePanelButtons      = vec4(0.3f,0.1f,0,1);
-			ad->appColors.editBackground        = vec4(0.33,0.11,0.11,1);
-			ad->appColors.editSelection         = vec4(0.24,0.41,0.59,1); 
-			ad->appColors.editCursor            = vec4(0.2f,0.7f,0,1);
-			ad->appColors.mouseHover            = vec4(0.8f,0,0.2f,0.2f);
-			ad->appColors.outlines              = vec4(0,1);
-			ad->appColors.graphMarkers          = vec4(1,0.05f);
-			ad->appColors.graphSubMarkers       = vec4(1,0.01f);
-			ad->appColors.windowBorder          = ad->appColors.background - vec4(0.2f,0.1f,0,0);
-		}
+			if(!fileExists(appSettingsFilePath)) {
+				AppSettings as;
+				AppColors ac;
+				appSettingsDefault(&as, &ac);
 
-		{
-			ad->appSettings.windowX;
-			ad->appSettings.windowY;
-			ad->appSettings.windowW;
-			ad->appSettings.windowH;
-			ad->appSettings.sidePanelWidth;
-			ad->appSettings.graphHeights[4];
+				appWriteSettings(appSettingsFilePath, &as, &ac);
+			}
 
-			ad->appSettings.windowMinWidth = 300;
-			ad->appSettings.windowMinHeight = 300;
-			ad->appSettings.graphHeightMin = 0.1f;
-			ad->appSettings.font = FONT_CALIBRI;
-			ad->appSettings.fontSize = 20;
-			ad->appSettings.fontComment = FONT_SOURCESANS_PRO;
-			ad->appSettings.fontCommentSize = 23;
-			ad->appSettings.fontTitle = FONT_CALIBRI;
-			ad->appSettings.fontTitleSize = 30;
-			ad->appSettings.fontShadow = 2;
-			ad->appSettings.marginBottomText = -3;
-			ad->appSettings.marginLeftText = 2;
-			ad->appSettings.marginSidePanel = 20;
-			ad->appSettings.marginComments = 10;
-			ad->appSettings.marginButtons = 4;
-			ad->appSettings.marginButtonsHeight = 4;
-			ad->appSettings.marginFilters = 8;
-			ad->appSettings.marginSlider = 7;
-			ad->appSettings.commentScrollbarWidth = 20;
-			ad->appSettings.sidePanelMinWidth = 200;
-			ad->appSettings.resizeRegionSize = 5;
-			ad->appSettings.titleOffset = 10;
+			appReadSettings(appSettingsFilePath, &ad->appSettings, &ad->appColors);
 
-			ad->appSettings.cubicCurveSegmentMod = 20;
-			ad->appSettings.cubicCurveSegmentMin = 4;
+			AppSettings* as = &ad->appSettings;
 
-			ad->appSettings.windowBorder = 4;
-			ad->appSettings.windowTitleHeight = ad->appSettings.fontSize;
+			// Check folders for fonts.
+			for(int i = 0; i < APP_FONT_COUNT; i++) {
+				char* fileName;
+				int fontSize;
+				if(i == 0) {
+					fileName = as->font;
+					fontSize = as->fontSize;
+				} else if(i == 1) {
+					fileName = as->fontComment;
+					fontSize = as->fontCommentSize;
+				} else if(i == 2) {
+					fileName = as->fontTitle;
+					fontSize = as->fontTitleSize;
+				} else {
+					fileName = as->fontPanel;
+					fontSize = as->fontPanelSize;
+				}
+
+				char* filePath = appFontPath;
+
+				if(!fileExists(fillString("%s%s", filePath, fileName))) {
+					if(fileExists(fillString("%s%s", windowsFontPath, fileName))) filePath = windowsFontPath;
+					else fileName = Default_Font;
+				}
+
+				Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
+				if(i == 0) ad->font = font;
+				else if(i == 1) ad->fontComment = font;
+				else if(i == 2) ad->fontTitle = font;
+				else ad->fontPanel = font;
+			}
 		}
 
 		if(init) {
-			appWriteSettings(appSettingsFilePath, &ad->appSettings);
-		}
+			if(!fileExists(appSaveFilePath)) {
+				AppTempSettings at = {};
+				appTempDefault(&at, ws->monitors[0].workRect);
 
+				appWriteTempSettings(appSaveFilePath, &at);
+			}
+
+			AppTempSettings at = {};
+			{
+				appReadTempSettings(appSaveFilePath, &at);
+
+				Rect r = at.windowRect;
+		    	MoveWindow(windowHandle, r.left, r.top, r.right-r.left, r.bottom-r.top, true);
+
+		    	ad->sidePanelWidth = at.sidePanelWidth;
+				memCpy(ad->graphOffsets, at.graphOffsets, memberSize(AppTempSettings, graphOffsets));
+				ad->playlistFolderIndex = at.playlistFolderIndex;
+			}
+		}
 	}
 
 	// Handle recording.
@@ -3116,7 +3435,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(ws->fullscreen) {
 			if(input->keysPressed[KEYCODE_ESCAPE]) setWindowMode(windowHandle, ws, WINDOW_MODE_WINDOWED);
 		} else {
-			*isRunning = false;
+			// *isRunning = false;
 		}
 	}
 
@@ -3140,6 +3459,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	    Vec2i res = ws->currentRes;
 	    Rect screenRect = getScreenRect(ws);
+	    // Rect screenRect = rectExpand(getScreenRect(ws), 2);
 	    int id = newGuiDragAction(gui, screenRect, z, Gui_Focus_MRight);
         int id2 = newGuiDragAction(gui, screenRect, 0);
 
@@ -3150,8 +3470,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		    	GetCursorPos(&p);
 		    	ScreenToClient(windowHandle, &p);
 
-	    		// gui->mouseAnchor = vec2(p.x+1, p.y+1);
-	    		gui->mouseAnchor = vec2(p.x, p.y);
+	    		gui->mouseAnchor = vec2(p.x+1, p.y+1);
+	    		// gui->mouseAnchor = vec2(p.x, p.y);
 	    	} else {
 	    		gui->mode = 1;
 	    		setupResize = true;
@@ -3171,7 +3491,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	}
 	    }
 
-	    float w = ad->appSettings.resizeRegionSize;
+	    float w = ad->appSettings.windowBorder;
 
 	    int i = 0;
 	    Vec2i resizeAlign = vec2i(1,-1);
@@ -3187,7 +3507,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			    if(newGuiGotActive(gui, guiId)) setupResize = true;
 			    if(newGuiIsActive(gui, guiId)) {
 			    	resizeAlign = align;
-				    resize = true;
+				    resize = true;				    
 			    }
 
 				if(newGuiIsWasHotOrActive(gui, guiId)) {
@@ -3199,44 +3519,36 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	}
 	    }
 
-		if(setupResize) {
-			POINT p;
-			GetCursorPos(&p);
-			RECT r;
-			GetWindowRect(windowHandle, &r);
-
-			if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - r.left;
-			if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - r.right;
-			if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - r.top;
-			if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - r.bottom;
-		}
-
         if(resize) {
         	POINT p; 
         	GetCursorPos(&p);
         	RECT r; 
         	GetWindowRect(windowHandle, &r);
 
-	    	int nx = r.left, ny = r.top, nw = r.right-r.left, nh = r.bottom-r.top;
+        	if(setupResize) {
+    			if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - r.left;
+    			if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - r.right;
+    			if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - r.top;
+    			if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - r.bottom;
+        	}
 
-	    	int minWidth = ad->appSettings.windowMinWidth;
-	    	int minHeight = ad->appSettings.windowMinHeight;
+	    	int nx = r.left, ny = r.top, nw = r.right-r.left, nh = r.bottom-r.top;
 
 	    	if(resizeAlign.x == -1) {
 	    		nx = p.x - gui->mouseAnchor.x;
-	    		nx = clampMax(nx, r.right - minWidth);
+	    		nx = clampMax(nx, r.right - Window_Min_Size_X);
 	    		nw = r.right-nx;
 	    	}
 	    	if(resizeAlign.y == 1) {
 	    		ny = p.y - gui->mouseAnchor.y;
-	    		ny = clampMax(ny, r.bottom - minHeight);
+	    		ny = clampMax(ny, r.bottom - Window_Min_Size_X);
 	    		nh = r.bottom-ny;
 	    	}
 	    	if(resizeAlign.x == 1) nw = (p.x - gui->mouseAnchor.x) - r.left;
 	    	if(resizeAlign.y == -1) nh = (p.y - gui->mouseAnchor.y) - r.top;
 
-	    	nw = clamp(nw, minWidth, ws->biggestMonitorSize.w);
-	    	nh = clamp(nh, minHeight, ws->biggestMonitorSize.h);
+	    	nw = clamp(nw, Window_Min_Size_X, ws->biggestMonitorSize.w);
+	    	nh = clamp(nh, Window_Min_Size_X, ws->biggestMonitorSize.h);
 
 
 	    	ad->updateWindow = true;
@@ -3246,13 +3558,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	ad->updateWidth = nw;
 	    	ad->updateHeight = nh;
 
-	    	ws->currentRes.w = nw /*-2*/;
-	    	ws->currentRes.h = nh /*-2*/;
-	    	ws->aspectRatio = ws->currentRes.x / (float)ws->currentRes.y;
+	    	ws->currentRes.w = nw -2;
+	    	ws->currentRes.h = nh -2;
+	    	ws->aspectRatio = ws->currentRes.w / (float)ws->currentRes.h;
 
 	    	ad->updateFrameBuffers = true;	
 
 	    	globalScreenHeight = ws->currentRes.h;
+
+			if(ad->updateWindow) {
+				BringWindowToTop(windowHandle);
+
+				MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
+				ad->updateWindow = false;
+			}
         }
 	}	
 
@@ -3515,7 +3834,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				char* search = getTString(strLen(searchString)+1); strClear(search);
 				for(;;) {
-					searchString = eatWhiteSpace(searchString);
+					searchString = eatSpaces(searchString);
 					int pos = strFind(searchString, ' ');
 					if(pos != 0) {
 						strAppend(search, searchString, pos-1);
@@ -3702,20 +4021,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			char* buffer = requestData->buffer;
 
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+				bool skip = false;
+
 				count = ad->downloadPlaylist.count;
 
-				ad->downloadProgress = 0;
-				ad->downloadMax = count;
-
-				// vids = getPArray(YoutubeVideo, count);
-				if(vids != 0) free(vids);
-				vids = mallocArray(YoutubeVideo, count);
-
-				zeroMemory(vids, sizeof(YoutubeVideo)*count);
-
 				strClear(pageToken);
-
-				bool skip;
 
 				YoutubePlaylist tempPlaylist;
 				char* fileName = fillString("%s.playlist", ad->downloadPlaylist.id);
@@ -3725,7 +4035,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				lastVideoCount = 0;
 
 				if(!ad->update && continuedDownload) {
-					// pageToken = pt;			
+					// pageToken = pt;
 					strCpy(pageToken,  pt);
 
 					lastVideoCount = tempPlaylist.count;
@@ -3739,10 +4049,24 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
+				if(ad->update && continuedDownload) {
+					count = clampIntMax(count, tempPlaylist.count);
+				}
+
+				// No videos to update
+				if(ad->update && !continuedDownload) skip = true;
+
 				if(skip || count == 0) ad->downloadMode = 0;
+
+				if(vids != 0) free(vids);
+				vids = mallocArray(YoutubeVideo, count);
+				zeroMemory(vids, sizeof(YoutubeVideo)*count);
 
 				totalCount = 0;
 				i = 0;
+
+				ad->downloadProgress = 0;
+				ad->downloadMax = count;
 			}
 
 			static int dCount;
@@ -3752,7 +4076,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					ad->downloadStep += 3;
 				}
 
-				ad->downloadProgress = i;
+				ad->downloadProgress = min(i,count);
 				ad->downloadMax = count;
 
 				dCount = maxDownloadCount;
@@ -3943,14 +4267,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 
-		int startVideo = 0;
-		for(int i = 0; i < ad->playlistFolderCount; i++) {
-			if(strFind(ad->playlistFolder[i].title, "Rocket Beans TV") != -1) {
-				startVideo = i;
-				break;
-			}
-		}
-		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + startVideo;
+		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + ad->playlistFolderIndex;
 		memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
 
 		ad->startLoadFile = true;
@@ -3990,7 +4307,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				{
 					char* searchString = ad->inclusiveFilter;
 					for(;;) {
-						searchString = eatWhiteSpace(searchString);
+						searchString = eatSpaces(searchString);
 						int pos = strFind(searchString, ' ');
 						if(pos != 0) {
 							char* filter = getTString(pos-1 + 1);
@@ -4016,7 +4333,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				{
 					char* searchString = ad->exclusiveFilter;
 					for(;;) {
-						searchString = eatWhiteSpace(searchString);
+						searchString = eatSpaces(searchString);
 						int pos = strFind(searchString, ' ');
 						if(pos != 0) {
 							char* filter = getTString(pos-1 + 1);
@@ -4286,21 +4603,21 @@ extern "C" APPMAINFUNCTION(appMain) {
 		AppColors* ac = &ad->appColors;
 		AppSettings* as = &ad->appSettings;
 
-		int fontSize = as->fontSize;
-		Font* font = getFont(as->font, as->fontSize);
+		Font* font = ad->font;
+		int fontSize = font->height;
 
 		float zoomSpeed = 1.2;
 
 		// Screen layout.
 		float sidePanelWidth = ad->selectedVideo!=-1 ? ad->sidePanelWidth : 0;
-		clamp(&ad->sidePanelWidth, as->sidePanelMinWidth, ws->currentRes.w*ad->sidePanelMax);
+		clamp(&ad->sidePanelWidth, Side_Panel_Min_Width, ws->currentRes.w*ad->sidePanelMax);
 		float filtersHeight = font->height + as->marginFilters;
 		float bottomTextHeight = font->height*2 + as->marginBottomText;
 		float leftTextWidth = ad->leftTextWidth + as->marginLeftText;
 
 		float windowBorder = as->windowBorder;
 		// float windowTitleHeight = as->windowTitleHeight;
-		float windowTitleHeight = filtersHeight;
+		float windowTitleHeight = as->windowTitleHeight;
 
 
 		// Layout* lay = layoutAlloc(layout(getScreenRect(ws), true));
@@ -4352,6 +4669,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// Draw background.
 		drawRect(screenRect, ac->windowBorder);
 		drawRect(rect(lMain->r.min, lFilters->r.max), ac->background);
+		ad->clientRect = lMain->r;
 		// drawRect(lay->r, ac->background);
 
 		for(int i = 0; i < ad->camCount; i++) {
@@ -4369,7 +4687,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(event == 1) ad->gui->mouseAnchor = input->mousePos - ad->graphOffsets[i+1]*rectH(rGraphs);
 				if(event > 0) {
 					ad->graphOffsets[i+1] = (input->mousePos - ad->gui->mouseAnchor).y/rectH(rGraphs);
-					clamp(&ad->graphOffsets[i+1], ad->graphOffsets[i] + as->graphHeightMin/2, ad->graphOffsets[i+2] - as->graphHeightMin/2);
+					clamp(&ad->graphOffsets[i+1], ad->graphOffsets[i] + Graph_Min_Height/2, ad->graphOffsets[i+2] - Graph_Min_Height/2);
 
 					setCursor(ws, IDC_SIZENS);
 				}
@@ -4387,85 +4705,27 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			graphCamSetViewPort(cam, rectExpand(rGraph, vec2(-font->height,-font->height)));
 
+			double camMinH;
+			if(i == 0) camMinH = Cam_Min_Height_0;
+			else if(i == 1) camMinH = Cam_Min_Height_1;
+			else if(i == 2) camMinH = Cam_Min_Height_2;
+			else if(i == 3) camMinH = Cam_Min_Height_3;
+
 			{
 				float z = 0;
 				if(newGuiGoButtonAction(ad->gui, rLeftText, z, Gui_Focus_MWheel)) 
-	    			graphCamScaleToPos(cam, 0, zoomSpeed, -input->mouseWheel, zoomSpeed, input->mousePosNegative);
+	    			graphCamScaleToPos(cam, 0, 0, 0, -input->mouseWheel, zoomSpeed, camMinH, input->mousePosNegative);
 
 	    		if(i == 0) {
 					if(newGuiGoButtonAction(ad->gui, rGraphs, z, Gui_Focus_MWheel)) {
-						// for(int i = 0; i < ad->camCount; i++) {
-							graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, zoomSpeed, 0, zoomSpeed, input->mousePosNegative);
-
-							// double newPos, newSize;
-							// graphCamCalcScale(&ad->cams[i], -input->mouseWheel, zoomSpeed, input->mousePosNegative.x, &newPos, &newSize);
-
-							// // addDebugNote(fillString("%i", input->mouseWheel));
-
-							// // ad->cams[i].x = newPos;
-							// // ad->cams[i].w = newSize;
-
-							// // graphCamUpdateSides(&ad->cams[i]);
-
-							// 	// ad->camIsScrolling = true;
-							// 	// ad->camNewPos = newPos;
-							// 	// ad->camNewSize = newSize;
-
-							// double posDiff = newPos - cam->x;
-							// double sizeDiff = newSize - cam->w;	
-
-							// float posDiffPixels = graphCamCamToScreenSpaceX(cam, posDiff);
-							// float sizeDiffPixels = graphCamCamToScreenSpaceX(cam, sizeDiff);
-
-							// ad->camVelocityX += posDiffPixels*0.2f;
-							// ad->camVelocityW += sizeDiffPixels*0.2f;
-						// }
+						graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, zoomSpeed, Graph_Zoom_Min, 0, 0, 0, input->mousePosNegative);
 					}
 	    		}
 			}
 
-			// // Cam smoothing.
-			// if(i == 0) {
+			cam->x = ad->cams[0].x;
+			cam->w = ad->cams[0].w;
 
-			// 	// if(ad->camIsScrolling) {
-			// 	// 	addDebugInfo(fillString("asdf"));
-
-			// 	// 	double posDiff = ad->camNewPos - cam->x;
-			// 	// 	double sizeDiff = ad->camNewSize - cam->w;
-
-			// 	// 	cam->x += posDiff*0.1f;
-			// 	// 	cam->w += sizeDiff*0.1f;
-
-			// 	// 	float posDiffPixels = graphCamCamToScreenSpaceX(cam, posDiff);
-			// 	// 	float sizeDiffPixels = graphCamCamToScreenSpaceX(cam, sizeDiff);
-
-			// 	// 	if(posDiffPixels < 0.1 && sizeDiffPixels < 0.1) {
-			// 	// 		ad->camIsScrolling = false;
-			// 	// 	}
-			// 	// }
-
-
-
-			// 	// float minVelocity = 1.0f;
-			// 	float minVelocity = 0.1f;
-			// 	float velocityMod = 0.85f;
-
-			// 	calculateVelocityMul(&ad->camVelocityX, velocityMod, minVelocity, ad->dt);
-			// 	cam->x += graphCamScreenToCamSpaceX(cam, ad->camVelocityX);
-
-			// 	calculateVelocityMul(&ad->camVelocityW, velocityMod, minVelocity, ad->dt);
-			// 	cam->w += graphCamScreenToCamSpaceX(cam, ad->camVelocityW);
-
-			// } else {
-				cam->x = ad->cams[0].x;
-				cam->w = ad->cams[0].w;
-			// }
-
-			double camMinH = 1000;
-			if(i == 0) camMinH = 1000;
-			if(i == 1) camMinH = 100;
-			if(i == 2) camMinH = 0.1;
-			if(i == 3) camMinH = 10;
 			if(ad->sortByDate) graphCamSizeClamp(cam, Graph_Zoom_Min, camMinH);
 			else graphCamSizeClamp(cam, Graph_Zoom_MinNoDate, camMinH);
 
@@ -4480,17 +4740,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		    		if(event > 0) {
 		    			double camX = graphCamScreenToCamSpaceX(cam, -input->mousePosNegative.x - gui->mouseAnchor.x);
 
-		    			// ad->camVelocityX = 0;
-		    			// ad->camVelocityW = 0;
-
 						for(int i = 0; i < ad->camCount; i++) {
 							ad->cams[i].x = camX;
 							graphCamUpdateSides(&ad->cams[i]);
 						}
 					}
-					// if(event == 3) {
-					// 	ad->camVelocityX = -input->mouseDelta.x*1.0f;
-					// }
 				}
 
 				event = newGuiGoDragAction(gui, rLeftText, z, Gui_Focus_MLeft);
@@ -4866,8 +5120,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 							if(i != endCount-1) p3 = graphCamMap(cam, xPos+avgWidth*2, ad->averagesLineGraph.points[graphIndex][i+2]);
 							else p3 = p2 - (p2 - p1);
 
-							int segmentCount = bezierCurveGuessLength(p0, p1, p2, p3)/as->cubicCurveSegmentMod;
-							segmentCount = clampMin(segmentCount, as->cubicCurveSegmentMin);
+							int segmentCount = bezierCurveGuessLength(p0, p1, p2, p3)/Cubic_Curve_Segment_Mod;
+							segmentCount = clampMin(segmentCount, Cubic_Curve_Segment_Min);
 
 							for(int i = 0; i < segmentCount; i++) {
 								pushVec(cubicInterpolationVec2(p0, p1, p2, p3, (float)i/(segmentCount-1)));
@@ -4910,7 +5164,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				int vi = ad->hoveredVideo;
 
 				// Draw text top right.
-				Font* font = getFont(as->font, as->fontSize);
+				Font* font = ad->font;
 				Vec4 c = ac->font3;
 				Vec2 p = rChart.max - vec2(5);
 				float os = 2;
@@ -4952,11 +5206,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-		Font* titleFont = getFont(as->fontTitle, as->fontTitleSize);
+		Font* titleFont = ad->fontTitle;
+		glEnable(GL_SCISSOR_TEST);
 
 		for(int i = 0; i < ad->camCount; i++) {
 			Rect rGraph = graphRects[i];
 			Vec2 tp = rectTL(rGraph) + vec2(as->titleOffset,-as->titleOffset);
+
+			scissorTestScreen(rGraph);
+
+			// drawRect(rGraph, vec4(1,1));
 
 			char* text;
 			if(i == 0) text = "Views";
@@ -4973,9 +5232,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			{
 				char* text = "Sort";
 				Rect r = rectTLDim(tp + vec2(textWidth + font->height/2, 0), vec2(getTextDim(text, font).w + 8, font->height));
-				glEnable(GL_SCISSOR_TEST);
 
-				if(newGuiQuickButton(ad->gui, r, 1, text, font, ac->buttons, ac->font1, r)) {
+				TextBoxSettings settings = textBoxSettings(font, ac->buttons, ac->font1, as->fontShadow, ac->fontShadow, UI_Rounding);
+				if(newGuiQuickButton(ad->gui, r, 1, text, rGraph, settings)) {
 					if(ad->sortStat != i) {
 						ad->startLoadFile = true;
 						ad->sortByDate = false;
@@ -4983,14 +5242,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
-				glDisable(GL_SCISSOR_TEST);
 			}
 		}
-
+		glDisable(GL_SCISSOR_TEST);
 
 
 		// Side panel.
-		if(ad->selectedVideo != -1) {
+		if(ad->selectedVideo != -1 && rectW(rSidePanel) != 0) {
 
 			TIMER_BLOCK_NAMED("SidePanel");
 
@@ -5013,7 +5271,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(event == 1) ad->gui->mouseAnchor.x = (ws->currentRes.w-input->mousePos.x) - ad->sidePanelWidth;
 				if(event > 0) {
 					ad->sidePanelWidth = (ws->currentRes.w-input->mousePos.x) - ad->gui->mouseAnchor.x;
-					clamp(&ad->sidePanelWidth, as->sidePanelMinWidth, ws->currentRes.w*ad->sidePanelMax);
+					clamp(&ad->sidePanelWidth, Side_Panel_Min_Width, ws->currentRes.w*ad->sidePanelMax);
 				}
 
 				if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_SIZEWE);
@@ -5024,8 +5282,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			float border = as->marginSidePanel;
 			Rect rPanel = rectExpand(rSidePanel, -vec2(border,border));
-			Font* font = getFont(as->font, as->fontSize);
-			Font* font2 = getFont(as->fontComment, as->fontCommentSize);
+			Font* font = ad->font;
+			Font* font2 = ad->fontComment;
 			float xMid = rectCen(rPanel).x;
 			float width = rectW(rPanel);
 			float yPos = rPanel.top;
@@ -5041,7 +5299,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				glEnable(GL_SCISSOR_TEST);
 
 				float offset = as->marginButtons;
-				float divs[] = {40,0,0,40, 30};
+				float divs[] = {40,0,40, 30};
 				Rect buttons[arrayCount(divs)];
 
 				Layout* lay = layoutAlloc(layout(infoPanelTop, false, vec2i(-1,0), vec2(as->marginButtons, 0)));
@@ -5052,15 +5310,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 				For_Layout(lay) buttons[i++] = l->r;
 
 
-
+				Vec4 buttonColor = ac->sidePanelButtons;
+				TextBoxSettings settings = textBoxSettings(font, buttonColor, fc, 0, vec4(0,0), UI_Rounding);
 
 				float z = 1;
-				Vec4 buttonColor = ac->sidePanelButtons;
 
 				if(ad->selectedVideo > 0) {
 					Rect r = buttons[0];
 
-					if(newGuiGoButtonAction(ad->gui, r, z)) {
+					if(newGuiQuickButton(ad->gui, r, z, "", settings)) {
 						if(ad->selectedVideo != -1) {
 							int newSelection = clampMin(ad->selectedVideo - 1, 0);
 							if(newSelection != ad->selectedVideo) {
@@ -5070,32 +5328,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 							}
 						}
 					}
-
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
 					drawTriangle(rectCen(r), font->height/3, vec2(-1,0), fc);
 				}
 
 				{
 					Rect r = buttons[1];
-					if(newGuiGoButtonAction(ad->gui, r, z)) {
-						shellExecuteNoWindow(fillString("chrome https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
+					if(newGuiQuickButton(ad->gui, r, z, "Open in Browser", settings)) {
+						shellExecuteNoWindow(fillString("cmd.exe /c start \"link\" \"https://www.youtube.com/watch?v=%s\"", ad->videos[ad->selectedVideo].id));
 					}
-
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "Open in Chrome.", font, fc, vec2i(0,0));
-				}
-
-				{
-					Rect r = buttons[2];
-					if(newGuiGoButtonAction(ad->gui, r, z)) {
-						shellExecuteNoWindow(fillString("C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe https://www.youtube.com/watch?v=%s", ad->videos[ad->selectedVideo].id), false);
-					}
-
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "Open in Firefox.", font, fc, vec2i(0,0));
 				}
 
 				if(ad->selectedVideo != ad->playlist.count-1) {
-					Rect r = buttons[3];
-					if(newGuiGoButtonAction(ad->gui, r, z)) {
+					Rect r = buttons[2];
+					if(newGuiQuickButton(ad->gui, r, z, "", settings)) {
 						if(ad->selectedVideo != -1) {
 							int newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
 							if(newSelection != ad->selectedVideo) {
@@ -5105,19 +5350,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 							}
 						}
 					}
-
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
 					drawTriangle(rectCen(r), font->height/3, vec2(1,0), fc);
 				}
 
 				{
-					Rect r = buttons[4];
-					if(newGuiGoButtonAction(ad->gui, r, z)) {
-						// ad->selectedVideo = -1;
-						closePanel = true;
-					}
-
-					drawTextBox(r, buttonColor + newGuiColorModB(ad->gui), "", font, fc, vec2i(0,0));
+					Rect r = buttons[3];
+					if(newGuiQuickButton(ad->gui, r, z, "", settings)) closePanel = true;
 					drawCross(rectCen(r), font->height/3, 2, vec2(0,1), fc);
 				}
 
@@ -5143,7 +5381,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Rect imageRect = rectCenDim(rectCenX(rPanel), yPos - imageDim.h/2, imageDim.w, imageDim.h);
 
 			if(ad->downloadMode == Download_Mode_Snippet && ad->downloadStep < 3) drawTriangle(rectCen(imageRect), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
-			else drawRect(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
+			// else drawRect(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
+			else drawRect(imageRect, rect(0.01,0,0.99,1), sn->thumbnailTexture.id);
 
 			yPos -= rectH(imageRect);
 			yPos -= font->height/2;
@@ -5270,27 +5509,31 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			glDisable(GL_SCISSOR_TEST);
 
-			if(closePanel) ad->selectedVideo = -1;
+			if(closePanel) {
+				ad->selectedVideo = -1;
+				if(ad->downloadMode == Download_Mode_Snippet) {
+					ad->downloadMode = 0;
+				}
+			}
 		}
 
 		// Title bar.
 		if(!ws->fullscreen)
 		{
 			float padding = as->windowBorder;
-			float borderPadding = 3;
+			float borderPadding = 0;
 			float iconMargin = font->height*0.4f;
-			float iconSize = 1.f;
+			float iconSize = 1.0f;
 			Vec4 iconColor = ac->font1;
 
-			Layout* lay = layoutAlloc(layout(rTopBar, false, vec2i(1,0), vec2(padding*2, padding), vec2(borderPadding)));
+			Layout* lay = layoutAlloc(layout(rTopBar, false, vec2i(1,0), vec2(padding, padding), vec2(borderPadding)));
 
-			// char* title = "This is a title!";
-
-			char* title = fillString("%s - %i", ad->playlist.title, ad->playlist.count);
-			// char* title = ad->playlist.id;
-
+			char* title;
+			if(strLen(ad->playlist.id) != 0) title = fillString("%s - %i - %s", ad->playlist.title, ad->playlist.count, ad->playlist.id);
+			else title = "";
 			Layout* lTitle = layoutAdd(lay, layout(vec2(getTextDim(title, font).w, 0)));
-			
+			lTitle->minDim.x = 0;
+
 			layoutAdd(lay, layout(vec2(0,0)));
 
 			Layout* lButtonMin = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
@@ -5300,9 +5543,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 			layoutCalc(lay);
 
 
+			// @Hack
+			Rect rTitle = lTitle->r;
+			if(rTitle.left < layoutGetRect(lay).left) {
+				rTitle.left += layoutGetRect(lay).left - rTitle.left;
+			}
 
-			// drawTextBox(title, font, rectL(lTitle->r), ac->font1, vec2i(-1,0));
-			drawTextBox(lTitle->r, vec4(0,0), title, font, ac->font1, vec2i(-1,0));
+			scissorState();
+			drawTextBox(rTitle, title, vec2i(-1,0), textBoxSettings(font, vec4(0,0), ac->font1, as->fontShadow, ac->fontShadow));
+			scissorState(false);
 
 			if(newGuiGoButtonAction(ad->gui, lButtonMin->r, 0)) ShowWindow(windowHandle, SW_MINIMIZE);
 			// drawRectOutlined(lButtonMin->r, ac->background - vec4(0.1f,0.1f,0,0) + newGuiColorModB(ad->gui), vec4(0,1));
@@ -5326,16 +5575,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 			TIMER_BLOCK_NAMED("Filtesr Gui");
 
 			// char* labels[] = {"Panel (F1)", "Reset", "Draw Mode:", "Avg. (width/res months):", "Filter (Incl./Excl.):"};
-			char* labels[] = {"Panel (F1)", "Reset", "Draw Mode:", "Stat config:", "Filter (Incl./Excl.):"};
+			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:", "Filter (Incl./Excl.):"};
 			int li = 0;
 			float bp = font->height;
-			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x, 80, getTextDim(labels[li++], font).x, 40, 40, getTextDim(labels[li++], font).x, 200, 200};
+			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x, 80, getTextDim(labels[li++], font).x, 40, 40, getTextDim(labels[li++], font).x, 200, 200};
 			Rect regions[arrayCount(widths)];
 
 			scissorState();
 
-			float borderPadding = 2;
-			float padding = font->height/3;
+			float borderPadding = (float)as->windowBorder/2;
+			// float padding = font->height/3;
+			float padding = (float)as->windowBorder/2;
 
 			Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(padding,0), vec2(borderPadding)));
 			for(int i = 0; i < arrayCount(widths); i++) layoutAdd(lay, layout(vec2(widths[i], 0)));
@@ -5351,25 +5601,30 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Vec4 ec = ac->editBackground;
 			Vec4 tc = ac->font1;
 
+			TextBoxSettings buttonSettings = textBoxSettings(font, bc, tc, as->fontShadow, ac->fontShadow, 0);
+			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), tc, as->fontShadow, ac->fontShadow, 0);
 			TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, ec, tc, ac->editSelection, ac->editCursor};
 
 			float z = 0;
 			int ri = 0;
 			li = 0;
 
-			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], font, bc, tc, scissor)) ds->showMenu = !ds->showMenu;
-			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], font, bc, tc, scissor)) {
+			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) ds->showMenu = !ds->showMenu;
+			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) {
 				ad->sortByDate = true;
 				ad->sortStat = -1;
 				ad->startLoadFile = true;
 			}
+			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) {
+				shellExecuteNoWindow(fillString("explorer.exe %s", appSettingsFilePath));
+			}
 
 			ri++;
 
-			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
+			drawQuickTextBox(regions[ri++], labels[li++], scissor, labelSettings);
 			newGuiQuickSlider(ad->gui, regions[ri++], z, &ad->graphDrawMode, 0,2, 20, font, ac->font2, tc, ac->buttons, scissor);
 
-			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
+			drawQuickTextBox(regions[ri++], labels[li++], scissor, labelSettings);
 
 			bool updateStats = false;
 
@@ -5381,7 +5636,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 			clamp(&ad->statWidth, 0.01f, 12*10);
 
-			drawQuickTextBox(regions[ri++], labels[li++], font, vec4(0,0), tc, vec2i(0,0), scissor);
+			drawQuickTextBox(regions[ri++], labels[li++], scissor, labelSettings);
 
 			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->inclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->inclusiveFilter))) 
 				ad->startLoadFile = true;
@@ -5453,117 +5708,224 @@ extern "C" APPMAINFUNCTION(appMain) {
 	endOfMainLabel:
 
 
-
-	if(false)
+#if 1
+	if(true)
 	{
-		NewGui* gui = ad->gui;
-
-		Font* font = getFont(ad->appSettings.font, ad->appSettings.fontSize);
-
 		static Vec2 panelPos = vec2(800,-100);
 		static Vec2 panelDim = vec2(400,600);
+		
+		bool clampToWindow = true;
+		bool resizable = true;
+		bool movable = true;
+
+		Font* font = ad->font;
+
+		float panelBorder = 4;
+		Vec2 minDim = vec2(100,100);
+		float roundedCorners = 5;
+		float titleHeightMod = 1.2f;
+		char* titleText = "App";
+		float windowControlsPadding = 0.6f;
+		float windowControlsSize = 1.5f;
+
+		Vec2 clientBorder = vec2(panelBorder);
+		float rowHeight = font->height;
+		float rowOffset = panelBorder;
+
+		Vec4 fontColor = vec4(0.9f, 1);
+		Vec4 fontShadowColor = vec4(0,1);
+		Vec4 borderColor = vec4(0.4,0.2,0.6,1);
+		Vec4 backgroundColor = vec4(0.2f,0,0.5,1);
+		Vec4 windowControlsColor = vec4(0.4f,0,0,1);
+
+		float zOrder = 2;
+
+
+
+		NewGui* gui = ad->gui;
 
 		Rect panelRect = rectTLDim(panelPos, panelDim);
-		float z = 2;
+		float z = zOrder;
 
 		newGuiSetHotAllMouseOver(ad->gui, panelRect, z);
 
-		static bool resizeMode = false;
-		int event = newGuiGoDragAction(gui, panelRect, z);
-		if(event == 1) {
-			resizeMode = input->keysDown[KEYCODE_CTRL];
+		bool activeMoveResize = false;
+		if(resizable || movable) {
+			int event = newGuiGoDragAction(gui, panelRect, z);
+			if(event == 1) {
+				gui->mode = input->keysDown[KEYCODE_CTRL];
 
-			if(!resizeMode) gui->mouseAnchor = input->mousePosNegative - panelPos;
-			else gui->mouseAnchor = input->mousePos - panelDim;
-		}
-		if(event > 0) {
-			if(!resizeMode) panelPos = input->mousePosNegative - gui->mouseAnchor;
-			else panelDim = input->mousePos - gui->mouseAnchor;
+				if(!gui->mode) gui->mouseAnchor = input->mousePosNegative - panelPos;
+				else gui->mouseAnchor = input->mousePos - panelDim;
+			}
+			if(event > 0) {
+				if(!gui->mode && movable) panelPos = input->mousePosNegative - gui->mouseAnchor;
+				else if(gui->mode && resizable) panelDim = input->mousePos - gui->mouseAnchor;
 
-			panelRect = rectTLDim(panelPos, panelDim);
-		}
-
-		Rect sr = getScreenRect(ws);
-		if(resizeMode) {
-			clamp(&panelDim.w, 100, rectW(sr) - panelPos.x);
-			clamp(&panelDim.h, 100, rectH(sr) + panelPos.y);
-			panelRect = rectTLDim(panelPos, panelDim);
-		} else {
-			clamp(&panelPos.x, sr.left, sr.right-rectW(panelRect));
-			clamp(&panelPos.y, sr.bottom+rectH(panelRect), sr.top);
-			panelRect = rectTLDim(panelPos, panelDim);
+				panelRect = rectTLDim(panelPos, panelDim);
+				activeMoveResize = true;
+			}
 		}
 
-		// drawRectRounded(panelRect, vec4(0.4,0.2,0.6,1) + newGuiColorMod(gui), 5);
-		drawRectRounded(panelRect, vec4(0.4,0.2,0.6,1), 5);
+		// Resize at border.
+		{
+			Rect region = panelRect;
+		    float w = panelBorder;
+		    int i = 0;
+
+	    	Vec2 p = input->mousePosNegative;
+
+		    Vec2i resizeAlign = vec2i(1,-1);
+		    for(int x = -1; x < 2; x++) {
+		    	for(int y = -1; y < 2; y++) {
+		    		if(x == 0 && y == 0) continue;
+
+		    		Vec2i align = vec2i(x,y);
+		    		Vec2 dim = vec2(align.x==0?rectW(region)-w*2:w+1, align.y==0?rectH(region)-w*2:w+1);
+		    		Rect r = rectAlignDim(region, align, dim);
+
+		    		// drawRect(r, vec4(1,1));
+
+		    		int event = newGuiGoDragAction(gui, r, z);
+				    if(event == 1) {
+					    gui->mouseAnchor2.x = panelPos.x + panelDim.x;
+					    gui->mouseAnchor2.y = panelPos.y - panelDim.y;
+
+				    	if(align.x == -1) gui->mouseAnchor.x = p.x - panelPos.x;
+				    	if(align.x ==  1) gui->mouseAnchor.x = p.x - panelDim.w;
+				    	if(align.y ==  1) gui->mouseAnchor.y = p.y - panelPos.y;
+				    	if(align.y == -1) gui->mouseAnchor.y = -p.y - panelDim.h;
+
+				    	gui->mode = 1;
+				    }
+				    if(event > 0) {
+				    	resizeAlign = align;
+
+				    	if(resizeAlign.x == -1) {
+					    	panelPos.x = (p - gui->mouseAnchor).x;
+				    		panelPos.x = clampMax(panelPos.x, gui->mouseAnchor2.x - minDim.w);
+				    		panelDim.w = gui->mouseAnchor2.x - panelPos.x;
+				    	} else if(resizeAlign.x == 1) {
+				    		panelDim.w = (p - gui->mouseAnchor).x;
+				    	}
+
+						if(resizeAlign.y == 1) {
+							panelPos.y = (p - gui->mouseAnchor).y;
+				    		panelPos.y = clampMin(panelPos.y, gui->mouseAnchor2.y + minDim.h);
+							panelDim.h = panelPos.y - gui->mouseAnchor2.y;
+						} else if(resizeAlign.y == -1) {
+							panelDim.h = (-p - gui->mouseAnchor).y;
+						}
+
+				    	panelRect = rectTLDim(panelPos, panelDim);
+				    	activeMoveResize = true;
+				    }
+
+					if(newGuiIsWasHotOrActive(gui)) {
+						if(align == vec2i(-1,-1) || align == vec2i(1,1)) setCursor(ws, IDC_SIZENESW);
+						if(align == vec2i(-1,1) || align == vec2i(1,-1)) setCursor(ws, IDC_SIZENWSE);
+						if(align == vec2i(-1,0) || align == vec2i(1, 0)) setCursor(ws, IDC_SIZEWE);
+						if(align == vec2i(0,-1) || align == vec2i(0, 1)) setCursor(ws, IDC_SIZENS);
+					}
+		    	}
+		    }
+		}
+
+		if(clampToWindow && activeMoveResize) {
+			Rect sr = getScreenRect(ws);
+			if(gui->mode) {
+				clamp(&panelDim.w, minDim.w, rectW(sr) - panelPos.x);
+				clamp(&panelDim.h, minDim.h, rectH(sr) + panelPos.y);
+				panelRect = rectTLDim(panelPos, panelDim);
+			} else {
+				clamp(&panelPos.x, sr.left, sr.right-rectW(panelRect));
+				clamp(&panelPos.y, sr.bottom+rectH(panelRect), sr.top);
+				panelRect = rectTLDim(panelPos, panelDim);
+			}
+		}
+
+		drawRectRounded(panelRect, borderColor, roundedCorners);
 	
 		{
 			glEnable(GL_SCISSOR_TEST);
 
-			Vec2 margin = vec2(10,10);
-			Rect insideRect = rectExpand(panelRect, vec2(-margin.x, -margin.y));
-			float titleHeight = font->height*1.2f;
+			// TextBoxSettings settings = textBoxSettings(0,0,0);
+			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor);
 
-			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight);
-			drawTextBox(titleRect, vec4(0,0), "App", font, vec4(0.9f,1.0f), vec2i(0,0));
+			Rect insideRect = rectExpand(panelRect, -panelBorder*2);
+			float titleHeight = font->height*titleHeightMod;
+
+			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight + panelBorder);
+			drawTextBox(titleRect, titleText, labelSettings);
 
 			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
-			drawRect(rClose, vec4(0.4f,0,0,1));
-			rectExpand(&rClose, -rectH(rClose)*0.4f);
-			glLineWidth(2);
-			drawLine(rectBL(rClose), rectTR(rClose),  vec4(0.7,1));
-			drawLine(rectTL(rClose), rectBR(rClose),  vec4(0.7,1));
+
+			if(newGuiGoButtonAction(gui, rClose, z)) ds->showMenu = false;
+			drawRect(rClose, windowControlsColor + newGuiColorModB(gui));
+			drawCross(rectCen(rClose), rectW(rClose)/2 * windowControlsPadding, windowControlsSize, vec2(1,0), fontColor);
 
 			insideRect.top -= titleHeight;
 
-			Vec4 bc = vec4(0.2f,0,0.5,1);
-			Vec4 tc = vec4(0.9f, 1);
+			Vec4 bc = backgroundColor;
+			Vec4 tc = fontColor;
 
 			Rect scissor = insideRect;
 			scissorTestScreen(scissor);
 
 			drawRect(insideRect, bc);
 
-			Vec2 writePos = rectTL(insideRect);
+			insideRect = rectExpand(insideRect, -clientBorder*2);
 
-			float rowHeight = font->height;
-			float rowOffset = 2;
+			Vec2 writePos = rectTL(insideRect);
 			Rect region;
 
-			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight));
-			writePos.y -= rowHeight;
-			newGuiQuickButton(gui, region, z, "Button", font, bc + vec4(0.1f,0,0.2f,0), tc, scissor);
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
 
-			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight));
-			writePos.y -= rowHeight + rowOffset;
-			static float myFloat = 40.2f;
-			newGuiQuickSlider(gui, region, z, &myFloat, 20, 99999999, 20, font, vec4(0.5f,1), vec4(0.9,1), vec4(0.3f,0.5f,0.0f,1), scissor);
+			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
 
-			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight));
-			writePos.y -= rowHeight + rowOffset;
-			static int myInt = 4;
-			newGuiQuickSlider(gui, region, z, &myInt, 2, 10, 20, font, vec4(0.5f,1), vec4(0.9,1), vec4(0.3f,0.5f,0.0f,1), scissor);
+			Layout lay = layout(region, false, vec2i(-1,0), vec2(clientBorder.x,0));
+			Layout* l;
 
-			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight));
-			writePos.y -= rowHeight + rowOffset;
-			static char myText[50] = "TextBoxChar";
-			TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, bc - vec4(0.1f,0,0.1f,0), tc, vec4(0.24,0.41,0.59,1), vec4(0.2f,0.7f,0,1)};
-			newGuiQuickTextEdit(ad->gui, region, myText, z, font, editSettings, scissor, arrayCount(myText));
+			// Layout* l = layoutQuickRow(&lay, 10, 0, 0);
+			// drawRect(l->r, vec4(1,1)); l = l->next;
+			// drawRect(l->r, vec4(1,1)); l = l->next;
+			// drawRect(l->r, vec4(1,1)); l = l->next;
 
-			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight));
-			writePos.y -= rowHeight + rowOffset;
-			static float myFloat2;
-			newGuiQuickTextEdit(ad->gui, region, &myFloat2, z, font, editSettings, scissor);
+			l = layoutQuickRow(&lay, 0,0);
+			// newGuiQuickButton(gui, l->r, z, "Button", font, bc + vec4(0.1f,0,0.2f,0), tc, scissor);
 
-			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight));
-			writePos.y -= rowHeight + rowOffset;
-			static int myInt2;
-			newGuiQuickTextEdit(ad->gui, region, &myInt2, z, font, editSettings, scissor);
+
+
+
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
+			// newGuiQuickButton(gui, region, z, "Button", font, bc + vec4(0.1f,0,0.2f,0), tc, scissor);
+
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
+			// static float myFloat = 40.2f;
+			// newGuiQuickSlider(gui, region, z, &myFloat, 20, 99999999, 20, font, vec4(0.5f,1), vec4(0.9,1), vec4(0.3f,0.5f,0.0f,1), scissor);
+
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
+			// static int myInt = 4;
+			// newGuiQuickSlider(gui, region, z, &myInt, 2, 10, 20, font, vec4(0.5f,1), vec4(0.9,1), vec4(0.3f,0.5f,0.0f,1), scissor);
+
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
+			// static char myText[50] = "TextBoxChar";
+			// TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, bc - vec4(0.1f,0,0.1f,0), tc, vec4(0.24,0.41,0.59,1), vec4(0.2f,0.7f,0,1)};
+			// newGuiQuickTextEdit(ad->gui, region, myText, z, font, editSettings, scissor, arrayCount(myText));
+
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
+			// static float myFloat2;
+			// newGuiQuickTextEdit(ad->gui, region, &myFloat2, z, font, editSettings, scissor);
+
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
+			// static int myInt2;
+			// newGuiQuickTextEdit(ad->gui, region, &myInt2, z, font, editSettings, scissor);
 
 			glDisable(GL_SCISSOR_TEST);
 		}
 
 	}
+#endif
 
 	// Block everything for debug panels.
 	{
@@ -5932,10 +6294,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// Swap window background buffer.
 	{
 		TIMER_BLOCK_NAMED("Swap");
-		if(ad->updateWindow) {
-			MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
-			ad->updateWindow = false;
-		}
+		// if(ad->updateWindow) {
+		// 	MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
+		// 	ad->updateWindow = false;
+
+	 // 		printf("%i %i %i %i\n", ad->updateWindowX, ad->updateWidth, ad->updateWidth, ad->updateHeight);
+	 // 		printf("%i %i\n", ws->currentRes.w, ws->currentRes.h);
+		// }
 
 		// Sleep untill monitor refresh.
 		if(!init) {
@@ -5963,6 +6328,21 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// @App End.
 
 	// if(init) printf("Startup Time: %fs\n", timerUpdate(startupTimer));
+
+	// Save app state.
+	if(*isRunning == false && fileExists(appSaveFilePath)) {
+		AppTempSettings at = {};
+
+		RECT r; 
+		GetWindowRect(windowHandle, &r);
+
+		at.windowRect = rect(r.left, r.bottom, r.right, r.top);
+		at.sidePanelWidth = ad->sidePanelWidth;
+		memCpy(at.graphOffsets, ad->graphOffsets, memberSize(AppTempSettings, graphOffsets));
+		at.playlistFolderIndex = ad->playlistFolderIndex;
+
+		appWriteTempSettings(appSaveFilePath, &at);
+	}
 }
 
 
@@ -6021,30 +6401,38 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		bool initSections = false;
 
 		Gui* gui = ds->gui;
-		gui->start(ds->gInput, getFont(FONT_CALIBRI, fontSize), ws->currentRes);
+		gui->windowRect = ad->clientRect;
+
+		AppSettings* as = &ad->appSettings;
+		gui->settings.border = vec2i(as->windowBorder, -as->windowBorder);
+		// gui->settings.offsets.x = gui->settings.border.x;
+		gui->settings.offsets.x = 1;
+		gui->settings.offsets.y = 1;
+		gui->settings.fontHeightOffset = 1.2f;
+		gui->start(ds->gInput, ad->fontPanel, ws->currentRes);
 
 		static int sectionMode = 0;
 
 		gui->div(vec2(0,fontSize));
 		gui->label("App", 1, gui->colors.sectionColor, vec4(0,0,0,1));
+		Rect titleBar = gui->getCurrentRegion();
 		if(gui->button("x",0,1, gui->colors.sectionColor)) ds->showMenu = false;
 
-		gui->div(0,0,0);
-		if(gui->button("Options", (int)(sectionMode == 0) + 1)) sectionMode = 0;
-		if(gui->button("Videos", (int)(sectionMode == 1) + 1)) sectionMode = 1;
-		if(gui->button("Playlists", (int)(sectionMode == 2) + 1)) sectionMode = 2;
+		if(ad->downloadMode) {
+			Rect r = gui->getCurrentRegion();
+			drawTriangle(rectL(titleBar) + vec2(rectH(titleBar)/2,0), rectH(titleBar)/3, rotateVec2(vec2(1,0), ad->time*2), gui->colors.textColor);
+		}
+
+		// gui->div(0,0,0);
+		// if(gui->button("Options", (int)(sectionMode == 0) + 1)) sectionMode = 0;
 
 		if(sectionMode == 0) {
-			gui->empty();
-
-			if(ad->downloadMode) {
-				Rect r = gui->getCurrentRegion();
-				drawTriangle(rectCen(r), rectH(r)/3, rotateVec2(vec2(1,0), ad->time*2), gui->colors.textColor);
-			}
+			float yOffset = 0.5f;
 
 			if((ad->downloadMode == Download_Mode_Videos || ad->downloadMode == Download_Mode_ChannelPlaylists) && ad->downloadMax != 0) {
 				gui->div(vec2(0, 30));
 				gui->empty();
+
 				Rect r = gui->getCurrentRegion();
 				drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), ad->appColors.likes, ad->appColors.dislikes, true, vec4(0,1));
 				gui->drawText(fillString("%i/%i", ad->downloadProgress, ad->downloadMax), 1, vec4(0,0));
@@ -6052,10 +6440,23 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				if(gui->button("X")) {
 					ad->downloadMode = 0;
 				}
+
+				gui->advanceY(yOffset);
+
+			} else {
+				// gui->empty();
+				gui->advanceY(yOffset);
 			}
 
-			gui->div(vec4(0,0,0,0));
-			if(gui->button("Screenshot.")) {
+			gui->div(vec2(0,0));
+			if(gui->button("Open app folder")) shellExecuteNoWindow(fillString("explorer.exe %s", appFolder));
+			if(gui->button("Delete app save")) remove(appSaveFilePath);
+
+			// gui->empty();
+			gui->advanceY(yOffset);
+
+			gui->div(vec2(0,0));
+			if(gui->button("Make Screenshot")) {
 				ad->startScreenShot = true;
 				ds->showMenu = false;
 			}
@@ -6064,20 +6465,30 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			int maxTextureSize;
 			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
 
+			gui->div(vec3(0,0,0));
+			gui->label("Dimension:", 0);
 			if(gui->textBoxInt(&ad->screenShotDim.w)) clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
 			if(gui->textBoxInt(&ad->screenShotDim.h)) clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
 
-			gui->empty();
+			// gui->empty();
+			gui->advanceY(yOffset);
 
-			gui->div(vec3(0,0,0));
-			gui->label("Playlist folder contents: ", 0);
-			if(gui->button("Update folder.")) {
+			gui->label(fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s"));
+			gui->advanceY(0.0f);
+
+			gui->div(vec2(0,0));
+			if(gui->button("Update folder")) {
 				ad->playlistFolderCount = 0;
 				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 			}
-			if(gui->button("Open folder.")) {
-				shellExecute("start ..\\playlists");
+			if(gui->button("Open folder")) {
+				shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));
 			}
+
+			static bool sectionBool = false;
+			gui->beginVPadding();
+			static float scrollValue = 0;
+			gui->beginScroll(gui->getDefaultYOffset()*10, &scrollValue);
 			for(int i = 0; i < ad->playlistFolderCount; i++) {
 				YoutubePlaylist* playlist = ad->playlistFolder + i;
 				gui->div(0,0.1f,0,0.1f);
@@ -6088,6 +6499,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 					strCpy(ad->downloadPlaylist.title, ad->playlist.title);
 					strCpy(ad->downloadPlaylist.id, ad->playlist.id);
+
+					ad->playlistFolderIndex = i;
 				}
 				gui->label(fillString("%i", playlist->count), 0);
 				gui->label(playlist->id);
@@ -6097,112 +6510,99 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 				}
 			}
+			gui->endScroll();
+			gui->endVPadding();
 
-			gui->empty();
+			// gui->empty();
+			gui->advanceY(yOffset);
 
-			gui->div(vec2(0,0));
-			gui->label("Loaded playlist.", 0);
-			gui->label(ad->playlist.title);
-			gui->div(vec2(0,0));
-			gui->label(ad->playlist.id);
-			gui->label(fillString("VideoCount: %i", ad->playlist.count));
+			{
+				gui->label("QuickSearch", 1);
+				gui->advanceY(0.0f);
 
-			gui->empty();
+				gui->div(vec3(0,0,50));
+				if(gui->textBoxCharDefault(ad->searchStringPlaylists, strLen(ad->searchStringPlaylists), 50, "<Playlist_Name>")) {
+					if(strLen(ad->searchStringPlaylists) > 0) {
+						downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+						ad->searchResultCount = 0;
+						ad->lastSearchMode = 1;
+						strCpy(ad->searchString, ad->searchStringPlaylists);
+					}
+				}
 
-			gui->div(vec2(0.2f,0));
-			gui->label("Playlist Title:", 0);
-			gui->label(ad->downloadPlaylist.title, 0);
-			gui->div(vec2(0.2f,0));
-			gui->label("Url: ", 0);
-			gui->textBoxChar(ad->downloadPlaylist.id, strLen(ad->downloadPlaylist.id), 50);
+				if(gui->textBoxCharDefault(ad->searchStringChannels, strLen(ad->searchStringChannels), 50, "<Channel_Name>")) {
+					if(strLen(ad->searchStringChannels) > 0) {
+						downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+						ad->searchResultCount = 0;
+						ad->lastSearchMode = 0;
+						strCpy(ad->searchString, ad->searchStringChannels);
+					}
+				}
 
-			gui->div(0.2f,0.2f,0);
-			gui->label("Count: ", 0);
-			gui->textBoxInt(&ad->downloadPlaylist.count);
-			if(gui->button("Get video count from url.")) {
-				downloadModeSet(Download_Mode_VideoCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-			}
+				if(gui->button("X")) ad->searchResultCount = 0;
 
-			gui->div(vec3(0,0,0));
-			if(gui->button("Download and Save.")) {
-				downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				ad->update = false;
-			}
-			// if(gui->button("Save to file.")) {
-			// 	savePlaylistToFile(&ad->playlist, ad->videos, ad->playlist.count);
+				gui->beginVPadding();
+				if(ad->searchResultCount > 0) {
+					// if(ad->lastSearchMode == 0) gui->label("Channels");
+					// else if(ad->lastSearchMode == 1) gui->label("Playlists");
 
-			// 	ad->playlistFolderCount = 0;
-			// 	loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-			// }
-			if(gui->button("Load from file.")) ad->startLoadFile = true;
-			if(gui->button("Update.")) {
-				downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				ad->update = true;
-			}
+					float leftPad = 20;
+					for(int i = 0; i < ad->searchResultCount; i++) {
+						SearchResult* sResult = ad->searchResults + i;
 
-			// if(ad->activeDownload) {
-				// gui->label(fillString("Active Download: %i/%i", ad->dInfo.progressIndex, ad->dInfo.count));
-			// }
-			// if(ad->downloadMode == Download_Mode_Videos) {
-			// 	gui->label(fillString("Active Download: %i/%i", ad->downloadProgress, ad->downloadMax));
-
-			// 	gui->empty();
-			// 	Rect r = gui->getCurrentRegion();
-			// 	drawRectProgress(r, (float)ad->downloadProgress / ad->downloadMax, ad->appColors.likes, ad->appColors.dislikes, true, vec4(0,1));
-			// }
-
-			gui->empty();
-
-			gui->label("QuickSearch:", 0);
-			gui->div(0,0,0,50);
-			gui->textBoxChar(ad->searchString, strLen(ad->searchString), 50);
-			if(gui->button("Playlists.")) {
-				downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				ad->searchResultCount = 0;
-				ad->lastSearchMode = 1;
-			}
-			if(gui->button("Channels.")) {
-				downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				ad->searchResultCount = 0;
-				ad->lastSearchMode = 0;
-			}
-			if(gui->button("X")) {
-				ad->searchResultCount = 0;
-			}
-
-			if(ad->searchResultCount > 0) {
-				if(ad->lastSearchMode == 0) gui->label("Channels");
-				else if(ad->lastSearchMode == 1) gui->label("Playlists");
-
-				float leftPad = 20;
-				for(int i = 0; i < ad->searchResultCount; i++) {
-					SearchResult* sResult = ad->searchResults + i;
-
-					if(gui->button(fillString("%i: %s", i, sResult->title), 0, 0)) {
-						if(ad->lastSearchMode == 0) {
-							strCpy(ad->channelId, sResult->id);
-						} else {
-							strCpy(ad->downloadPlaylist.id, sResult->id);
-							strCpy(ad->downloadPlaylist.title, sResult->title);
+						if(gui->button(fillString("%s", sResult->title), 0, 0)) {
+							if(ad->lastSearchMode == 0) {
+								strCpy(ad->channelId, sResult->id);
+							} else {
+								strCpy(ad->downloadPlaylist.id, sResult->id);
+								strCpy(ad->downloadPlaylist.title, sResult->title);
+							}
 						}
 					}
 				}
+				gui->endVPadding();
 			}
 
-			{
-				gui->empty();
-	
-				// gui->div(vec2(0,0));
-				// if(gui->button("Get id from username.")) {
-				// 	char* channelId = downloadChannelIdFromUserName(ad->curlHandle, ad->userName);
-				// 	strCpy(ad->channelId, channelId);
-				// }
-				// gui->textBoxChar(ad->userName, strLen(ad->userName), 50);
+			if(strLen(ad->downloadPlaylist.id) != 0) {
+				// gui->empty();
+				gui->advanceY(yOffset);
 
-				gui->label("Channel Playlists:", 0);
+				gui->label("Download playlist videos", 1);
+				gui->advanceY(0.0f);
+
+				gui->div(vec2(0,0));
+				gui->label(ad->downloadPlaylist.title, 0);
+				gui->label(ad->downloadPlaylist.id);
+
+				gui->div(0.2f,0.2f,0);
+				gui->label("Count: ", 0);
+				gui->textBoxInt(&ad->downloadPlaylist.count);
+				ad->downloadPlaylist.count = clampIntMin(ad->downloadPlaylist.count, 1);
+				if(gui->button("Get video count")) {
+					downloadModeSet(Download_Mode_VideoCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+				}
+
+				gui->div(vec2(0,0));
+				if(gui->button("Download")) {
+					downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+					ad->update = false;
+				}
+				if(gui->button("Update")) {
+					downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+					ad->update = true;
+				}
+			}
+
+			if(strLen(ad->channelId) != 0) {
+				// gui->empty();
+				gui->advanceY(yOffset);
+
+				gui->label("Get channel playlists", 1);
+				gui->advanceY(0.0f);
+
 				gui->div(vec2(0.2f,0));
 				gui->label("Channel Id:", 0);
-				gui->textBoxChar(ad->channelId, strLen(ad->channelId), 50);
+				gui->label(ad->channelId);
 
 				gui->div(0.2f,0.2f,0);
 				gui->label("Count: ", 0);
@@ -6221,7 +6621,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				}
 
 				if(ad->playlistCount > 0) {
-					gui->label("Playlists");
+					gui->beginVPadding();
+					static float scrollValue = 0;
+					gui->beginScroll(gui->getDefaultYOffset()*10, &scrollValue);
 
 					float leftPad = 20;
 					for(int i = 0; i < ad->playlistCount; i++) {
@@ -6233,44 +6635,48 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							ad->downloadPlaylist.count = playlist->count;
 						}
 					}
+
+					gui->endScroll();
+					gui->endVPadding();
 				}
 			}
+
 		}
 
-		if(sectionMode == 1) {
-			gui->label(fillString("VideoCount: %i.", ad->playlist.count), 0);
+		// if(sectionMode == 1) {
+		// 	gui->label(fillString("VideoCount: %i.", ad->playlist.count), 0);
 
-			float leftPad = 20;
-			for(int i = 0; i < ad->playlist.count; i++) {
-				YoutubeVideo* video = ad->videos + i;
+		// 	float leftPad = 20;
+		// 	for(int i = 0; i < ad->playlist.count; i++) {
+		// 		YoutubeVideo* video = ad->videos + i;
 
-				gui->label(fillString("Video %i:", i), 0);
+		// 		gui->label(fillString("Video %i:", i), 0);
 
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Title: %s", video->title), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Thumbnail: %s", video->thumbnail), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", video->id), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Date: %s", video->dateString), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("ViewCount: %i.", video->viewCount), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("likeCount: %i.", video->likeCount), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("DislikeCount: %i.", video->dislikeCount), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("FavoriteCount: %i.", video->favoriteCount), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("CommentCount: %i.", video->commentCount), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Title: %s", video->title), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Thumbnail: %s", video->thumbnail), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", video->id), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Date: %s", video->dateString), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("ViewCount: %i.", video->viewCount), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("likeCount: %i.", video->likeCount), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("DislikeCount: %i.", video->dislikeCount), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("FavoriteCount: %i.", video->favoriteCount), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("CommentCount: %i.", video->commentCount), 0);
 
-			}
-		}
+		// 	}
+		// }
 
-		if(sectionMode == 2) {
-			float leftPad = 20;
-			for(int i = 0; i < ad->playlistCount; i++) {
-				YoutubePlaylist* playlist = ad->playlists + i;
+		// if(sectionMode == 2) {
+		// 	float leftPad = 20;
+		// 	for(int i = 0; i < ad->playlistCount; i++) {
+		// 		YoutubePlaylist* playlist = ad->playlists + i;
 
-				gui->label(fillString("Playlist %i: ", i), 0);
+		// 		gui->label(fillString("Playlist %i: ", i), 0);
 
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", playlist->id), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("title: %s", playlist->title), 0);
-				gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("count: %i.", playlist->count), 0);
-			}
-		}
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", playlist->id), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("title: %s", playlist->title), 0);
+		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("count: %i.", playlist->count), 0);
+		// 	}
+		// }
 
 		gui->end();
 	}
@@ -6447,7 +6853,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		int infoCount = timer->timerInfoCount;
 
 		Gui* gui = ds->gui2;
-		gui->start(ds->gInput, getFont(FONT_CALIBRI, fontHeight), ws->currentRes);
+		// gui->start(ds->gInput, getFont(FONT_CALIBRI, fontHeight), ws->currentRes);
+		gui->start(ds->gInput, ad->font, ws->currentRes);
 
 		gui->label("App Statistics", 1, gui->colors.sectionColor, vec4(0,0,0,1));
 
@@ -7056,8 +7463,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		}
 
 		// Draw notes.
-		float fontSize = 24;
-		Font* font = getFont(FONT_CALIBRI, fontSize);
+		Font* font = ad->font;
+		float fontSize = font->height;
 		Vec4 color = vec4(1,0.5f,0,1);
 
 		float y = -fontSize/2;
@@ -7069,12 +7476,12 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 	}
 
 	if(ds->showHud) {
-		int fontSize = 19;
 		int pi = 0;
 		// Vec4 c = vec4(1.0f,0.2f,0.0f,1);
 		Vec4 c = vec4(1.0f,0.4f,0.0f,1);
 		Vec4 c2 = vec4(0,0,0,1);
-		Font* font = getFont(FONT_CONSOLAS, fontSize);
+		Font* font = ad->font;
+		int fontSize = font->height;
 		int sh = 1;
 		Vec2 offset = vec2(6,6);
 		Vec2i ali = vec2i(1,1);

@@ -163,6 +163,12 @@ void loadTexture(Texture* texture, unsigned char* buffer, int w, int h, int mipL
 	}	
 
 	glTextureSubImage2D(texture->id, 0, 0, 0, w, h, channelType, channelFormat, buffer);
+
+	glTextureParameteri(texture->id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTextureParameteri(texture->id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTextureParameteri(texture->id, GL_TEXTURE_WRAP_S, GL_CLAMP);
+	glTextureParameteri(texture->id, GL_TEXTURE_WRAP_T, GL_CLAMP);
+
 	glGenerateTextureMipmap(texture->id);
 }
 
@@ -209,6 +215,7 @@ void deleteTexture(Texture* t) {
 //
 
 struct Font {
+	char* name;
 	int id;
 
 	stbtt_fontinfo info;
@@ -358,7 +365,7 @@ struct GraphicsState {
 	int textureCount;
 	Texture textures3d[2];
 	GLuint samplers[SAMPLER_SIZE];
-	Font fonts[FONT_SIZE][20];
+	Font fonts[FONT_SIZE + APP_FONT_COUNT][20];
 
 	GLuint textureUnits[16];
 	GLuint samplerUnits[16];
@@ -394,6 +401,94 @@ FrameBuffer* getFrameBuffer(int id) {
 }
 
 #define Font_Error_Glyph (int)0x20-1
+
+Font* fontInit(Font* fontSlot, char* file, char* filePath, int height, int id) {
+	TIMER_BLOCK();
+
+	Font font;
+	char* path = fillString("%s%s", filePath, file);
+
+	char* fileBuffer = (char*)getPMemory(fileSize(path) + 1);
+	// char* fileBuffer = getTArray(char, fileSize(path) + 1);
+
+	if(!fileExists(path)) return 0;
+
+	readFileToBuffer(fileBuffer, path);
+	// Vec2i size = vec2i(512,512);
+	Vec2i size = vec2i(800,800);
+	unsigned char* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
+	unsigned char* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
+	
+	font.name = getPString(strLen(file)+1);
+	strCpy(font.name, file);
+
+	font.id = id;
+	font.height = height;
+	font.baseOffset = 0.8f;
+
+	font.glyphRangeCount = 0;
+	font.glyphRanges[0].x = (int)0x20-1;
+	font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
+	font.glyphRangeCount++;
+	font.glyphRanges[1].x = 0xA0;
+	font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
+	font.glyphRangeCount++;
+	
+	int totalGlyphCount = 0;
+	for(int i = 0; i < font.glyphRangeCount; i++) totalGlyphCount += font.glyphRanges[i].y;
+
+	font.cData = getPArray(stbtt_packedchar, totalGlyphCount);
+
+
+	int fontFileOffset = stbtt_GetFontOffsetForIndex((uchar*)fileBuffer, 0);
+	stbtt_InitFont(&font.info, (uchar*)fileBuffer, fontFileOffset);
+
+
+	stbtt_pack_context context;
+	int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, 1, 0);
+
+	int sampling = 2;
+	if(font.height < 25) sampling = 4;
+	stbtt_PackSetOversampling(&context, sampling, sampling);
+	
+	stbtt_pack_range range[4];
+	int cDataOffset = 0;
+	for(int i = 0; i < font.glyphRangeCount; i++) {
+		range[i].first_unicode_codepoint_in_range = font.glyphRanges[i].x;
+		range[i].array_of_unicode_codepoints = NULL;
+		range[i].num_chars                   = font.glyphRanges[i].y;
+		range[i].chardata_for_range          = font.cData + cDataOffset;
+		range[i].font_size                   = font.height;
+
+		cDataOffset += font.glyphRanges[i].y;
+	}
+
+	// We assume glyphRanges in the front have more importance.
+	for(int i = 0; i < font.glyphRangeCount; i++) {
+		stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range + i, 1);
+	}
+	// stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range, font.glyphRangeCount);
+
+	stbtt_PackEnd(&context);
+
+	font.pixelScale = stbtt_ScaleForPixelHeight(&font.info, font.height);
+
+	for(int i = 0; i < size.w*size.h; i++) {
+		fontBitmap[i*4] = fontBitmapBuffer[i];
+		fontBitmap[i*4+1] = fontBitmapBuffer[i];
+		fontBitmap[i*4+2] = fontBitmapBuffer[i];
+		fontBitmap[i*4+3] = fontBitmapBuffer[i];
+	}
+
+	Texture tex;
+	loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+	font.tex = tex;
+
+	addTexture(tex);
+
+	*fontSlot = font;
+	return fontSlot;
+}
 
 Font* getFont(int fontId, int height) {
 
@@ -597,7 +692,7 @@ void drawLineNewOff(Vec2 p0, Vec2 p1, Vec4 color) {
 }
 
 void drawRect(Rect r, Vec4 color, Rect uv, int texture, float z = 0) {	
-	if(texture == -1) texture = getTexture(TEXTURE_WHITE)->id;
+	// if(texture == -1) texture = getTexture(TEXTURE_WHITE)->id;
 
 	glBindTexture(GL_TEXTURE_2D, texture);
 

@@ -3307,7 +3307,7 @@ void graphCamSizeClamp(GraphCam* cam, double wMin, double hMin, double wMax = -1
 	clampDouble(&cam->h, hMin, hMax);
 }
 
-void graphCamScaleToPos(GraphCam* cam, int xAmount, double xScale, int yAmount, double yScale, Vec2 pos) {
+void graphCamScaleToPos(GraphCam* cam, int xAmount, double xScale, double xClamp, int yAmount, double yScale, double yClamp, Vec2 pos) {
 	double diff, offset;
 	float posOffset;
 	double mod;
@@ -3316,6 +3316,7 @@ void graphCamScaleToPos(GraphCam* cam, int xAmount, double xScale, int yAmount, 
 	mod = pow(xScale, abs(xAmount));
 	offset = xAmount > 0 ? mod : 1/mod;
 	cam->w *= offset;
+	clampMinDouble(&cam->w, xClamp);
 	diff -= cam->w;
 	posOffset = mapRange(pos.x, cam->viewPort.left, cam->viewPort.right, -0.5f, 0.5f);
 	cam->x += diff * posOffset;
@@ -3324,6 +3325,7 @@ void graphCamScaleToPos(GraphCam* cam, int xAmount, double xScale, int yAmount, 
 	mod = pow(yScale, abs(yAmount));
 	offset = yAmount > 0 ? mod : 1/mod;
 	cam->h *= offset;
+	clampMinDouble(&cam->h, yClamp);
 	diff -= cam->h;
 	posOffset = mapRange(pos.y, cam->viewPort.bottom, cam->viewPort.top, -0.5f, 0.5f);
 	cam->y += diff * posOffset;
