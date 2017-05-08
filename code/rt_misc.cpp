@@ -212,7 +212,7 @@ inline void strErase(char* string, int index, int size) {
 	memCpy(string+index, string+index+size, amount+1);
 }
 
-inline bool strIsEmpty(char* string) {
+inline bool strEmpty(char* string) {
 	bool result = string[0] == '\0';
 	return result;
 }

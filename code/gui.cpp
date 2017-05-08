@@ -2172,7 +2172,7 @@ struct Console {
 					if(i%2 == 0) {
 						drawText(cs.commandPreText, cs.bodyFont, textPos - vec2(preSize,0), cs.bodyFontColor, vec2i(-1,1));
 					} else {
-						if(strIsEmpty(mainBuffer[i])) continue;
+						if(strEmpty(mainBuffer[i])) continue;
 					}
 
 					// Cull texts that are above or below the console body.
@@ -2416,17 +2416,26 @@ struct TextEditVars {
 };
 
 struct TextEditSettings {
+	Font* font;
+
+	char* textBuffer;
+
 	bool wrapping;
 	bool singleLine;
 
-	float screenHeight;
 	float cursorWidth;
+
+	char* defaultText;
 
 	Vec4 colorBackground;
 	Vec4 colorText;
 	Vec4 colorSelection;
 	Vec4 colorCursor;
 };
+
+TextEditSettings textEditSettings(Font* font, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, Vec4 colorBackground, Vec4 colorText, Vec4 colorSelection, Vec4 colorCursor) {
+	return {font, textBuffer, wrapping, singleLine, cursorWidth, "", colorBackground, colorText, colorSelection, colorCursor};
+}
 
 void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev) {
 

@@ -33,13 +33,16 @@
 	- Show download speed.
 
 
+	- Channel video count should be there automatically.
 
 	Done Today: 
-	
+
+
 
 	Bugs:
 	- Drag with other window white trail.
-	
+	- Can't do 100*100 screenshot.
+
 */
 
 
@@ -1755,6 +1758,8 @@ int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font,
 		textEditBox(gui->editText, maxTextSize, font, textRect, input, vec2i(-1,1), editSettings, editVars);
 	}
 
+	if(event == 3 && escape) event = 4;
+
 	return event;
 }
 int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, char* text, Font* font, TextEditSettings editSettings, int maxTextSize) {
@@ -1878,8 +1883,8 @@ void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings 
 	if(settings.roundedCorner == 0) drawRect(r, settings.backgroundColor);
 	drawRectRounded(r, settings.backgroundColor, settings.roundedCorner);
 
-	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
-	scissorTestScreen(scissor);
+	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	// scissorTestScreen(scissor);
 	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
 	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
 
@@ -1897,8 +1902,7 @@ void drawTextBox(Rect r, char* text, TextBoxSettings settings) {
 }
 
 
-
-void drawTextEditBox(char* text, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active, Rect scissor) {
+void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
 	Vec2 startPos = rectL(textRect);
 	if(active) startPos += editVars.scrollOffset;
 
@@ -1907,47 +1911,35 @@ void drawTextEditBox(char* text, Font* font, Rect textRect, TextEditVars editVar
 
 	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 
+	if(active) text = editSettings.textBuffer;
+
 	Vec2i align = vec2i(-1,0);
 	if(active) {
 		// Selection.
-		drawTextSelection(text, font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
+		drawTextSelection(text, editSettings.font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
 	}
 
-	// Text.
-	drawText(text, font, startPos, editSettings.colorText, align);
+	if(!strEmpty(editSettings.defaultText) && strEmpty(text) && !active) 
+		drawText(editSettings.defaultText, editSettings.font, rectCen(textRect), editSettings.colorText, vec2i(0,0));
+	else 
+		drawText(text, editSettings.font, startPos, editSettings.colorText, align);
 
 	if(active) {
 		// Cursor.
-		Vec2 cPos = textIndexToPos(text, font, startPos, editVars.cursorIndex, align);
-		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, font->height));
+		Vec2 cPos = textIndexToPos(text, editSettings.font, startPos, editVars.cursorIndex, align);
+		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, editSettings.font->height));
 		if(editVars.cursorIndex == 0) cRect = rectTrans(cRect, vec2(editSettings.cursorWidth/2));
 		drawRect(cRect, editSettings.colorCursor);
 	}
 }
-
-void drawTextEditBox(char* textBuffer, char* text, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active, Rect scissor) {
-	char* t = active ? textBuffer : text;
-	drawTextEditBox(t, font, textRect, editVars, editSettings, active, scissor);
+void drawTextEditBox(int number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
+	drawTextEditBox(fillString("%i", number), textRect, active, scissor, editVars, editSettings);
 }
-void drawTextEditBox(char* textBuffer, char* text, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active) {
-	return drawTextEditBox(textBuffer, text, font, textRect, editVars, editSettings, active, textRect);
+void drawTextEditBox(float number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
+	drawTextEditBox(fillString("%f", number), textRect, active, scissor, editVars, editSettings);
 }
 
-void drawTextEditBox(char* textBuffer, int number, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active, Rect scissor) {
-	char* t = active ? textBuffer : fillString("%i", number);
-	drawTextEditBox(t, font, textRect, editVars, editSettings, active, scissor);
-}
-void drawTextEditBox(char* textBuffer, int number, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active) {
-	return drawTextEditBox(textBuffer, number, font, textRect, editVars, editSettings, active, textRect);
-}
 
-void drawTextEditBox(char* textBuffer, float number, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active, Rect scissor) {
-	char* t = active ? textBuffer : fillString("%f", number);
-	drawTextEditBox(t, font, textRect, editVars, editSettings, active, scissor);
-}
-void drawTextEditBox(char* textBuffer, float number, Font* font, Rect textRect, TextEditVars editVars, TextEditSettings editSettings, bool active) {
-	return drawTextEditBox(textBuffer, number, font, textRect, editVars, editSettings, active, textRect);
-}
 
 
 void drawSlider(void* val, bool type, Rect br, Rect sr, Font* font, Vec4 bc, Vec4 tc, Vec4 sc, Rect scissor) {
@@ -1985,6 +1977,15 @@ bool getRectScissor(Rect* scissor, Rect r) {
 	*scissor = rectIntersect(*scissor, r);
 	if(rectEmpty(*scissor)) return false;
 	return true;
+}
+
+Rect getRectScissor(Rect scissor, Rect r) {
+	return rectIntersect(scissor, r);
+}
+
+Rect scissorTestIntersect(Rect scissor, Rect r) {
+	scissorTestScreen(rectIntersect(scissor, r));
+	return r;
 }
 
 bool newGuiQuickButton(NewGui* gui, Rect r, float z, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
@@ -2052,32 +2053,138 @@ bool newGuiQuickSlider(NewGui* gui, Rect r, float z, int* val, int min, int max,
 	return false;
 }
 
-bool newGuiQuickTextEdit(NewGui* gui, Rect r, char* data, float z, Font* font, TextEditSettings editSettings, Rect scissor, int maxSize) {
+bool newGuiQuickTextEdit(NewGui* gui, Rect r, char* data, float z, int maxSize, Rect scissor, TextEditSettings editSettings) {
 	if(!getRectScissor(&scissor, r)) return false;
 
-	int event = newGuiGoTextEdit(gui, scissor, z, data, font, editSettings, maxSize);
-	drawTextEditBox(gui->editText, data, font, r, gui->editVars, editSettings, event > 0, scissor);
+	int event = newGuiGoTextEdit(gui, scissor, z, data, editSettings.font, editSettings, maxSize);
+	drawTextEditBox(data, r, event > 0, scissor, gui->editVars, editSettings);
 	if(event == 3) return true;
 
 	return false;
 }
-bool newGuiQuickTextEdit(NewGui* gui, Rect r, int* data, float z, Font* font, TextEditSettings editSettings, Rect scissor) {
+bool newGuiQuickTextEdit(NewGui* gui, Rect r, int* data, float z, Rect scissor, TextEditSettings editSettings) {
 	if(!getRectScissor(&scissor, r)) return false;
 
-	int event = newGuiGoTextEdit(gui, scissor, z, data, font, editSettings);
-	drawTextEditBox(gui->editText, *data, font, r, gui->editVars, editSettings, event > 0, scissor);
+	int event = newGuiGoTextEdit(gui, scissor, z, data, editSettings.font, editSettings);
+	drawTextEditBox(*data, r, event > 0, scissor, gui->editVars, editSettings);
 	if(event == 3) return true;
 
 	return false;
 }
-bool newGuiQuickTextEdit(NewGui* gui, Rect r, float* data, float z, Font* font, TextEditSettings editSettings, Rect scissor) {
+bool newGuiQuickTextEdit(NewGui* gui, Rect r, float* data, float z, Rect scissor, TextEditSettings editSettings) {
 	if(!getRectScissor(&scissor, r)) return false;
 
-	int event = newGuiGoTextEdit(gui, scissor, z, data, font, editSettings);
-	drawTextEditBox(gui->editText, *data, font, r, gui->editVars, editSettings, event > 0, scissor);
+	int event = newGuiGoTextEdit(gui, scissor, z, data, editSettings.font, editSettings);
+	drawTextEditBox(*data, r, event > 0, scissor, gui->editVars, editSettings);
+	
 	if(event == 3) return true;
 
 	return false;
+}
+
+
+struct ScrollRegionSettings {
+	Vec2 border;
+	float scrollBarWidth;
+	Vec2 sliderMargin;
+	float sliderRounding;
+
+	float sliderSize;
+	float sliderSizeMin;
+
+	float scrollAmount;
+
+	bool scrollWithBackground;
+	bool scrollWithSlider;
+	bool scrollWithMouseWheel;
+
+	Vec4 sliderColor;
+	Vec4 scrollBarColor;
+	Vec4 backgroundColor;
+};
+
+struct ScrollRegionValues {
+	bool hasScrollBar;
+	Rect scissor;
+	Vec2 pos;
+	Rect region;
+};
+
+// ScrollRegionSettings scrollRegionSettings() {
+// }
+
+void newGuiQuickScroll(NewGui* gui, Rect r, float z, float height, float* scrollValue, Rect scissor, ScrollRegionSettings settings, ScrollRegionValues* scrollValues) {
+	float scrollRegionHeight = rectH(r);
+
+	float itemsHeight = height - scrollRegionHeight;
+	bool hasScrollbar = itemsHeight > 0;
+
+	Rect scrollRegion = r;
+	if(!hasScrollbar) rectSetB(&scrollRegion, scrollRegion.top - height);
+	float scrollBarWidth = hasScrollbar?settings.scrollBarWidth:0;
+	Rect itemRegion = rectSetR(scrollRegion, scrollRegion.right - scrollBarWidth);
+	Rect scrollBarRegion = rectSetL(scrollRegion, scrollRegion.right - scrollBarWidth);
+
+	scissorTestScreen(scissor);
+
+	if(!hasScrollbar) rectSetB(&scrollRegion, scrollRegion.top-height);
+	drawRect(scrollRegion, settings.backgroundColor);
+	drawRect(scrollBarRegion, settings.scrollBarColor);
+
+	float sliderSize = settings.sliderSize;
+	if(sliderSize == 0) sliderSize = (rectH(scrollBarRegion) / (rectH(scrollRegion)+itemsHeight)) * rectH(scrollBarRegion);
+	clampMin(&sliderSize, settings.sliderSizeMin);
+
+	if(hasScrollbar) {
+		// Scroll with mousewheel.
+		{
+			if(newGuiGoButtonAction(gui, getRectScissor(scissor, scrollRegion), z, Gui_Focus_MWheel)) {
+				float scrollAmount = settings.scrollAmount;
+				if(gui->input->keysDown[KEYCODE_SHIFT]) scrollAmount *= 2;
+
+				(*scrollValue) = clamp((*scrollValue) + -gui->input->mouseWheel*(scrollAmount/itemsHeight), 0, 1);
+			}
+		}
+
+		Rect slider;
+		int sliderId;
+		// Scroll with handle.
+		{
+			slider = newGuiCalcSlider(1-(*scrollValue), scrollBarRegion, sliderSize, 0, 1, false);
+			int event = newGuiGoDragAction(gui, getRectScissor(scissor, slider), z);
+			sliderId = newGuiCurrentId(gui);
+			if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
+			if(event > 0) {
+				(*scrollValue) = 1-newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, scrollBarRegion, sliderSize, 0, 1, false);
+				slider = newGuiCalcSlider(1-(*scrollValue), scrollBarRegion, sliderSize, 0, 1, false);
+			}
+		}
+
+		// Scroll with background drag.
+		if(settings.scrollWithBackground)
+		{
+			int event = newGuiGoDragAction(gui, getRectScissor(scissor, itemRegion), z);
+			if(event == 1) gui->mouseAnchor.y = gui->input->mousePosNegative.y - ((*scrollValue)*itemsHeight);
+			if(event > 0) {
+				(*scrollValue) = (gui->input->mousePosNegative.y - gui->mouseAnchor.y)/itemsHeight;
+				clamp(&(*scrollValue), 0, 1);
+
+				slider = newGuiCalcSlider(1-(*scrollValue), scrollBarRegion, sliderSize, 0, 1, false);
+			}
+		}
+
+		rectExpand(&slider, -settings.sliderMargin*2);
+		if(hasScrollbar) drawRectRounded(slider, settings.sliderColor + newGuiColorModId(gui, sliderId), settings.sliderRounding);
+	}
+
+
+	itemRegion = rectExpand(itemRegion, -settings.border*2);
+
+	scrollValues->pos = vec2(itemRegion.left, r.top + (*scrollValue)*itemsHeight);
+	scrollValues->hasScrollBar = hasScrollbar;
+	getRectScissor(&scissor, itemRegion);
+	scrollValues->scissor = scissor;
+	scrollValues->region = itemRegion;
 }
 
 
@@ -2721,6 +2828,12 @@ Vec2 layoutGetDim(Layout* node) {
 	return rectDim(layoutGetRect(node));
 }
 
+Rect layoutInc(Layout** node) {
+	Rect r = (*node)->r;
+	(*node) = (*node)->next;
+	return r;
+}
+
 void layoutAdd(Layout* node, Layout* newNode, bool addEnd = true) {
 	Layout* list = node->list;
 
@@ -2879,7 +2992,8 @@ void layoutCalc(Layout* mainNode, bool recursive = true) {
 	}
 }
 
-Layout* layoutQuickRow(Layout* node, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
+Layout* layoutQuickRow(Layout* node, Rect region, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
+	node->r = region;
 	node->list = 0;
 	layoutAdd(node, layout(!node->vAxis ? vec2(s1,0) : vec2(0,s1)));
 	if(s2 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s2,0) : vec2(0,s2)));
@@ -4042,7 +4156,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					if(tempPlaylist.count == 0) skip = true;
 
-					if(maxVideoCount == tempPlaylist.count) return;
+					if(maxVideoCount == tempPlaylist.count) skip = true;
 					if(count + lastVideoCount > maxVideoCount) {
 						count = maxVideoCount - lastVideoCount;
 						ad->downloadPlaylist.count = count;
@@ -5574,11 +5688,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		{
 			TIMER_BLOCK_NAMED("Filtesr Gui");
 
-			// char* labels[] = {"Panel (F1)", "Reset", "Draw Mode:", "Avg. (width/res months):", "Filter (Incl./Excl.):"};
-			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:", "Filter (Incl./Excl.):"};
+			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:"};
 			int li = 0;
 			float bp = font->height;
-			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x, 80, getTextDim(labels[li++], font).x, 40, 40, getTextDim(labels[li++], font).x, 200, 200};
+			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x, 80, getTextDim(labels[li++], font).x, 40, 40, 200, 200};
 			Rect regions[arrayCount(widths)];
 
 			scissorState();
@@ -5603,7 +5716,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			TextBoxSettings buttonSettings = textBoxSettings(font, bc, tc, as->fontShadow, ac->fontShadow, 0);
 			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), tc, as->fontShadow, ac->fontShadow, 0);
-			TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, ec, tc, ac->editSelection, ac->editCursor};
+			TextEditSettings editSettings = textEditSettings(font, ad->gui->editText, true, true, 2, ec, tc, ac->editSelection, ac->editCursor);
 
 			float z = 0;
 			int ri = 0;
@@ -5628,20 +5741,21 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			bool updateStats = false;
 
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statTimeSpan, z, font, editSettings, scissor)) updateStats = true;
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statTimeSpan, z, scissor, editSettings)) updateStats = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 			clamp(&ad->statTimeSpan, 0.01f, 12*10);
 
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statWidth, z, font, editSettings, scissor)) updateStats = true;
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statWidth, z, scissor, editSettings)) updateStats = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 			clamp(&ad->statWidth, 0.01f, 12*10);
 
-			drawQuickTextBox(regions[ri++], labels[li++], scissor, labelSettings);
-
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->inclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->inclusiveFilter))) 
+			editSettings.defaultText = "<Filter_Inclusive>";
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->inclusiveFilter, z, arrayCount(ad->inclusiveFilter), scissor, editSettings)) 
 				ad->startLoadFile = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->exclusiveFilter, z, font, editSettings, scissor, arrayCount(ad->exclusiveFilter))) 
+
+			editSettings.defaultText = "<Filter_Exclusive>";
+			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->exclusiveFilter, z, arrayCount(ad->exclusiveFilter), scissor, editSettings)) 
 				ad->startLoadFile = true;
 			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
 
@@ -5712,7 +5826,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(true)
 	{
 		static Vec2 panelPos = vec2(800,-100);
-		static Vec2 panelDim = vec2(400,600);
+		static Vec2 panelDim = vec2(400,1000);
 		
 		bool clampToWindow = true;
 		bool resizable = true;
@@ -5732,11 +5846,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 		float rowHeight = font->height;
 		float rowOffset = panelBorder;
 
+		float sectionOffset = 20;
+
 		Vec4 fontColor = vec4(0.9f, 1);
 		Vec4 fontShadowColor = vec4(0,1);
 		Vec4 borderColor = vec4(0.4,0.2,0.6,1);
 		Vec4 backgroundColor = vec4(0.2f,0,0.5,1);
 		Vec4 windowControlsColor = vec4(0.4f,0,0,1);
+
+		Vec4 buttonColor = backgroundColor + vec4(0.2f,0.2f,0,0);
+
+		Vec4 editBackgroundColor = backgroundColor + vec4(0.1f, 0, 0.3f,0);
+		Vec4 editSelectionColor = backgroundColor + vec4(0.4f,0,0,0);;
+		Vec4 editCursorColor = vec4(0.2f,0.8,0.1f,1);
+
+		Vec4 scrollRegionColor = backgroundColor + vec4(-0.2f, 0, -0.1f, 0);
+		Vec4 scrollSliderColor = backgroundColor + vec4(0.3f,0.2f,0,0);
 
 		float zOrder = 2;
 
@@ -5849,8 +5974,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		{
 			glEnable(GL_SCISSOR_TEST);
 
-			// TextBoxSettings settings = textBoxSettings(0,0,0);
+			TextBoxSettings buttonSettings = textBoxSettings(font, buttonColor, fontColor);
 			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor);
+			TextEditSettings editSettings = textEditSettings(font, ad->gui->editText, true, true, 2, editBackgroundColor, fontColor, editSelectionColor, editCursorColor);
+			ScrollRegionSettings scrollSettings = {vec2(10,0), 20, vec2(4,4), 6, 0, 40, rowHeight, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
+
 
 			Rect insideRect = rectExpand(panelRect, -panelBorder*2);
 			float titleHeight = font->height*titleHeightMod;
@@ -5864,62 +5992,330 @@ extern "C" APPMAINFUNCTION(appMain) {
 			drawRect(rClose, windowControlsColor + newGuiColorModB(gui));
 			drawCross(rectCen(rClose), rectW(rClose)/2 * windowControlsPadding, windowControlsSize, vec2(1,0), fontColor);
 
+			if(ad->downloadMode) {
+				drawTriangle(rectL(titleRect) + vec2(rectH(titleRect)/2,0), rectH(titleRect)/3, rotateVec2(vec2(1,0), ad->time*2), fontColor);
+			}
+
 			insideRect.top -= titleHeight;
 
-			Vec4 bc = backgroundColor;
-			Vec4 tc = fontColor;
+
 
 			Rect scissor = insideRect;
 			scissorTestScreen(scissor);
 
-			drawRect(insideRect, bc);
+			drawRect(insideRect, backgroundColor);
 
 			insideRect = rectExpand(insideRect, -clientBorder*2);
 
 			Vec2 writePos = rectTL(insideRect);
 			Rect region;
 
+			float yOffset = 0.5f;
+
+			float rowWidth = rectW(insideRect);
+			Vec2 rowDim = vec2(rowWidth, rowHeight);
+
+			Rect r;
+
 			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
 
-			region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
+			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
 
-			Layout lay = layout(region, false, vec2i(-1,0), vec2(clientBorder.x,0));
+			Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(clientBorder.x,0));
+			Layout layTemp = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(0,0));
 			Layout* l;
 
-			// Layout* l = layoutQuickRow(&lay, 10, 0, 0);
-			// drawRect(l->r, vec4(1,1)); l = l->next;
-			// drawRect(l->r, vec4(1,1)); l = l->next;
-			// drawRect(l->r, vec4(1,1)); l = l->next;
 
-			l = layoutQuickRow(&lay, 0,0);
-			// newGuiQuickButton(gui, l->r, z, "Button", font, bc + vec4(0.1f,0,0.2f,0), tc, scissor);
+			l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
+			if(newGuiQuickButton(gui, layoutInc(&l), z, "Open app folder", buttonSettings)) 
+				shellExecuteNoWindow(fillString("explorer.exe %s", appFolder));
+			if(newGuiQuickButton(gui, layoutInc(&l), z, "Delete app save", buttonSettings)) 
+				remove(appSaveFilePath);
+
+			writePos.y -= font->height*yOffset;
+
+			l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
+			if(newGuiQuickButton(gui, layoutInc(&l), z, "Make screenshot", buttonSettings)) {
+				ad->startScreenShot = true;
+				ds->showMenu = false;
+			}
+			newGuiQuickTextEdit(gui, layoutInc(&l), ad->screenShotFilePath, z, 49, scissor, editSettings);
+
+
+
+			l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0,0); writePos.y -= rowHeight + rowOffset;
+			drawQuickTextBox(layoutInc(&l), "Dimension:", vec2i(-1,0), scissor, labelSettings);
+			int maxTextureSize;
+			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.w, z, scissor, editSettings)) 
+				clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
+			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.h, z, scissor, editSettings)) 
+				clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
+
+			writePos.y -= font->height*yOffset;
+
+			r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + rowOffset;
+			drawQuickTextBox(r, fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s"), scissor, labelSettings); 
+
+			l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
+			if(newGuiQuickButton(gui, layoutInc(&l), z, "Update folder", scissor, buttonSettings)) {
+				ad->playlistFolderCount = 0;
+				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+			}
+			scissorTestScreen(scissor);
+			if(newGuiQuickButton(gui, layoutInc(&l), z, "Open folder", scissor, buttonSettings)) 
+				shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));
 
 
 
 
-			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
-			// newGuiQuickButton(gui, region, z, "Button", font, bc + vec4(0.1f,0,0.2f,0), tc, scissor);
+			writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
+			
+			{
+				static float scrollValue = 0;
 
-			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
-			// static float myFloat = 40.2f;
-			// newGuiQuickSlider(gui, region, z, &myFloat, 20, 99999999, 20, font, vec4(0.5f,1), vec4(0.9,1), vec4(0.3f,0.5f,0.0f,1), scissor);
+				ScrollRegionValues scrollValues = {};
+				Rect r = rectTLDim(writePos, vec2(rowDim.w, 150));
+				newGuiQuickScroll(gui, r, z, ad->playlistFolderCount * rowHeight, &scrollValue, scissor, scrollSettings, &scrollValues);
 
-			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
-			// static int myInt = 4;
-			// newGuiQuickSlider(gui, region, z, &myInt, 2, 10, 20, font, vec4(0.5f,1), vec4(0.9,1), vec4(0.3f,0.5f,0.0f,1), scissor);
+				Rect scissorSave = scissor;
+				Vec2 writePosSave = writePos;
+				Vec2 rowDimSave = rowDim;
 
-			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
-			// static char myText[50] = "TextBoxChar";
-			// TextEditSettings editSettings = {true, true, ws->currentRes.h, 2, bc - vec4(0.1f,0,0.1f,0), tc, vec4(0.24,0.41,0.59,1), vec4(0.2f,0.7f,0,1)};
-			// newGuiQuickTextEdit(ad->gui, region, myText, z, font, editSettings, scissor, arrayCount(myText));
+					scissor = scrollValues.scissor;
+					writePos = scrollValues.pos;
+					rowDim.w = rectW(scrollValues.region);
 
-			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
-			// static float myFloat2;
-			// newGuiQuickTextEdit(ad->gui, region, &myFloat2, z, font, editSettings, scissor);
+					for(int i = 0; i < ad->playlistFolderCount; i++) {
+						YoutubePlaylist* playlist = ad->playlistFolder + i;
 
-			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
-			// static int myInt2;
-			// newGuiQuickTextEdit(ad->gui, region, &myInt2, z, font, editSettings, scissor);
+						l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0.1f,0,0.1f); writePos.y -= rowHeight;
+						if(newGuiQuickButton(gui, layoutInc(&l), z, fillString("%s", playlist->title), vec2i(-1,0), scissor, buttonSettings)) {
+							memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
+							ad->playlist.count = playlist->count;
+							ad->startLoadFile = true;
+
+							strCpy(ad->downloadPlaylist.title, ad->playlist.title);
+							strCpy(ad->downloadPlaylist.id, ad->playlist.id);
+
+							ad->playlistFolderIndex = i;
+						}
+						drawQuickTextBox(layoutInc(&l), fillString("%i", playlist->count), vec2i(-1,0), scissor, labelSettings);
+						drawQuickTextBox(layoutInc(&l), playlist->id, vec2i(-1,0), scissor, labelSettings);
+						if(newGuiQuickButton(gui, layoutInc(&l), z, "Del", scissor, buttonSettings)) {
+							removePlaylistFile(playlist);
+							ad->playlistFolderCount = 0;
+							loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+						}
+					}
+
+				scissor = scissorSave;
+				writePos = writePosSave;
+				rowDim = rowDimSave;
+
+				scissorTestScreen(scissor);
+
+				writePos.y -= rectH(scrollValues.region);
+			}
+
+			writePos.x -= sectionOffset; rowDim.w += sectionOffset*2;
+
+			writePos.y -= font->height*yOffset;
+
+
+
+
+
+			{
+
+				r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(r, "Quicksearch", scissor, labelSettings); 
+
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0,50); writePos.y -= rowHeight + rowOffset;
+
+				editSettings.defaultText = "<Playlist_Name>";
+				if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->searchStringPlaylists, z, 50, scissor, editSettings)) {
+					if(strLen(ad->searchStringPlaylists) > 0) {
+						ad->lastSearchMode = 1;
+						strCpy(ad->searchString, ad->searchStringPlaylists);
+						downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+						ad->searchResultCount = 0;
+					}
+				}
+				editSettings.defaultText = "<Channel_Name>";
+				if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->searchStringChannels, z, 50, scissor, editSettings)) {
+					if(strLen(ad->searchStringChannels) > 0) {
+						ad->lastSearchMode = 0;
+						strCpy(ad->searchString, ad->searchStringChannels);
+						downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+						ad->searchResultCount = 0;
+					}
+				}
+
+				if(newGuiQuickButton(gui, layoutInc(&l), z, "Clear", scissor, buttonSettings)) ad->searchResultCount = 0;
+
+				writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
+
+				if(ad->searchResultCount > 0) {
+					for(int i = 0; i < ad->searchResultCount; i++) {
+						SearchResult* sResult = ad->searchResults + i;
+
+						r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight;
+						if(newGuiQuickButton(gui, r, z, fillString("%s", sResult->title), vec2i(-1,0), scissor, buttonSettings)) {
+							if(ad->lastSearchMode == 0) {
+								strCpy(ad->channelId, sResult->id);
+							} else {
+								strCpy(ad->downloadPlaylist.id, sResult->id);
+								strCpy(ad->downloadPlaylist.title, sResult->title);
+							}
+						}
+					}
+				}
+
+				writePos.x -= sectionOffset; rowDim.w += sectionOffset*2;
+			}
+
+
+			if(strLen(ad->downloadPlaylist.id) != 0) {
+
+				writePos.y -= font->height*yOffset;
+
+				r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(r, "Download playlist videos", scissor, labelSettings); 
+
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(layoutInc(&l), ad->downloadPlaylist.title, scissor, labelSettings); 
+				drawQuickTextBox(layoutInc(&l), ad->downloadPlaylist.id, scissor, labelSettings); 
+
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0.2f,0.2f,0); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(layoutInc(&l), "Count: ", vec2i(-1,0), scissor, labelSettings); 
+				newGuiQuickTextEdit(gui, layoutInc(&l), &ad->downloadPlaylist.count, z, scissor, editSettings);
+				ad->downloadPlaylist.count = clampIntMin(ad->downloadPlaylist.count, 1);
+				if(newGuiQuickButton(gui, layoutInc(&l), z, "Get video count", scissor, buttonSettings)) {
+					downloadModeSet(Download_Mode_VideoCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+				}
+
+				Rect progressRect;
+				bool activeDownload = ad->downloadMode == Download_Mode_Videos;
+				{
+					Rect r;
+
+					l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
+					Rect rLeft = layoutInc(&l);
+					Rect rRight = layoutInc(&l);
+
+					if(activeDownload && !ad->update) progressRect = rLeft;
+					if(activeDownload && ad->update) progressRect = rRight;
+
+					if(!activeDownload) {
+						if(newGuiQuickButton(gui, rLeft, z, "Download", scissor, buttonSettings)) {
+							downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+							ad->update = false;
+						}
+						if(newGuiQuickButton(gui, rRight, z, "Update", scissor, buttonSettings)) {
+							downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+							ad->update = true;
+						}
+					}
+				}
+
+				// Show progress.
+				if(activeDownload) {
+					Layout* lTemp = layoutQuickRow(&layTemp, progressRect, 0, rowHeight);
+
+					Rect r = layoutInc(&lTemp);
+					scissorTestIntersect(scissor, r);
+					drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), ad->appColors.likes, ad->appColors.dislikes, true, vec4(0,1));
+					drawQuickTextBox(r, fillString("%i/%i", ad->downloadProgress, ad->downloadMax), scissor, labelSettings);
+
+					r = scissorTestIntersect(scissor, layoutInc(&lTemp));
+					if(newGuiQuickButton(gui, r, z, "", scissor, buttonSettings)) ad->downloadMode = 0;
+					drawCross(rectCen(r), rectH(r)/2 *0.5f, 2, vec2(1,0), fontColor);
+				}
+
+			}
+
+			if(strLen(ad->channelId) != 0) {
+				writePos.y -= font->height*yOffset;
+
+				r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(r, "Get channel playlists", scissor, labelSettings); 
+
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0.2f,0); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(layoutInc(&l), "Channel Id:", vec2i(-1,0), scissor, labelSettings); 
+				drawQuickTextBox(layoutInc(&l), ad->channelId, scissor, labelSettings); 
+
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0.2f,0.2f,0); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(layoutInc(&l), "Count: ", vec2i(-1,0), scissor, labelSettings); 
+				newGuiQuickTextEdit(gui, layoutInc(&l), &ad->playlistDownloadCount, z, scissor, editSettings);
+				ad->playlistDownloadCount = clampIntMin(ad->playlistDownloadCount, 1);
+				if(newGuiQuickButton(gui, layoutInc(&l), z, "Get playlist count", scissor, buttonSettings)) {
+					downloadModeSet(Download_Mode_PlaylistCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+				}
+
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0, 50); writePos.y -= rowHeight + rowOffset;
+				Rect r = layoutInc(&l);
+				if(ad->downloadMode != Download_Mode_ChannelPlaylists) {
+					if(newGuiQuickButton(gui, r, z, "Load Playlist from Channel", scissor, buttonSettings)) {
+						downloadModeSet(Download_Mode_ChannelPlaylists, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+					}
+				} else {
+					// Show progress.
+					Layout* lTemp = layoutQuickRow(&layTemp, r, 0, rowHeight);
+
+					Rect r = layoutInc(&lTemp);
+					scissorTestIntersect(scissor, r);
+					drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), ad->appColors.likes, ad->appColors.dislikes, true, vec4(0,1));
+					drawQuickTextBox(r, fillString("%i/%i", ad->downloadProgress, ad->downloadMax), scissor, labelSettings);
+
+					r = scissorTestIntersect(scissor, layoutInc(&lTemp));
+					if(newGuiQuickButton(gui, r, z, "", scissor, buttonSettings)) ad->downloadMode = 0;
+					drawCross(rectCen(r), rectH(r)/2 *0.5f, 2, vec2(1,0), fontColor);
+				}
+				if(newGuiQuickButton(gui, layoutInc(&l), z, "Clear", scissor, buttonSettings)) ad->playlistCount = 0;
+
+
+
+				if(ad->playlistCount > 0) {
+				
+					writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
+
+					static float scrollValue = 0;
+
+					ScrollRegionValues scrollValues = {};
+					Rect r = rectTLDim(writePos, vec2(rowDim.w, rowHeight*10));
+					newGuiQuickScroll(gui, r, z, ad->playlistCount * rowHeight, &scrollValue, scissor, scrollSettings, &scrollValues);
+
+					Rect scissorSave = scissor;
+					Vec2 writePosSave = writePos;
+					Vec2 rowDimSave = rowDim;
+
+						scissor = scrollValues.scissor;
+						writePos = scrollValues.pos;
+						rowDim.w = rectW(scrollValues.region);
+
+						for(int i = 0; i < ad->playlistCount; i++) {
+							YoutubePlaylist* playlist = ad->playlists + i;
+
+							r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight;
+							if(newGuiQuickButton(gui, r, z, fillString("%i: %s. (%i.)", i, playlist->title, playlist->count), vec2i(-1,0), scissor, buttonSettings)) {
+								strCpy(ad->downloadPlaylist.id, playlist->id);
+								strCpy(ad->downloadPlaylist.title, playlist->title);
+								ad->downloadPlaylist.count = playlist->count;
+							}
+						}
+
+					scissor = scissorSave;
+					writePos = writePosSave;
+					rowDim = rowDimSave;
+
+					scissorTestScreen(scissor);
+
+					writePos.y -= rectH(scrollValues.region);
+				}
+			}
+
+
 
 			glDisable(GL_SCISSOR_TEST);
 		}
