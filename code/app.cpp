@@ -34,6 +34,8 @@
 
 
 	- Channel video count should be there automatically.
+	- Window resize, make corners bigger to grab.
+	
 
 	Done Today: 
 
@@ -1878,13 +1880,16 @@ TextBoxSettings textBoxSettings(Font* font, Vec4 textColor) {
 }
 
 void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
+	// scissorTestScreen(rectExpand(scissor, vec2(2,2)));
 	scissorTestScreen(scissor);
 
-	if(settings.roundedCorner == 0) drawRect(r, settings.backgroundColor);
-	drawRectRounded(r, settings.backgroundColor, settings.roundedCorner);
+	if(settings.backgroundColor.a != 0) {
+		if(settings.roundedCorner == 0) drawRect(r, settings.backgroundColor);
+		drawRectRounded(r, settings.backgroundColor, settings.roundedCorner);
+	}
 
-	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
-	// scissorTestScreen(scissor);
+	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	scissorTestScreen(scissor);
 	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
 	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
 
@@ -1909,7 +1914,8 @@ void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextE
 	scissorTestScreen(scissor);
 	drawRect(textRect, editSettings.colorBackground);
 
-	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	scissorTestScreen(scissor);
 
 	if(active) text = editSettings.textBuffer;
 
@@ -1951,7 +1957,8 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Font* font, Vec4 bc, Vec
 	drawRect(sr, sc);
 	// drawRectRounded(sr, sc, 4);
 
-	scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
+	scissorTestScreen(scissor);
 
 	char* text = type == 0 ? fillString("%f", *((float*)val)) : fillString("%i", *((int*)val)) ;
 	drawText(text, font, rectCen(br), tc, vec2i(0,0));
@@ -2533,6 +2540,8 @@ struct AppTempSettings {
 	float sidePanelWidth;
 	float graphOffsets[Line_Graph_Count+1];
 	int playlistFolderIndex;
+
+	Rect panelRect;
 };
 
 void appWriteTempSettings(char* filePath, AppTempSettings* at) {
@@ -2558,6 +2567,8 @@ void appTempDefault(AppTempSettings* at, Rect monitor) {
 	at->graphOffsets[4] = 1.0f;
 
 	at->playlistFolderIndex = 0;
+
+	at->panelRect = rectTLDim(100,-100,400,600);
 }
 
 
@@ -2617,6 +2628,9 @@ union JSonValue {
 #define screenshotFilePath "..\\app\\screenshot.png"
 
 #define UI_Rounding 5
+
+#define Panel_Min_X 300
+#define Panel_Min_Y 300
 
 struct AppData {
 	// General.
@@ -2694,6 +2708,9 @@ struct AppData {
 
 	NewGui newGui;
 	NewGui* gui;
+
+	Rect panelRect;
+	bool panelActive;
 
 	//
 
@@ -3218,6 +3235,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->msaaSamples = 4;
 		ad->dt = 1/(float)60;
 
+		ad->graphicsState.zOrder = 0;
+
 		//
 		// FrameBuffers.
 		//
@@ -3363,6 +3382,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->requestData.buffer = (char*)getPMemory(megaBytes(5));
 
 		TIMER_BLOCK_END(initRest);
+
+		ad->panelActive = false;
 	}
 
 
@@ -3433,6 +3454,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(ds->console.isActive) {
 			memSet(ad->input.keysPressed, 0, sizeof(ad->input.keysPressed));
 			memSet(ad->input.keysDown, 0, sizeof(ad->input.keysDown));
+		}
+
+		if(input->mouseButtonPressed[0]) {
+			ad->appIsBusy = true;
 		}
 
 		ad->dt = ds->dt;
@@ -3516,6 +3541,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		    	ad->sidePanelWidth = at.sidePanelWidth;
 				memCpy(ad->graphOffsets, at.graphOffsets, memberSize(AppTempSettings, graphOffsets));
 				ad->playlistFolderIndex = at.playlistFolderIndex;
+
+				ad->panelRect = at.panelRect;
 			}
 		}
 	}
@@ -3556,6 +3583,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(input->keysPressed[KEYCODE_F11]) {
 		if(ws->fullscreen) setWindowMode(windowHandle, ws, WINDOW_MODE_WINDOWED);
 		else setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
+	}
+
+	if(input->keysPressed[KEYCODE_F1]) {
+		ad->panelActive = !ad->panelActive;
 	}
 
 
@@ -3778,7 +3809,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		glEnable(GL_DITHER);
 
-		// glDepthRange(-1.0,1.0);
+		glDepthRange(-10.0,10.0);
 		glFrontFace(GL_CW);
 		// glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
@@ -3807,7 +3838,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// glBindTexture(GL_TEXTURE_2D, getFrameBuffer(FRAMEBUFFER_2dMsaa)->colorSlot[0]->id);
 		// glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-		glDisable(GL_DEPTH_TEST);
+		glDepthFunc(GL_ALWAYS);
+		glEnable(GL_DEPTH_TEST);
+		// glDepthFunc(GL_NEVER);
+		// glDisable(GL_DEPTH_TEST);
 
 		glUseProgram(0);
 		glBindProgramPipeline(0);
@@ -5722,7 +5756,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			int ri = 0;
 			li = 0;
 
-			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) ds->showMenu = !ds->showMenu;
+			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) ad->panelActive = !ad->panelActive;
 			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) {
 				ad->sortByDate = true;
 				ad->sortStat = -1;
@@ -5822,20 +5856,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 	endOfMainLabel:
 
 
-#if 1
-	if(true)
-	{
-		static Vec2 panelPos = vec2(800,-100);
-		static Vec2 panelDim = vec2(400,1000);
-		
+	// Main Panel.
+	if(ad->panelActive) {
 		bool clampToWindow = true;
 		bool resizable = true;
+		bool resizableX = true;
+		bool resizableY = false;
 		bool movable = true;
 
 		Font* font = ad->font;
 
 		float panelBorder = 4;
-		Vec2 minDim = vec2(100,100);
 		float roundedCorners = 5;
 		float titleHeightMod = 1.2f;
 		char* titleText = "App";
@@ -5857,50 +5888,75 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Vec4 buttonColor = backgroundColor + vec4(0.2f,0.2f,0,0);
 
 		Vec4 editBackgroundColor = backgroundColor + vec4(0.1f, 0, 0.3f,0);
-		Vec4 editSelectionColor = backgroundColor + vec4(0.4f,0,0,0);;
+		Vec4 editSelectionColor = backgroundColor + vec4(0.4f,0,0,0);
 		Vec4 editCursorColor = vec4(0.2f,0.8,0.1f,1);
 
 		Vec4 scrollRegionColor = backgroundColor + vec4(-0.2f, 0, -0.1f, 0);
 		Vec4 scrollSliderColor = backgroundColor + vec4(0.3f,0.2f,0,0);
 
+		float textMargin = 0.5f;
+
 		float zOrder = 2;
 
+		TextBoxSettings buttonSettings = textBoxSettings(font, buttonColor, fontColor);
+		TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor);
+		TextEditSettings editSettings = textEditSettings(font, ad->gui->editText, true, true, 2, editBackgroundColor, fontColor, editSelectionColor, editCursorColor);
+		ScrollRegionSettings scrollSettings = {vec2(10,0), 20, vec2(4,4), 6, 0, 40, rowHeight, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
+
+
+		static float lastPanelHeight = 0;
 
 
 		NewGui* gui = ad->gui;
 
-		Rect panelRect = rectTLDim(panelPos, panelDim);
 		float z = zOrder;
 
-		newGuiSetHotAllMouseOver(ad->gui, panelRect, z);
+		ad->panelRect.bottom = ad->panelRect.top - lastPanelHeight;
 
-		bool activeMoveResize = false;
-		if(resizable || movable) {
-			int event = newGuiGoDragAction(gui, panelRect, z);
-			if(event == 1) {
-				gui->mode = input->keysDown[KEYCODE_CTRL];
+		newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, z);
 
-				if(!gui->mode) gui->mouseAnchor = input->mousePosNegative - panelPos;
-				else gui->mouseAnchor = input->mousePos - panelDim;
-			}
-			if(event > 0) {
-				if(!gui->mode && movable) panelPos = input->mousePosNegative - gui->mouseAnchor;
-				else if(gui->mode && resizable) panelDim = input->mousePos - gui->mouseAnchor;
 
-				panelRect = rectTLDim(panelPos, panelDim);
-				activeMoveResize = true;
-			}
-		}
-
-		// Resize at border.
+		// Resize and move.
 		{
-			Rect region = panelRect;
-		    float w = panelBorder;
-		    int i = 0;
+			Rect region = ad->panelRect;
+    		Rect sr = ad->clientRect;
 
-	    	Vec2 p = input->mousePosNegative;
+			float w = panelBorder;
+			Vec2 p = input->mousePosNegative;
 
-		    Vec2i resizeAlign = vec2i(1,-1);
+			int uiEvent = 0;
+			bool changeCursor = false;
+			Vec2i resizeAlign;
+
+			bool move = false;
+
+			if(resizable || movable) {
+				int event = newGuiGoDragAction(gui, ad->panelRect, z);
+				if(event == 1) {
+					gui->mode = input->keysDown[KEYCODE_CTRL];
+
+					if(!gui->mode) {
+						gui->mouseAnchor = input->mousePosNegative - rectTL(ad->panelRect);
+						gui->mouseAnchor2 = rectDim(ad->panelRect);
+					}
+				}
+
+				if(event > 0) {
+					if(gui->mode) {
+						uiEvent = event;
+						resizeAlign = vec2i(1,-1);
+					} else {
+						move = true;
+
+						Vec2 pos = input->mousePosNegative - gui->mouseAnchor;
+						clamp(&pos.x, sr.left, sr.right - gui->mouseAnchor2.w);
+						clamp(&pos.y, sr.bottom + gui->mouseAnchor2.h, sr.top);
+						ad->panelRect = rectTLDim(pos, gui->mouseAnchor2);
+					}
+				}
+			}
+
+
 		    for(int x = -1; x < 2; x++) {
 		    	for(int y = -1; y < 2; y++) {
 		    		if(x == 0 && y == 0) continue;
@@ -5909,78 +5965,83 @@ extern "C" APPMAINFUNCTION(appMain) {
 		    		Vec2 dim = vec2(align.x==0?rectW(region)-w*2:w+1, align.y==0?rectH(region)-w*2:w+1);
 		    		Rect r = rectAlignDim(region, align, dim);
 
-		    		// drawRect(r, vec4(1,1));
-
 		    		int event = newGuiGoDragAction(gui, r, z);
-				    if(event == 1) {
-					    gui->mouseAnchor2.x = panelPos.x + panelDim.x;
-					    gui->mouseAnchor2.y = panelPos.y - panelDim.y;
-
-				    	if(align.x == -1) gui->mouseAnchor.x = p.x - panelPos.x;
-				    	if(align.x ==  1) gui->mouseAnchor.x = p.x - panelDim.w;
-				    	if(align.y ==  1) gui->mouseAnchor.y = p.y - panelPos.y;
-				    	if(align.y == -1) gui->mouseAnchor.y = -p.y - panelDim.h;
-
-				    	gui->mode = 1;
-				    }
-				    if(event > 0) {
-				    	resizeAlign = align;
-
-				    	if(resizeAlign.x == -1) {
-					    	panelPos.x = (p - gui->mouseAnchor).x;
-				    		panelPos.x = clampMax(panelPos.x, gui->mouseAnchor2.x - minDim.w);
-				    		panelDim.w = gui->mouseAnchor2.x - panelPos.x;
-				    	} else if(resizeAlign.x == 1) {
-				    		panelDim.w = (p - gui->mouseAnchor).x;
-				    	}
-
-						if(resizeAlign.y == 1) {
-							panelPos.y = (p - gui->mouseAnchor).y;
-				    		panelPos.y = clampMin(panelPos.y, gui->mouseAnchor2.y + minDim.h);
-							panelDim.h = panelPos.y - gui->mouseAnchor2.y;
-						} else if(resizeAlign.y == -1) {
-							panelDim.h = (-p - gui->mouseAnchor).y;
-						}
-
-				    	panelRect = rectTLDim(panelPos, panelDim);
-				    	activeMoveResize = true;
-				    }
-
-					if(newGuiIsWasHotOrActive(gui)) {
-						if(align == vec2i(-1,-1) || align == vec2i(1,1)) setCursor(ws, IDC_SIZENESW);
-						if(align == vec2i(-1,1) || align == vec2i(1,-1)) setCursor(ws, IDC_SIZENWSE);
-						if(align == vec2i(-1,0) || align == vec2i(1, 0)) setCursor(ws, IDC_SIZEWE);
-						if(align == vec2i(0,-1) || align == vec2i(0, 1)) setCursor(ws, IDC_SIZENS);
-					}
+		    		if(event > 0) {
+		    			uiEvent = event;
+		    			resizeAlign = align;
+		    		}
+	    			if(newGuiIsWasHotOrActive(gui)) {
+		    			changeCursor = true;
+		    			resizeAlign = align;
+	    			}
 		    	}
+		    }
+
+		    if(!move) {
+		        if(uiEvent == 1) {
+		        	if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - ad->panelRect.left;
+		        	if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - ad->panelRect.right;
+		        	if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - ad->panelRect.top;
+		        	if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - ad->panelRect.bottom;
+		        }
+
+		        if(uiEvent > 0) {
+					if(resizeAlign.x == -1) ad->panelRect.left = (p - gui->mouseAnchor).x;
+					else if(resizeAlign.x == 1) ad->panelRect.right = (p - gui->mouseAnchor).x;
+
+					if(resizableY) {
+						if(resizeAlign.y == -1) ad->panelRect.bottom = (p - gui->mouseAnchor).y;
+						else if(resizeAlign.y == 1) ad->panelRect.top = (p - gui->mouseAnchor).y;
+					}
+		        }
+
+		    	if(changeCursor) {
+		    		if(resizeAlign == vec2i(-1,-1) || resizeAlign == vec2i(1,1)) setCursor(ws, IDC_SIZENESW);
+		    		if(resizeAlign == vec2i(-1,1) || resizeAlign == vec2i(1,-1)) setCursor(ws, IDC_SIZENWSE);
+		    		if(resizeAlign == vec2i(-1,0) || resizeAlign == vec2i(1, 0)) setCursor(ws, IDC_SIZEWE);
+		    		if(resizeAlign == vec2i(0,-1) || resizeAlign == vec2i(0, 1)) setCursor(ws, IDC_SIZENS);
+		    	}
+
+		    	if(uiEvent > 0) {
+		    		if(resizeAlign.x == -1) ad->panelRect.left = clamp(ad->panelRect.left, sr.left, ad->panelRect.right - Panel_Min_X);
+		    		if(resizeAlign.x ==  1) ad->panelRect.right = clamp(ad->panelRect.right, ad->panelRect.left + Panel_Min_X, sr.right);
+
+					if(resizableY) {
+			    		if(resizeAlign.y == -1) ad->panelRect.bottom = clamp(ad->panelRect.bottom, sr.bottom, ad->panelRect.top - Panel_Min_Y);
+			    		if(resizeAlign.y ==  1) ad->panelRect.top = clamp(ad->panelRect.top, ad->panelRect.bottom + Panel_Min_Y, sr.top);
+		    		}
+		    	}
+		    }
+
+
+		    // If window is resizing clamp panel.
+		    {
+		    	Vec2 dim = rectDim(ad->panelRect);
+		    	if(ad->panelRect.left < sr.left) rectTrans(&ad->panelRect, vec2(sr.left - ad->panelRect.left, 0));
+		    	if(ad->panelRect.right > sr.right) rectTrans(&ad->panelRect, vec2(sr.right - ad->panelRect.right, 0));
+		    	if(ad->panelRect.bottom < sr.bottom) rectTrans(&ad->panelRect, vec2(0, sr.bottom - ad->panelRect.bottom));
+		    	if(ad->panelRect.top > sr.top) rectTrans(&ad->panelRect, vec2(0, sr.top - ad->panelRect.top));
+
+		    	if(rectH(ad->panelRect) > rectH(sr)) {
+		    		ad->panelRect.top = sr.top;
+		    		ad->panelRect.bottom = sr.bottom;
+		    	}
+		    	if(rectW(ad->panelRect) > rectW(sr)) {
+		    		ad->panelRect.left = sr.left;
+		    		ad->panelRect.right = sr.right;
+		    	}
+
 		    }
 		}
 
-		if(clampToWindow && activeMoveResize) {
-			Rect sr = getScreenRect(ws);
-			if(gui->mode) {
-				clamp(&panelDim.w, minDim.w, rectW(sr) - panelPos.x);
-				clamp(&panelDim.h, minDim.h, rectH(sr) + panelPos.y);
-				panelRect = rectTLDim(panelPos, panelDim);
-			} else {
-				clamp(&panelPos.x, sr.left, sr.right-rectW(panelRect));
-				clamp(&panelPos.y, sr.bottom+rectH(panelRect), sr.top);
-				panelRect = rectTLDim(panelPos, panelDim);
-			}
-		}
 
-		drawRectRounded(panelRect, borderColor, roundedCorners);
+
+		drawRectRounded(ad->panelRect, borderColor, roundedCorners);
 	
 		{
 			glEnable(GL_SCISSOR_TEST);
 
-			TextBoxSettings buttonSettings = textBoxSettings(font, buttonColor, fontColor);
-			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor);
-			TextEditSettings editSettings = textEditSettings(font, ad->gui->editText, true, true, 2, editBackgroundColor, fontColor, editSelectionColor, editCursorColor);
-			ScrollRegionSettings scrollSettings = {vec2(10,0), 20, vec2(4,4), 6, 0, 40, rowHeight, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
-
-
-			Rect insideRect = rectExpand(panelRect, -panelBorder*2);
+			Rect insideRect = rectExpand(ad->panelRect, -panelBorder*2);
 			float titleHeight = font->height*titleHeightMod;
 
 			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight + panelBorder);
@@ -5988,7 +6049,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
 
-			if(newGuiGoButtonAction(gui, rClose, z)) ds->showMenu = false;
+			if(newGuiGoButtonAction(gui, rClose, z)) ad->panelActive = false;
 			drawRect(rClose, windowControlsColor + newGuiColorModB(gui));
 			drawCross(rectCen(rClose), rectW(rClose)/2 * windowControlsPadding, windowControlsSize, vec2(1,0), fontColor);
 
@@ -6034,6 +6095,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			writePos.y -= font->height*yOffset;
 
+
 			l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
 			if(newGuiQuickButton(gui, layoutInc(&l), z, "Make screenshot", buttonSettings)) {
 				ad->startScreenShot = true;
@@ -6042,9 +6104,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 			newGuiQuickTextEdit(gui, layoutInc(&l), ad->screenShotFilePath, z, 49, scissor, editSettings);
 
 
+			char* labelText = "Dimension:";
 
-			l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0,0); writePos.y -= rowHeight + rowOffset;
-			drawQuickTextBox(layoutInc(&l), "Dimension:", vec2i(-1,0), scissor, labelSettings);
+			l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), getTextDim(labelText, font).w + font->height*textMargin,0,0); writePos.y -= rowHeight + rowOffset;
+			drawQuickTextBox(layoutInc(&l), labelText, vec2i(-1,0), scissor, labelSettings);
 			int maxTextureSize;
 			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
 			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.w, z, scissor, editSettings)) 
@@ -6067,11 +6130,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 				shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));
 
 
-
-
-			writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
 			
 			{
+				writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
+
 				static float scrollValue = 0;
 
 				ScrollRegionValues scrollValues = {};
@@ -6086,10 +6148,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 					writePos = scrollValues.pos;
 					rowDim.w = rectW(scrollValues.region);
 
+					char* buttonText = "Del";
+					float buttonTextWidth = getTextDim(buttonText, font).w + font->height*textMargin;
+
 					for(int i = 0; i < ad->playlistFolderCount; i++) {
 						YoutubePlaylist* playlist = ad->playlistFolder + i;
 
-						l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0.1f,0,0.1f); writePos.y -= rowHeight;
+						l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0.1f,0,buttonTextWidth); writePos.y -= rowHeight;
 						if(newGuiQuickButton(gui, layoutInc(&l), z, fillString("%s", playlist->title), vec2i(-1,0), scissor, buttonSettings)) {
 							memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
 							ad->playlist.count = playlist->count;
@@ -6102,7 +6167,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 						drawQuickTextBox(layoutInc(&l), fillString("%i", playlist->count), vec2i(-1,0), scissor, labelSettings);
 						drawQuickTextBox(layoutInc(&l), playlist->id, vec2i(-1,0), scissor, labelSettings);
-						if(newGuiQuickButton(gui, layoutInc(&l), z, "Del", scissor, buttonSettings)) {
+						if(newGuiQuickButton(gui, layoutInc(&l), z, buttonText, scissor, buttonSettings)) {
 							removePlaylistFile(playlist);
 							ad->playlistFolderCount = 0;
 							loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
@@ -6116,22 +6181,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 				scissorTestScreen(scissor);
 
 				writePos.y -= rectH(scrollValues.region);
-			}
 
-			writePos.x -= sectionOffset; rowDim.w += sectionOffset*2;
+				writePos.x -= sectionOffset; rowDim.w += sectionOffset*2;
+			}
 
 			writePos.y -= font->height*yOffset;
 
 
-
-
-
 			{
-
 				r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + rowOffset;
 				drawQuickTextBox(r, "Quicksearch", scissor, labelSettings); 
 
-				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0,50); writePos.y -= rowHeight + rowOffset;
+				char* buttonText = "Clear";
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0, getTextDim(buttonText, font).w + font->height*textMargin); writePos.y -= rowHeight + rowOffset;
 
 				editSettings.defaultText = "<Playlist_Name>";
 				if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->searchStringPlaylists, z, 50, scissor, editSettings)) {
@@ -6152,27 +6214,48 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 				}
 
-				if(newGuiQuickButton(gui, layoutInc(&l), z, "Clear", scissor, buttonSettings)) ad->searchResultCount = 0;
-
-				writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
+				if(newGuiQuickButton(gui, layoutInc(&l), z, buttonText, scissor, buttonSettings)) ad->searchResultCount = 0;
 
 				if(ad->searchResultCount > 0) {
-					for(int i = 0; i < ad->searchResultCount; i++) {
-						SearchResult* sResult = ad->searchResults + i;
+					writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
 
-						r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight;
-						if(newGuiQuickButton(gui, r, z, fillString("%s", sResult->title), vec2i(-1,0), scissor, buttonSettings)) {
-							if(ad->lastSearchMode == 0) {
-								strCpy(ad->channelId, sResult->id);
-							} else {
-								strCpy(ad->downloadPlaylist.id, sResult->id);
-								strCpy(ad->downloadPlaylist.title, sResult->title);
+					static float scrollValue = 0;
+
+					ScrollRegionValues scrollValues = {};
+					Rect r = rectTLDim(writePos, vec2(rowDim.w, rowHeight*10));
+					newGuiQuickScroll(gui, r, z, ad->searchResultCount * rowHeight, &scrollValue, scissor, scrollSettings, &scrollValues);
+
+					Rect scissorSave = scissor;
+					Vec2 writePosSave = writePos;
+					Vec2 rowDimSave = rowDim;
+
+						scissor = scrollValues.scissor;
+						writePos = scrollValues.pos;
+						rowDim.w = rectW(scrollValues.region);
+
+						for(int i = 0; i < ad->searchResultCount; i++) {
+							SearchResult* sResult = ad->searchResults + i;
+
+							r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight;
+							if(newGuiQuickButton(gui, r, z, fillString("%s", sResult->title), vec2i(-1,0), scissor, buttonSettings)) {
+								if(ad->lastSearchMode == 0) {
+									strCpy(ad->channelId, sResult->id);
+								} else {
+									strCpy(ad->downloadPlaylist.id, sResult->id);
+									strCpy(ad->downloadPlaylist.title, sResult->title);
+								}
 							}
 						}
-					}
-				}
 
-				writePos.x -= sectionOffset; rowDim.w += sectionOffset*2;
+					scissor = scissorSave;
+					writePos = writePosSave;
+					rowDim = rowDimSave;
+
+					scissorTestScreen(scissor);
+
+					writePos.y -= rectH(scrollValues.region) + rowOffset;
+					writePos.x -= sectionOffset; rowDim.w += sectionOffset*2;
+				}
 			}
 
 
@@ -6253,7 +6336,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					downloadModeSet(Download_Mode_PlaylistCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
 				}
 
-				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0, 50); writePos.y -= rowHeight + rowOffset;
+				char* buttonText = "Clear";
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0, getTextDim(buttonText, font).w + font->height*textMargin); writePos.y -= rowHeight + rowOffset;
 				Rect r = layoutInc(&l);
 				if(ad->downloadMode != Download_Mode_ChannelPlaylists) {
 					if(newGuiQuickButton(gui, r, z, "Load Playlist from Channel", scissor, buttonSettings)) {
@@ -6272,12 +6356,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(newGuiQuickButton(gui, r, z, "", scissor, buttonSettings)) ad->downloadMode = 0;
 					drawCross(rectCen(r), rectH(r)/2 *0.5f, 2, vec2(1,0), fontColor);
 				}
-				if(newGuiQuickButton(gui, layoutInc(&l), z, "Clear", scissor, buttonSettings)) ad->playlistCount = 0;
+				if(newGuiQuickButton(gui, layoutInc(&l), z, buttonText, scissor, buttonSettings)) ad->playlistCount = 0;
 
 
 
 				if(ad->playlistCount > 0) {
-				
 					writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
 
 					static float scrollValue = 0;
@@ -6311,17 +6394,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					scissorTestScreen(scissor);
 
-					writePos.y -= rectH(scrollValues.region);
+					writePos.y -= rectH(scrollValues.region) + rowOffset;
+					writePos.x -= sectionOffset; rowDim.w += sectionOffset*2;
 				}
 			}
 
-
+			lastPanelHeight = (insideRect.top - writePos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset;
 
 			glDisable(GL_SCISSOR_TEST);
 		}
-
 	}
-#endif
+
 
 	// Block everything for debug panels.
 	{
@@ -6737,6 +6820,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		memCpy(at.graphOffsets, ad->graphOffsets, memberSize(AppTempSettings, graphOffsets));
 		at.playlistFolderIndex = ad->playlistFolderIndex;
 
+		at.panelRect = ad->panelRect;
+
 		appWriteTempSettings(appSaveFilePath, &at);
 	}
 }
@@ -6772,7 +6857,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
 					input->inputCharacters, input->inputCharacterCount};
 
-	if(input->keysPressed[KEYCODE_F1]) ds->showMenu = !ds->showMenu;
+	if(input->keysPressed[KEYCODE_F6]) ds->showMenu = !ds->showMenu;
 	if(input->keysPressed[KEYCODE_F7]) ds->showStats = !ds->showStats;
 	if(input->keysPressed[KEYCODE_F8]) ds->showHud = !ds->showHud;
 
@@ -6791,291 +6876,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		}
 	}
 
-	if(ds->showMenu) {
-		int fontSize = 20;
 
-		bool initSections = false;
 
-		Gui* gui = ds->gui;
-		gui->windowRect = ad->clientRect;
-
-		AppSettings* as = &ad->appSettings;
-		gui->settings.border = vec2i(as->windowBorder, -as->windowBorder);
-		// gui->settings.offsets.x = gui->settings.border.x;
-		gui->settings.offsets.x = 1;
-		gui->settings.offsets.y = 1;
-		gui->settings.fontHeightOffset = 1.2f;
-		gui->start(ds->gInput, ad->fontPanel, ws->currentRes);
-
-		static int sectionMode = 0;
-
-		gui->div(vec2(0,fontSize));
-		gui->label("App", 1, gui->colors.sectionColor, vec4(0,0,0,1));
-		Rect titleBar = gui->getCurrentRegion();
-		if(gui->button("x",0,1, gui->colors.sectionColor)) ds->showMenu = false;
-
-		if(ad->downloadMode) {
-			Rect r = gui->getCurrentRegion();
-			drawTriangle(rectL(titleBar) + vec2(rectH(titleBar)/2,0), rectH(titleBar)/3, rotateVec2(vec2(1,0), ad->time*2), gui->colors.textColor);
-		}
-
-		// gui->div(0,0,0);
-		// if(gui->button("Options", (int)(sectionMode == 0) + 1)) sectionMode = 0;
-
-		if(sectionMode == 0) {
-			float yOffset = 0.5f;
-
-			if((ad->downloadMode == Download_Mode_Videos || ad->downloadMode == Download_Mode_ChannelPlaylists) && ad->downloadMax != 0) {
-				gui->div(vec2(0, 30));
-				gui->empty();
-
-				Rect r = gui->getCurrentRegion();
-				drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), ad->appColors.likes, ad->appColors.dislikes, true, vec4(0,1));
-				gui->drawText(fillString("%i/%i", ad->downloadProgress, ad->downloadMax), 1, vec4(0,0));
-
-				if(gui->button("X")) {
-					ad->downloadMode = 0;
-				}
-
-				gui->advanceY(yOffset);
-
-			} else {
-				// gui->empty();
-				gui->advanceY(yOffset);
-			}
-
-			gui->div(vec2(0,0));
-			if(gui->button("Open app folder")) shellExecuteNoWindow(fillString("explorer.exe %s", appFolder));
-			if(gui->button("Delete app save")) remove(appSaveFilePath);
-
-			// gui->empty();
-			gui->advanceY(yOffset);
-
-			gui->div(vec2(0,0));
-			if(gui->button("Make Screenshot")) {
-				ad->startScreenShot = true;
-				ds->showMenu = false;
-			}
-			gui->textBoxChar(ad->screenShotFilePath, 0, 49);
-
-			int maxTextureSize;
-			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-
-			gui->div(vec3(0,0,0));
-			gui->label("Dimension:", 0);
-			if(gui->textBoxInt(&ad->screenShotDim.w)) clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
-			if(gui->textBoxInt(&ad->screenShotDim.h)) clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
-
-			// gui->empty();
-			gui->advanceY(yOffset);
-
-			gui->label(fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s"));
-			gui->advanceY(0.0f);
-
-			gui->div(vec2(0,0));
-			if(gui->button("Update folder")) {
-				ad->playlistFolderCount = 0;
-				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-			}
-			if(gui->button("Open folder")) {
-				shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));
-			}
-
-			static bool sectionBool = false;
-			gui->beginVPadding();
-			static float scrollValue = 0;
-			gui->beginScroll(gui->getDefaultYOffset()*10, &scrollValue);
-			for(int i = 0; i < ad->playlistFolderCount; i++) {
-				YoutubePlaylist* playlist = ad->playlistFolder + i;
-				gui->div(0,0.1f,0,0.1f);
-				if(gui->button(fillString("%s", playlist->title))) {
-					memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
-					ad->playlist.count = playlist->count;
-					ad->startLoadFile = true;
-
-					strCpy(ad->downloadPlaylist.title, ad->playlist.title);
-					strCpy(ad->downloadPlaylist.id, ad->playlist.id);
-
-					ad->playlistFolderIndex = i;
-				}
-				gui->label(fillString("%i", playlist->count), 0);
-				gui->label(playlist->id);
-				if(gui->button("Del")) {
-					removePlaylistFile(playlist);
-					ad->playlistFolderCount = 0;
-					loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-				}
-			}
-			gui->endScroll();
-			gui->endVPadding();
-
-			// gui->empty();
-			gui->advanceY(yOffset);
-
-			{
-				gui->label("QuickSearch", 1);
-				gui->advanceY(0.0f);
-
-				gui->div(vec3(0,0,50));
-				if(gui->textBoxCharDefault(ad->searchStringPlaylists, strLen(ad->searchStringPlaylists), 50, "<Playlist_Name>")) {
-					if(strLen(ad->searchStringPlaylists) > 0) {
-						downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-						ad->searchResultCount = 0;
-						ad->lastSearchMode = 1;
-						strCpy(ad->searchString, ad->searchStringPlaylists);
-					}
-				}
-
-				if(gui->textBoxCharDefault(ad->searchStringChannels, strLen(ad->searchStringChannels), 50, "<Channel_Name>")) {
-					if(strLen(ad->searchStringChannels) > 0) {
-						downloadModeSet(Download_Mode_Search, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-						ad->searchResultCount = 0;
-						ad->lastSearchMode = 0;
-						strCpy(ad->searchString, ad->searchStringChannels);
-					}
-				}
-
-				if(gui->button("X")) ad->searchResultCount = 0;
-
-				gui->beginVPadding();
-				if(ad->searchResultCount > 0) {
-					// if(ad->lastSearchMode == 0) gui->label("Channels");
-					// else if(ad->lastSearchMode == 1) gui->label("Playlists");
-
-					float leftPad = 20;
-					for(int i = 0; i < ad->searchResultCount; i++) {
-						SearchResult* sResult = ad->searchResults + i;
-
-						if(gui->button(fillString("%s", sResult->title), 0, 0)) {
-							if(ad->lastSearchMode == 0) {
-								strCpy(ad->channelId, sResult->id);
-							} else {
-								strCpy(ad->downloadPlaylist.id, sResult->id);
-								strCpy(ad->downloadPlaylist.title, sResult->title);
-							}
-						}
-					}
-				}
-				gui->endVPadding();
-			}
-
-			if(strLen(ad->downloadPlaylist.id) != 0) {
-				// gui->empty();
-				gui->advanceY(yOffset);
-
-				gui->label("Download playlist videos", 1);
-				gui->advanceY(0.0f);
-
-				gui->div(vec2(0,0));
-				gui->label(ad->downloadPlaylist.title, 0);
-				gui->label(ad->downloadPlaylist.id);
-
-				gui->div(0.2f,0.2f,0);
-				gui->label("Count: ", 0);
-				gui->textBoxInt(&ad->downloadPlaylist.count);
-				ad->downloadPlaylist.count = clampIntMin(ad->downloadPlaylist.count, 1);
-				if(gui->button("Get video count")) {
-					downloadModeSet(Download_Mode_VideoCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				}
-
-				gui->div(vec2(0,0));
-				if(gui->button("Download")) {
-					downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-					ad->update = false;
-				}
-				if(gui->button("Update")) {
-					downloadModeSet(Download_Mode_Videos, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-					ad->update = true;
-				}
-			}
-
-			if(strLen(ad->channelId) != 0) {
-				// gui->empty();
-				gui->advanceY(yOffset);
-
-				gui->label("Get channel playlists", 1);
-				gui->advanceY(0.0f);
-
-				gui->div(vec2(0.2f,0));
-				gui->label("Channel Id:", 0);
-				gui->label(ad->channelId);
-
-				gui->div(0.2f,0.2f,0);
-				gui->label("Count: ", 0);
-				gui->textBoxInt(&ad->playlistDownloadCount);
-				ad->playlistDownloadCount = clampIntMin(ad->playlistDownloadCount, 1);
-				if(gui->button("Get playlist count.")) {
-					downloadModeSet(Download_Mode_PlaylistCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				}
-				
-				gui->div(vec2(0,50));
-				if(gui->button("Load Playlist from Channel")) {
-					downloadModeSet(Download_Mode_ChannelPlaylists, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				}
-				if(gui->button("X")) {
-					ad->playlistCount = 0;
-				}
-
-				if(ad->playlistCount > 0) {
-					gui->beginVPadding();
-					static float scrollValue = 0;
-					gui->beginScroll(gui->getDefaultYOffset()*10, &scrollValue);
-
-					float leftPad = 20;
-					for(int i = 0; i < ad->playlistCount; i++) {
-						YoutubePlaylist* playlist = ad->playlists + i;
-
-						if(gui->button(fillString("%i: %s. (%i.)", i, playlist->title, playlist->count), 0, 0)) {
-							strCpy(ad->downloadPlaylist.id, playlist->id);
-							strCpy(ad->downloadPlaylist.title, playlist->title);
-							ad->downloadPlaylist.count = playlist->count;
-						}
-					}
-
-					gui->endScroll();
-					gui->endVPadding();
-				}
-			}
-
-		}
-
-		// if(sectionMode == 1) {
-		// 	gui->label(fillString("VideoCount: %i.", ad->playlist.count), 0);
-
-		// 	float leftPad = 20;
-		// 	for(int i = 0; i < ad->playlist.count; i++) {
-		// 		YoutubeVideo* video = ad->videos + i;
-
-		// 		gui->label(fillString("Video %i:", i), 0);
-
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Title: %s", video->title), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Thumbnail: %s", video->thumbnail), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", video->id), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Date: %s", video->dateString), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("ViewCount: %i.", video->viewCount), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("likeCount: %i.", video->likeCount), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("DislikeCount: %i.", video->dislikeCount), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("FavoriteCount: %i.", video->favoriteCount), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("CommentCount: %i.", video->commentCount), 0);
-
-		// 	}
-		// }
-
-		// if(sectionMode == 2) {
-		// 	float leftPad = 20;
-		// 	for(int i = 0; i < ad->playlistCount; i++) {
-		// 		YoutubePlaylist* playlist = ad->playlists + i;
-
-		// 		gui->label(fillString("Playlist %i: ", i), 0);
-
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("Id: %s", playlist->id), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("title: %s", playlist->title), 0);
-		// 		gui->div(vec2(leftPad,0)); gui->empty(); gui->label(fillString("count: %i.", playlist->count), 0);
-		// 	}
-		// }
-
-		gui->end();
-	}
 
 	ds->timer->timerInfoCount = __COUNTER__;
 
