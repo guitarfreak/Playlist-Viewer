@@ -236,7 +236,7 @@ inline bool valueBetween2(float v, float min, float max) {
 }
 
 inline float roundFloat(float f, int x) {
-	return floor(f*x + 0.5) / x;
+	return floor(f*x + 0.5f) / x;
 };
 
 /** a roughly b */
@@ -274,7 +274,7 @@ inline int round(int i) {
 }
 
 inline float roundFloat(float i) {
-	return floor(i + 0.5f);
+	return (int)floor(i + 0.5f);
 }
 
 inline float roundUpFloat(float i) {
@@ -2335,6 +2335,8 @@ inline Mat4 projMatrix(float fov, float ar, float n, float f) {
 inline Vec4 colorHSL(Vec3 hsl) {
 	float c[3];
 	hsl.x = fmod(hsl.x, 1.0f);
+	hsl.y = clamp(hsl.y, 0, 1);
+	hsl.z = clamp(hsl.z, 0, 1);
 	hslToRgbFloat(c, hsl.x, hsl.y, hsl.z);
 	return vec4(c[0], c[1], c[2], 1);
 }

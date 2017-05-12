@@ -959,8 +959,26 @@ void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	stbtt_GetPackedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, unicodeOffset, pos.x, pos.y, &q, false);
 
 	float baseLine = 0.8f;
+	// float baseLine = 0.0f;
 	float off = baseLine * font->height;
 	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
+
+	Vec2 dim = rectDim(*r);
+
+	// r->left = (int)r->left;
+	// r->bottom = (int)r->bottom;
+
+		// r->left += (roundFloat(r->left)+0.375f) - r->left;
+		// r->right = r->left + dim.w;
+
+		// r->bottom += (roundFloat(r->bottom)+0.375f) - r->bottom;
+		// r->top = r->bottom + dim.h;
+
+	// printf("%f\n", r->left);
+
+	// r->right = r->left + dim.w;
+	// r->top = r->bottom + dim.h;
+	
 	*uv = rect(q.s0, q.t0, q.s1, q.t1);
 }
 
@@ -973,8 +991,8 @@ float getCharAdvance(int c, Font* font) {
 float getCharAdvance(int c, int c2, Font* font) {
 	int unicodeOffset = getUnicodeRangeOffset(c, font);
 	float result = font->cData[unicodeOffset].xadvance;
-	float kernAdvance = stbtt_GetCodepointKernAdvance(&font->info, c, c2) * font->pixelScale;
-	result += kernAdvance;
+	// float kernAdvance = stbtt_GetCodepointKernAdvance(&font->info, c, c2) * font->pixelScale;
+	// result += kernAdvance;
 
 	return result;
 }

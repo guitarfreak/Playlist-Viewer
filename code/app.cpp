@@ -35,7 +35,18 @@
 
 	- Channel video count should be there automatically.
 	- Window resize, make corners bigger to grab.
-	
+	- When grabbing take mouse pos from OS not from input struct.
+
+	- Runs poorly when aero is enabled.
+
+	- Make a gui function/abstraction for window moving/resizing at border.
+	- Window draggin left border wrong.
+
+	- Put in server timeout.
+	- Edit box hover is gone.
+
+	- Try out text rendering at pixel boundaries again. Maybe it will look better now since we changed added 
+	  linear texture sampling.
 
 	Done Today: 
 
@@ -1488,6 +1499,14 @@ enum GuiFocus {
 	Gui_Focus_Size,
 };
 
+struct TextEditVars {
+	int cursorIndex;
+	int markerIndex;
+	Vec2 scrollOffset;
+
+	bool cursorChanged;
+};
+
 struct NewGui {
 	int id;
 
@@ -1729,6 +1748,34 @@ Vec4 newGuiColorModB(NewGui* gui, int focus = 0) {
 	return newGuiColorModBId(gui, newGuiCurrentId(gui), focus);
 }
 
+struct TextBoxSettings {
+	Font* font;
+	float shadow;
+	Vec4 textColor;
+	Vec4 shadowColor;
+
+	Vec4 backgroundColor;
+	float roundedCorner;
+};
+
+
+struct TextEditSettings {
+	TextBoxSettings textBoxSettings;
+	char* textBuffer;
+
+	bool wrapping;
+	bool singleLine;
+
+	float cursorWidth;
+
+	char* defaultText;
+
+	Vec4 colorSelection;
+	Vec4 colorCursor;
+};
+
+void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev);
+
 
 int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font, TextEditSettings editSettings, TextEditVars* editVars, int maxTextSize, int mode) {
 	Input* input = gui->input;
@@ -1750,7 +1797,8 @@ int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font,
 		else if(mode == 2) strCpy(gui->editText, fillString("%f", *((float*)var)));
 	}
 
-	if(event == 3 && (leftMouse || enter)) {
+	// if(event == 3 && (leftMouse || enter)) {
+	if(event == 3 && (enter)) {
 		if(mode == 0)      strCpy((char*)var, gui->editText);
 		else if(mode == 1) *((int*)var) = strToInt(gui->editText);
 		else if(mode == 2) *((float*)var) = strToFloat(gui->editText);
@@ -1760,7 +1808,7 @@ int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font,
 		textEditBox(gui->editText, maxTextSize, font, textRect, input, vec2i(-1,1), editSettings, editVars);
 	}
 
-	if(event == 3 && escape) event = 4;
+	if(event == 3 && (escape || leftMouse)) event = 4;
 
 	return event;
 }
@@ -1857,15 +1905,22 @@ void newGuiRectsFromWidths(Rect r, float* widths, int size, Rect* rects, float o
 
 //
 
-struct TextBoxSettings {
-	Font* font;
-	float shadow;
-	Vec4 textColor;
-	Vec4 shadowColor;
+bool getRectScissor(Rect* scissor, Rect r) {
+	*scissor = rectIntersect(*scissor, r);
+	if(rectEmpty(*scissor)) return false;
+	return true;
+}
 
-	Vec4 backgroundColor;
-	float roundedCorner;
-};
+Rect getRectScissor(Rect scissor, Rect r) {
+	return rectIntersect(scissor, r);
+}
+
+Rect scissorTestIntersect(Rect scissor, Rect r) {
+	scissorTestScreen(rectIntersect(scissor, r));
+	return r;
+}
+
+
 TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor, float roundedCorners) {
 	return {font, shadow, textColor, shadowColor, backgroundColor, roundedCorners};
 }
@@ -1889,54 +1944,60 @@ void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings 
 	}
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
-	scissorTestScreen(scissor);
+	scissorTestScreen(getRectScissor(r, scissor));
 	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
 	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
 
 	if(settings.shadow == 0) drawText(text, settings.font, vec2(xPos, yPos), settings.textColor, align);
 	else drawText(text, settings.font, vec2(xPos, yPos), settings.textColor, align, 0, settings.shadow, settings.shadowColor);
+
+	scissorTestScreen(scissor);
 }
 void drawTextBox(Rect r, char* text, Vec2i align, TextBoxSettings settings) {
-	drawTextBox(r, text, align, r, settings);
+	drawTextBox(r, text, align, rectExpand(r, vec2(1,1)), settings);
 }
 void drawTextBox(Rect r, char* text, Rect scissor, TextBoxSettings settings) {
 	drawTextBox(r, text, vec2i(0,0), scissor, settings);
 }
 void drawTextBox(Rect r, char* text, TextBoxSettings settings) {
-	drawTextBox(r, text, vec2i(0,0), r, settings);
+	drawTextBox(r, text, vec2i(0,0), rectExpand(r, vec2(1,1)), settings);
 }
 
 
 void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
+	TextBoxSettings textSettings = editSettings.textBoxSettings;
+
 	Vec2 startPos = rectL(textRect);
 	if(active) startPos += editVars.scrollOffset;
 
 	scissorTestScreen(scissor);
-	drawRect(textRect, editSettings.colorBackground);
+	drawRect(textRect, textSettings.backgroundColor);
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
-	scissorTestScreen(scissor);
+	scissorTestScreen(getRectScissor(textRect, scissor));
 
 	if(active) text = editSettings.textBuffer;
 
 	Vec2i align = vec2i(-1,0);
 	if(active) {
 		// Selection.
-		drawTextSelection(text, editSettings.font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
+		drawTextSelection(text, textSettings.font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
 	}
 
 	if(!strEmpty(editSettings.defaultText) && strEmpty(text) && !active) 
-		drawText(editSettings.defaultText, editSettings.font, rectCen(textRect), editSettings.colorText, vec2i(0,0));
+		drawText(editSettings.defaultText, textSettings.font, rectCen(textRect), textSettings.textColor, vec2i(0,0), 0, textSettings.shadow, textSettings.shadowColor);
 	else 
-		drawText(text, editSettings.font, startPos, editSettings.colorText, align);
+		drawText(text, textSettings.font, startPos, textSettings.textColor, align, 0, textSettings.shadow, textSettings.shadowColor);
 
 	if(active) {
 		// Cursor.
-		Vec2 cPos = textIndexToPos(text, editSettings.font, startPos, editVars.cursorIndex, align);
-		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, editSettings.font->height));
+		Vec2 cPos = textIndexToPos(text, textSettings.font, startPos, editVars.cursorIndex, align);
+		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, textSettings.font->height));
 		if(editVars.cursorIndex == 0) cRect = rectTrans(cRect, vec2(editSettings.cursorWidth/2));
 		drawRect(cRect, editSettings.colorCursor);
 	}
+
+	scissorTestScreen(scissor);
 }
 void drawTextEditBox(int number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
 	drawTextEditBox(fillString("%i", number), textRect, active, scissor, editVars, editSettings);
@@ -1946,59 +2007,57 @@ void drawTextEditBox(float number, Rect textRect, bool active, Rect scissor, Tex
 }
 
 
+struct SliderSettings {
+	TextBoxSettings textBoxSettings;
 
+	float size;
+	float minSize;
+	float lineWidth;
+	float rounding;
+	float heightOffset;
 
-void drawSlider(void* val, bool type, Rect br, Rect sr, Font* font, Vec4 bc, Vec4 tc, Vec4 sc, Rect scissor) {
+	Vec4 color;
+	Vec4 lineColor;
+};
 
-	glLineWidth(1);
+void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
 	scissorTestScreen(scissor);
 
-	drawLine(rectL(br), rectR(br), bc);
-	drawRect(sr, sc);
-	// drawRectRounded(sr, sc, 4);
+	TextBoxSettings textSettings = settings.textBoxSettings;
+
+	rectExpand(&sr, vec2(0,-settings.heightOffset*2));
+
+	if(textSettings.backgroundColor.a > 0) drawRect(br, textSettings.backgroundColor);
+	if(settings.lineColor.a > 0 && settings.lineWidth > 0) {
+		glLineWidth(settings.lineWidth);
+		drawLine(rectL(br), rectR(br), settings.lineColor);
+	}
+
+	if(settings.rounding > 0) drawRectRounded(sr, settings.color, settings.rounding);
+	else drawRect(sr, settings.color);
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
-	scissorTestScreen(scissor);
+	scissorTestScreen(getRectScissor(br, scissor));
 
 	char* text = type == 0 ? fillString("%f", *((float*)val)) : fillString("%i", *((int*)val)) ;
-	drawText(text, font, rectCen(br), tc, vec2i(0,0));
+	drawText(text, textSettings.font, rectCen(br), textSettings.textColor, vec2i(0,0), 0, textSettings.shadow, textSettings.shadowColor);
 }
-
-void drawSlider(float val, Rect br, Rect sr, Font* font, Vec4 bc, Vec4 tc, Vec4 sc, Rect scissor) {
-	return drawSlider(&val, 0, br, sr, font, bc, tc, sc, scissor);
+void drawSlider(float val, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
+	return drawSlider(&val, 0, br, sr, scissor, settings);
 }
-void drawSlider(float val, Rect br, Rect sr, Font* font, Vec4 bc, Vec4 tc, Vec4 sc) {
-	return drawSlider(val, br, sr, font, bc, tc, sc, br);
-}
-
-void drawSlider(int val, Rect br, Rect sr, Font* font, Vec4 bc, Vec4 tc, Vec4 sc, Rect scissor) {
-	return drawSlider(&val, 1, br, sr, font, bc, tc, sc, scissor);
-}
-void drawSlider(int val, Rect br, Rect sr, Font* font, Vec4 bc, Vec4 tc, Vec4 sc) {
-	return drawSlider(val, br, sr, font, bc, tc, sc, br);
+void drawSlider(int val, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
+	return drawSlider(&val, 1, br, sr, scissor, settings);
 }
 
 //
 
-bool getRectScissor(Rect* scissor, Rect r) {
-	*scissor = rectIntersect(*scissor, r);
-	if(rectEmpty(*scissor)) return false;
-	return true;
-}
-
-Rect getRectScissor(Rect scissor, Rect r) {
-	return rectIntersect(scissor, r);
-}
-
-Rect scissorTestIntersect(Rect scissor, Rect r) {
-	scissorTestScreen(rectIntersect(scissor, r));
-	return r;
-}
-
 bool newGuiQuickButton(NewGui* gui, Rect r, float z, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
-	if(!getRectScissor(&scissor, r)) return false;
+	// if(!getRectScissor(&scissor, r)) return false;
 
-	bool active = newGuiGoButtonAction(gui, scissor, z);
+	Rect intersection = getRectScissor(scissor, r);
+
+	bool active = newGuiGoButtonAction(gui, intersection, z);
+	if(rectEmpty(intersection)) return false;
 	settings.backgroundColor += newGuiColorModB(gui);
 	drawTextBox(r, text, align, scissor, settings);
 
@@ -2020,68 +2079,90 @@ void drawQuickTextBox(Rect r, char* t, Rect scissor, TextBoxSettings settings) {
 	return drawQuickTextBox(r, t, vec2i(0,0), scissor, settings);
 }
 
-bool newGuiQuickSlider(NewGui* gui, Rect r, float z, float* val, float min, float max, float sliderSize, Font* font, Vec4 bc, Vec4 tc, Vec4 cc, Rect scissor) {
-	if(!getRectScissor(&scissor, r)) return false;
+bool newGuiQuickSlider(NewGui* gui, Rect r, float z, float* val, float min, float max, Rect scissor, SliderSettings settings) {
 
-	Rect slider = newGuiCalcSlider(*val, r, sliderSize, min, max, true);
+	Rect slider = newGuiCalcSlider(*val, r, settings.size, min, max, true);
 
 	int event = newGuiGoDragAction(gui, slider, z);
+	if(rectEmpty(getRectScissor(scissor, r))) return false;
+
 	if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
 	if(event > 0) {
-		*val = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, sliderSize, min, max, true);
-		slider = newGuiCalcSlider(*val, r, sliderSize, min, max, true);
+		*val = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, settings.size, min, max, true);
+		slider = newGuiCalcSlider(*val, r, settings.size, min, max, true);
 	}
 
-	drawSlider(*val, r, slider, font, bc, tc, cc + newGuiColorMod(gui), r);
+	settings.color += newGuiColorMod(gui);
+	drawSlider(*val, r, slider, scissor, settings);
 
 	if(event > 3) return true;
 	return false;
 }
-bool newGuiQuickSlider(NewGui* gui, Rect r, float z, int* val, int min, int max, float sliderSize, Font* font, Vec4 bc, Vec4 tc, Vec4 cc, Rect scissor) {
-	if(!getRectScissor(&scissor, r)) return false;
+bool newGuiQuickSlider(NewGui* gui, Rect r, float z, int* val, int min, int max, Rect scissor, SliderSettings settings) {
 
 	float floatVal = *val;
 
-	Rect slider = newGuiCalcSlider(floatVal, r, sliderSize, min, max, true);
+	Rect slider = newGuiCalcSlider(floatVal, r, settings.size, min, max, true);
 
 	int event = newGuiGoDragAction(gui, slider, z);
+	if(rectEmpty(getRectScissor(scissor, r))) return false;
+
 	if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
 	if(event > 0) {
-		floatVal = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, sliderSize, min, max, true);
+		floatVal = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, settings.size, min, max, true);
 		floatVal = roundInt(floatVal);
-		slider = newGuiCalcSlider(floatVal, r, sliderSize, min, max, true);
+		slider = newGuiCalcSlider(floatVal, r, settings.size, min, max, true);
 	}
 
 	*val = floatVal;
 
-	drawSlider(*val, r, slider, font, bc, tc, cc + newGuiColorMod(gui), r);
+	settings.color += newGuiColorMod(gui);
+	drawSlider(*val, r, slider, scissor, settings);
 
 	if(event > 3) return true;
 	return false;
 }
 
 bool newGuiQuickTextEdit(NewGui* gui, Rect r, char* data, float z, int maxSize, Rect scissor, TextEditSettings editSettings) {
-	if(!getRectScissor(&scissor, r)) return false;
+	Rect intersect = getRectScissor(scissor, r);
 
-	int event = newGuiGoTextEdit(gui, scissor, z, data, editSettings.font, editSettings, maxSize);
+	TextBoxSettings textSettings = editSettings.textBoxSettings;
+
+	int event = newGuiGoTextEdit(gui, intersect, z, data, textSettings.font, editSettings, maxSize);
+
+	if(rectEmpty(intersect)) return false;
+
+	if(event == 0) editSettings.textBoxSettings.backgroundColor += newGuiColorMod(gui);
 	drawTextEditBox(data, r, event > 0, scissor, gui->editVars, editSettings);
 	if(event == 3) return true;
 
 	return false;
 }
 bool newGuiQuickTextEdit(NewGui* gui, Rect r, int* data, float z, Rect scissor, TextEditSettings editSettings) {
-	if(!getRectScissor(&scissor, r)) return false;
+	Rect intersect = getRectScissor(scissor, r);
 
-	int event = newGuiGoTextEdit(gui, scissor, z, data, editSettings.font, editSettings);
+	TextBoxSettings textSettings = editSettings.textBoxSettings;
+
+	int event = newGuiGoTextEdit(gui, intersect, z, data, textSettings.font, editSettings);
+
+	if(rectEmpty(intersect)) return false;
+
+	if(event == 0) editSettings.textBoxSettings.backgroundColor += newGuiColorMod(gui);
 	drawTextEditBox(*data, r, event > 0, scissor, gui->editVars, editSettings);
 	if(event == 3) return true;
 
 	return false;
 }
 bool newGuiQuickTextEdit(NewGui* gui, Rect r, float* data, float z, Rect scissor, TextEditSettings editSettings) {
-	if(!getRectScissor(&scissor, r)) return false;
+	Rect intersect = getRectScissor(scissor, r);
 
-	int event = newGuiGoTextEdit(gui, scissor, z, data, editSettings.font, editSettings);
+	TextBoxSettings textSettings = editSettings.textBoxSettings;
+
+	int event = newGuiGoTextEdit(gui, intersect, z, data, textSettings.font, editSettings);
+
+	if(rectEmpty(intersect)) return false;
+
+	if(event == 0) editSettings.textBoxSettings.backgroundColor += newGuiColorMod(gui);
 	drawTextEditBox(*data, r, event > 0, scissor, gui->editVars, editSettings);
 	
 	if(event == 3) return true;
@@ -2117,18 +2198,17 @@ struct ScrollRegionValues {
 	Rect region;
 };
 
-// ScrollRegionSettings scrollRegionSettings() {
-// }
-
 void newGuiQuickScroll(NewGui* gui, Rect r, float z, float height, float* scrollValue, Rect scissor, ScrollRegionSettings settings, ScrollRegionValues* scrollValues) {
 	float scrollRegionHeight = rectH(r);
 
 	float itemsHeight = height - scrollRegionHeight;
+	clampMin(&itemsHeight, 0);
 	bool hasScrollbar = itemsHeight > 0;
 
 	Rect scrollRegion = r;
 	if(!hasScrollbar) rectSetB(&scrollRegion, scrollRegion.top - height);
 	float scrollBarWidth = hasScrollbar?settings.scrollBarWidth:0;
+
 	Rect itemRegion = rectSetR(scrollRegion, scrollRegion.right - scrollBarWidth);
 	Rect scrollBarRegion = rectSetL(scrollRegion, scrollRegion.right - scrollBarWidth);
 
@@ -2194,6 +2274,252 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float z, float height, float* scroll
 	scrollValues->region = itemRegion;
 }
 
+#if 1
+
+TextEditSettings textEditSettings(TextBoxSettings textSettings, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, Vec4 colorSelection, Vec4 colorCursor) {
+	return {textSettings, textBuffer, wrapping, singleLine, cursorWidth, "", colorSelection, colorCursor};
+}
+
+void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev) {
+
+	if(tes.singleLine) tes.wrapping = false;
+
+	Vec2 startPos = rectTL(textRect) + tev->scrollOffset;
+	int wrapWidth = tes.wrapping ? rectDim(textRect).w : 0;
+
+	int cursorIndex = tev->cursorIndex;
+	int markerIndex = tev->markerIndex;
+
+	int mouseIndex = textMouseToIndex(text, font, startPos, input->mousePosNegative, align, wrapWidth);
+
+	if(input->mouseButtonPressed[0]) {
+		if(pointInRect(input->mousePosNegative, textRect)) {
+			markerIndex = mouseIndex;
+		}
+	}
+
+	if(input->mouseButtonDown[0]) {
+		cursorIndex = mouseIndex;
+	}
+
+
+
+	bool left = input->keysPressed[KEYCODE_LEFT];
+	bool right = input->keysPressed[KEYCODE_RIGHT];
+	bool up = input->keysPressed[KEYCODE_UP];
+	bool down = input->keysPressed[KEYCODE_DOWN];
+
+	bool a = input->keysPressed[KEYCODE_A];
+	bool x = input->keysPressed[KEYCODE_X];
+	bool c = input->keysPressed[KEYCODE_C];
+	bool v = input->keysPressed[KEYCODE_V];
+	
+	bool home = input->keysPressed[KEYCODE_HOME];
+	bool end = input->keysPressed[KEYCODE_END];
+	bool backspace = input->keysPressed[KEYCODE_BACKSPACE];
+	bool del = input->keysPressed[KEYCODE_DEL];
+	bool enter = input->keysPressed[KEYCODE_RETURN];
+	bool tab = input->keysPressed[KEYCODE_TAB];
+
+	bool ctrl = input->keysDown[KEYCODE_CTRL];
+	bool shift = input->keysDown[KEYCODE_SHIFT];
+
+	// Main navigation and things.
+
+	int startCursorIndex = cursorIndex;
+
+	if(ctrl && backspace) {
+		shift = true;
+		left = true;
+	}
+
+	if(ctrl && del) {
+		shift = true;
+		right = true;
+	}
+
+	if(!tes.singleLine) {
+		if(up || down) {
+			float cursorYOffset;
+			if(up) cursorYOffset = font->height;
+			else if(down) cursorYOffset = -font->height;
+
+			Vec2 cPos = textIndexToPos(text, font, startPos, cursorIndex, align, wrapWidth);
+			cPos.y += cursorYOffset;
+			int newCursorIndex = textMouseToIndex(text, font, startPos, cPos, align, wrapWidth);
+			cursorIndex = newCursorIndex;
+		}
+	}
+
+
+	if(left) {
+		if(ctrl) {
+			if(cursorIndex > 0) {
+				while(text[cursorIndex-1] == ' ') cursorIndex--;
+
+				if(cursorIndex > 0)
+			 		cursorIndex = strFindBackwards(text, ' ', cursorIndex-1);
+			}
+		} else {
+			bool isSelected = cursorIndex != markerIndex;
+			if(isSelected && !shift) {
+				if(cursorIndex < markerIndex) {
+					markerIndex = cursorIndex;
+				} else {
+					cursorIndex = markerIndex;
+				}
+			} else {
+				if(cursorIndex > 0) cursorIndex--;
+			}
+		}
+	}
+
+	if(right) {
+		if(ctrl) {
+			while(text[cursorIndex] == ' ') cursorIndex++;
+			if(cursorIndex <= strLen(text)) {
+				cursorIndex = strFindOrEnd(text, ' ', cursorIndex+1);
+				if(cursorIndex != strLen(text)) cursorIndex--;
+			}
+		} else {
+			bool isSelected = cursorIndex != markerIndex;
+			if(isSelected && !shift) {
+				if(cursorIndex > markerIndex) {
+					markerIndex = cursorIndex;
+				} else {
+					cursorIndex = markerIndex;
+				}
+			} else {
+				if(cursorIndex < strLen(text)) cursorIndex++;
+			}
+		}
+	}
+
+	if(tes.singleLine) {
+		if(home) {
+			cursorIndex = 0;
+		}
+
+		if(end) {
+			cursorIndex = strLen(text);
+		}
+	}
+
+	if((startCursorIndex != cursorIndex) && !shift) {
+		markerIndex = cursorIndex;
+	}
+
+	if(ctrl && a) {
+		cursorIndex = 0;
+		markerIndex = strLen(text);
+	}
+
+	bool isSelected = cursorIndex != markerIndex;
+
+	if((ctrl && x) && isSelected) {
+		c = true;
+		del = true;
+	}
+
+	if((ctrl && c) && isSelected) {
+		char* selection = textSelectionToString(text, cursorIndex, markerIndex);
+		setClipboard(selection);
+	}
+
+	if(enter) {
+		if(tes.singleLine) {
+			// strClear(text);
+			// cursorIndex = 0;
+			// markerIndex = 0;
+		} else {
+			input->inputCharacters[input->inputCharacterCount++] = '\n';
+		}
+	}
+
+	if(backspace || del || (input->inputCharacterCount > 0) || (ctrl && v)) {
+		if(isSelected) {
+			int delIndex = min(cursorIndex, markerIndex);
+			int delAmount = abs(cursorIndex - markerIndex);
+			strRemoveX(text, delIndex, delAmount);
+			cursorIndex = delIndex;
+		}
+
+		markerIndex = cursorIndex;
+	}
+
+	if(ctrl && v) {
+		char* clipboard = (char*)getClipboard();
+		int clipboardSize = strLen(clipboard);
+		if(clipboardSize + strLen(text) < textMaxSize) {
+			strInsert(text, cursorIndex, clipboard);
+			cursorIndex += clipboardSize;
+			markerIndex = cursorIndex;
+		}
+		closeClipboard();
+	}
+
+	// Add input characters to input buffer.
+	if(input->inputCharacterCount > 0) {
+		if(input->inputCharacterCount + strLen(text) < textMaxSize) {
+			strInsert(text, cursorIndex, input->inputCharacters, input->inputCharacterCount);
+			cursorIndex += input->inputCharacterCount;
+			markerIndex = cursorIndex;
+		}
+	}
+
+	if(backspace && !isSelected) {
+		if(cursorIndex > 0) {
+			strRemove(text, cursorIndex);
+			cursorIndex--;
+		}
+		markerIndex = cursorIndex;
+	}
+
+	if(del && !isSelected) {
+		if(cursorIndex+1 <= strLen(text)) {
+			strRemove(text, cursorIndex+1);
+		}
+		markerIndex = cursorIndex;
+	}
+
+	// Scrolling.
+	{
+		Vec2 cursorPos = textIndexToPos(text, font, startPos, cursorIndex, align, wrapWidth);
+
+		float ch = font->height;
+		if(		cursorPos.x 	   < textRect.min.x) tev->scrollOffset.x += textRect.min.x - (cursorPos.x);
+		else if(cursorPos.x 	   > textRect.max.x) tev->scrollOffset.x += textRect.max.x - (cursorPos.x);
+
+		clampMax(&tev->scrollOffset.x, 0);
+		
+		if(!tes.singleLine) {
+			if(		cursorPos.y - ch/2 < textRect.min.y) tev->scrollOffset.y += textRect.min.y - (cursorPos.y - ch/2);
+			else if(cursorPos.y + ch/2 > textRect.max.y) tev->scrollOffset.y += textRect.max.y - (cursorPos.y + ch/2);
+		
+			clampMin(&tev->scrollOffset.y, 0);
+		}
+	}
+
+
+	tev->cursorChanged = (tev->cursorIndex != cursorIndex || tev->markerIndex != markerIndex);
+
+	tev->cursorIndex = cursorIndex;
+	tev->markerIndex = markerIndex;
+
+	// // Cursor.
+	// // tev->cursorTime += tes.dt * tes.cursorSpeed;
+	// // Vec4 cmod = vec4(0,cos(tev->cursorTime)*tes.cursorColorMod - tes.cursorColorMod,0,0);
+}
+#endif
+
+
+
+
+
+
+
+
+
 
 bool downloadStepNext(int* downloadMode, int* modeIndex, CurlRequestData* requestData, bool waitForRequest = true) {
 	if((*downloadMode) == (*modeIndex)++) {
@@ -2247,7 +2573,7 @@ union AppColors {
 		Vec4 graphLine1;
 		Vec4 graphLine2;
 		Vec4 graphLineAvg;
-		Vec4 font1;
+		Vec4 font;
 		Vec4 font2;
 		Vec4 font3;
 		Vec4 fontShadow;
@@ -2334,6 +2660,31 @@ union AppSettings {
 		int e[17];
 	};
 };
+
+/*
+	char* font;
+	Vec4 fontColor;
+	float fontShadow;
+	Vec4 fontShadowColor;
+
+	char* commentFont;
+	Vec4 commentFontColor;
+	float commentFontShadow;
+	Vec4 commentFontShadowColor;
+
+	int windowBorder;
+	int windowTitleHeight;
+
+	float padding;
+
+
+	Vec4 graphBackgroundBotTomColor;
+	Vec4 graphBackgroundTopColor;
+	
+	Vec4 windowBorder;
+	Vec4 background;
+	Vec4 button;
+*/
 
 char* appSettingsStrings[] = {
 	"font",
@@ -2489,7 +2840,6 @@ void appSettingsDefault(AppSettings* as, AppColors* ac) {
 		ac->graphLine1            = vec4(0,0.7f,1,1);
 		ac->graphLine2            = vec4(0.9f,0.5f,1,1);
 		ac->graphLineAvg          = vec4(0,0.9f,0.3f,0.8f);
-		ac->font1                 = vec4(0.9f,1);
 		ac->font2                 = vec4(0.6f,1);
 		ac->font3                 = vec4(1.0f,0.5f,0,1);
 		ac->fontShadow            = vec4(0,1);
@@ -2614,6 +2964,8 @@ union JSonValue {
 #define Cam_Min_Height_2 0.1
 #define Cam_Min_Height_3 10
 
+#define Graph_Zoom_Speed 1.2f
+
 #define Cubic_Curve_Segment_Mod 20
 #define Cubic_Curve_Segment_Min 4
 
@@ -2631,6 +2983,59 @@ union JSonValue {
 
 #define Panel_Min_X 300
 #define Panel_Min_Y 300
+
+#define Screenshot_Min_X 500
+#define Screenshot_Min_Y 500
+
+
+
+union NewAppColors {
+	struct {
+		Vec4 font;
+		Vec4 font2;
+		Vec4 commentFont;
+		Vec4 graphFont;
+		Vec4 fontShadow;
+		Vec4 commentFontShadow;
+
+		Vec4 windowBorder;
+		Vec4 background;
+		Vec4 button;
+		Vec4 uiBackground;
+		Vec4 edge;
+		Vec4 editCursor;
+		Vec4 editSelection;
+
+		Vec4 graphData1;
+		Vec4 graphData2;
+		Vec4 graphData3;
+		Vec4 graphBackgroundBottom;
+		Vec4 graphBackgroundTop;
+		Vec4 graphMark;
+		Vec4 graphSubMark;
+	};
+
+	Vec4 e[20];
+};
+
+struct NewAppSettings {
+	char* font;
+	char* commentFont;
+
+	int fontHeight;
+	int fontShadow;
+	int commentFontHeight;
+	int commentFontShadow;
+	int graphTitleFontHeight;
+	int graphFontShadow;
+
+	float windowHeightMod;
+	float heightMod;
+
+	int windowBorder;
+	int border;
+	int padding;
+};
 
 struct AppData {
 	// General.
@@ -2652,13 +3057,7 @@ struct AppData {
 	// Window.
 
 	Rect clientRect;
-
-	bool updateWindow;
-	int updateWindowX, updateWindowY;
-	int updateWidth, updateHeight;
-
 	Vec2i frameBufferSize;
-
 	bool screenShotMode;
 
 	// App.
@@ -2669,12 +3068,14 @@ struct AppData {
 	AppColors appColors;
 	AppSettings appSettings;
 
+	NewAppColors newAppColors;
+	NewAppSettings newAppSettings;
+
 	bool appIsBusy;
 
 	Font* font;
 	Font* fontComment;
 	Font* fontTitle;
-	Font* fontPanel;
 
 	CURL* curlHandle;
 	HMODULE curlDll;
@@ -3474,8 +3875,69 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ws->customCursor = false;
 
 
+		{
+			NewAppSettings as;
+			NewAppColors ac;
 
-		if(init || ad->reloadSettings) {
+			as.font = "OpenSans-Bold.ttf";
+			as.fontHeight = 20;
+			as.fontShadow = 2;
+			// as.commentFont = "SourceSansPro-Regular.ttf";
+			as.commentFont = "OpenSans-Regular.ttf";
+			// as.commentFont = "consola.ttf";
+			as.commentFontHeight = 22;
+			as.commentFontShadow = 1;
+
+			as.graphTitleFontHeight = 30;
+			as.graphFontShadow = 1;
+
+			as.windowHeightMod = 1.0f;
+			as.windowBorder = 4;
+			as.border = 4;
+			as.padding = 4;
+			as.heightMod = 1.2f;
+
+
+
+
+
+			ac.font = vec4(0.9f, 1);
+			ac.font2 = vec4(0.65f, 1);
+			ac.fontShadow = vec4(0.1f,1);
+			ac.commentFont = ac.font;
+			ac.commentFontShadow = ac.fontShadow;
+
+			Vec3 hslBackground = vec3(0.7f, 0.3f, 0.3f);
+			Vec3 hslButton = hslBackground + vec3(0.25f,0,0);
+			Vec3 hslGraph = hslBackground - vec3(0.25f,0,0);
+
+			ac.background =            colorHSL(hslBackground);
+			ac.windowBorder =          colorHSL(hslBackground + vec3(0,0,-0.1f));
+			ac.button =                colorHSL(hslButton);
+			ac.uiBackground =          colorHSL(hslBackground + vec3(0,0,0.1f));
+			ac.editCursor =            colorHSL(hslButton + vec3(0,0,0.2f));
+			ac.editSelection =         colorHSL(hslBackground + vec3(0.5f,0,0));;
+			ac.edge =                  vec4(0,1);
+
+			ac.graphFont =             colorHSL(hslButton + vec3(0,0.2f,0.3f));
+			ac.graphBackgroundTop =    colorHSL(hslGraph + vec3(0,0,-0.05f));
+			ac.graphBackgroundBottom = colorHSL(hslGraph + vec3(0,0,-0.15f));
+
+			ac.graphData1 =            colorHSL(hslGraph + vec3(0.25f, 0.3f,0.3f));
+			ac.graphData2 =            colorHSL(hslGraph + vec3(-0.25f,0.3f,0.3f));
+			ac.graphData3 =            colorHSL(hslGraph + vec3(0.5,   0.3f,0.3f));
+
+			ac.graphMark =             vec4(1,0.05f);
+			ac.graphSubMark =          vec4(1,0.025f);
+
+			// 
+
+			ad->newAppSettings = as;
+			ad->newAppColors = ac;
+		}
+
+		// if(init || ad->reloadSettings) {
+		if(init || ad->reloadSettings || reload) {
 			ad->reloadSettings = false;
 
 			if(!fileExists(appSettingsFilePath)) {
@@ -3490,37 +3952,71 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			AppSettings* as = &ad->appSettings;
 
-			// Check folders for fonts.
-			for(int i = 0; i < APP_FONT_COUNT; i++) {
-				char* fileName;
-				int fontSize;
-				if(i == 0) {
-					fileName = as->font;
-					fontSize = as->fontSize;
-				} else if(i == 1) {
-					fileName = as->fontComment;
-					fontSize = as->fontCommentSize;
-				} else if(i == 2) {
-					fileName = as->fontTitle;
-					fontSize = as->fontTitleSize;
-				} else {
-					fileName = as->fontPanel;
-					fontSize = as->fontPanelSize;
+			// // Check folders for fonts.
+			// for(int i = 0; i < APP_FONT_COUNT; i++) {
+			// 	char* fileName;
+			// 	int fontSize;
+			// 	if(i == 0) {
+			// 		fileName = as->font;
+			// 		fontSize = as->fontSize;
+			// 	} else if(i == 1) {
+			// 		fileName = as->fontComment;
+			// 		fontSize = as->fontCommentSize;
+			// 	} else if(i == 2) {
+			// 		fileName = as->fontTitle;
+			// 		fontSize = as->fontTitleSize;
+			// 	} else {
+			// 		fileName = as->fontPanel;
+			// 		fontSize = as->fontPanelSize;
+			// 	}
+
+			// 	char* filePath = appFontPath;
+
+			// 	if(!fileExists(fillString("%s%s", filePath, fileName))) {
+			// 		if(fileExists(fillString("%s%s", windowsFontPath, fileName))) filePath = windowsFontPath;
+			// 		else fileName = Default_Font;
+			// 	}
+
+			// 	Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
+			// 	if(i == 0) ad->font = font;
+			// 	else if(i == 1) ad->fontComment = font;
+			// 	else if(i == 2) ad->fontTitle = font;
+			// 	else ad->fontPanel = font;
+			// }
+
+
+			{
+				NewAppSettings* as = &ad->newAppSettings;
+				NewAppColors* ac = &ad->newAppColors;
+
+				// Check folders for fonts.
+				for(int i = 0; i < 3; i++) {
+					char* fileName;
+					int fontSize;
+					if(i == 0) {
+						fileName = as->font;
+						fontSize = as->fontHeight;
+					} else if(i == 1) {
+						fileName = as->font;
+						fontSize = as->graphTitleFontHeight;
+					} else if(i == 2) {
+						fileName = as->commentFont;
+						fontSize = as->commentFontHeight;
+					} 
+					char* filePath = appFontPath;
+
+					if(!fileExists(fillString("%s%s", filePath, fileName))) {
+						if(fileExists(fillString("%s%s", windowsFontPath, fileName))) filePath = windowsFontPath;
+						else fileName = Default_Font;
+					}
+
+					Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
+					if(i == 0) ad->font = font;
+					else if(i == 1) ad->fontTitle = font;
+					else ad->fontComment = font;
 				}
-
-				char* filePath = appFontPath;
-
-				if(!fileExists(fillString("%s%s", filePath, fileName))) {
-					if(fileExists(fillString("%s%s", windowsFontPath, fileName))) filePath = windowsFontPath;
-					else fileName = Default_Font;
-				}
-
-				Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
-				if(i == 0) ad->font = font;
-				else if(i == 1) ad->fontComment = font;
-				else if(i == 2) ad->fontTitle = font;
-				else ad->fontPanel = font;
 			}
+
 		}
 
 		if(init) {
@@ -3696,13 +4192,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    	nh = clamp(nh, Window_Min_Size_X, ws->biggestMonitorSize.h);
 
 
-	    	ad->updateWindow = true;
-
-	    	ad->updateWindowX = nx;
-	    	ad->updateWindowY = ny;
-	    	ad->updateWidth = nw;
-	    	ad->updateHeight = nh;
-
 	    	ws->currentRes.w = nw -2;
 	    	ws->currentRes.h = nh -2;
 	    	ws->aspectRatio = ws->currentRes.w / (float)ws->currentRes.h;
@@ -3711,12 +4200,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	    	globalScreenHeight = ws->currentRes.h;
 
-			if(ad->updateWindow) {
-				BringWindowToTop(windowHandle);
-
-				MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
-				ad->updateWindow = false;
-			}
+			BringWindowToTop(windowHandle);
+			MoveWindow(windowHandle, nx, ny, nw, nh, true);
         }
 	}	
 
@@ -4557,8 +5042,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 							   vid->favoriteCount < 0)
 								corrupted = true;
 
-							int stopForVS = 123;
-
 							notFiltered = notFiltered && !corrupted;
 						}
 
@@ -4751,44 +5234,55 @@ extern "C" APPMAINFUNCTION(appMain) {
 		AppColors* ac = &ad->appColors;
 		AppSettings* as = &ad->appSettings;
 
+		NewAppColors* newac = &ad->newAppColors;
+		NewAppSettings* newas = &ad->newAppSettings;
+
 		Font* font = ad->font;
 		int fontSize = font->height;
 
-		float zoomSpeed = 1.2;
+		// Options.
+		float topBarHeightMod = newas->heightMod;
+		float leftScaleOffset = 0;
+		float bottomScaleOffset = 0;
+		float windowBorderSize = newas->windowBorder;
+		float windowTitleHeightMod = newas->windowHeightMod;
+
+		// Colors.
+		Vec4 colorWindowBorder = newac->windowBorder;
+		Vec4 colorWindowClient = newac->background;
+
+		//
+
 
 		// Screen layout.
 		float sidePanelWidth = ad->selectedVideo!=-1 ? ad->sidePanelWidth : 0;
 		clamp(&ad->sidePanelWidth, Side_Panel_Min_Width, ws->currentRes.w*ad->sidePanelMax);
-		float filtersHeight = font->height + as->marginFilters;
-		float bottomTextHeight = font->height*2 + as->marginBottomText;
-		float leftTextWidth = ad->leftTextWidth + as->marginLeftText;
-
-		float windowBorder = as->windowBorder;
-		// float windowTitleHeight = as->windowTitleHeight;
-		float windowTitleHeight = as->windowTitleHeight;
+		float leftScaleWidth = ad->leftTextWidth + leftScaleOffset;
+		float windowTitleHeight = font->height * windowTitleHeightMod;
+		float topBarHeight = font->height * topBarHeightMod + newas->border*2;
+		float bottomScaleHeight = font->height*2 + bottomScaleOffset;
 
 
-		// Layout* lay = layoutAlloc(layout(getScreenRect(ws), true));
-		Layout* lay = layoutAlloc(layout(rectExpand(getScreenRect(ws), ws->fullscreen?0:-windowBorder*2), true));
+		Layout* lay = layoutAlloc(layout(rectExpand(getScreenRect(ws), ws->fullscreen?0:-windowBorderSize*2), true));
 
 		Layout* lTopBar = layoutAdd(lay, layout(vec2(0,ws->fullscreen?-1:windowTitleHeight)));
-		if(!ws->fullscreen) layoutAdd(lay, layout(vec2(0,windowBorder)));
+		if(!ws->fullscreen) layoutAdd(lay, layout(vec2(0,windowBorderSize)));
 		Layout* lMain = layoutAdd(lay, layout(vec2(0,0)));
 
 		Layout* lLeft = layoutAdd(lMain, layout(vec2(0,0), true));
 		Layout* lSidePanel = ad->selectedVideo!=-1?layoutAdd(lMain, layout(vec2(sidePanelWidth,0))):0;
 
-		Layout* lFilters = layoutAdd(lLeft, layout(vec2(0,filtersHeight)));
+		Layout* lFilters = layoutAdd(lLeft, layout(vec2(0,topBarHeight)));
 		Layout* lChart = layoutAdd(lLeft, layout(vec2(0,0), true, vec2i(-1,1)));
-		Layout* bottom = layoutAdd(lLeft, layout(vec2(0,bottomTextHeight)));
-			layoutAdd(bottom, layout(vec2(leftTextWidth,0)));
+		Layout* bottom = layoutAdd(lLeft, layout(vec2(0,bottomScaleHeight)));
+			layoutAdd(bottom, layout(vec2(leftScaleWidth,0)));
 			Layout* lBottom = layoutAdd(bottom, layout(vec2(0,0)));
 
 
 		Layout* lGraphs[Line_Graph_Count];
 		for(int i = 0; i < ad->camCount; i++) {
 			lGraphs[i] = layoutAdd(lChart, layout(vec2(0,ad->graphOffsets[i+1]-ad->graphOffsets[i])));
-			layoutAdd(lGraphs[i], layout(vec2(leftTextWidth, 0)));
+			layoutAdd(lGraphs[i], layout(vec2(leftScaleWidth, 0)));
 			layoutAdd(lGraphs[i], layout(vec2(0, 0)));
 		}
 
@@ -4800,8 +5294,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Rect rSidePanel = lSidePanel!=0?lSidePanel->r:rect(0,0,0,0);
 		Rect rBottomText = lBottom->r;
 
-		Rect rLeftTexts = rectSetBR(rChart, vec2(rChart.left + leftTextWidth, rChart.bottom));
-		Rect rGraphs    = rectSetBL(rChart, vec2(rChart.left + leftTextWidth, rChart.bottom));
+		Rect rLeftTexts = rectSetBR(rChart, vec2(rChart.left + leftScaleWidth, rChart.bottom));
+		Rect rGraphs    = rectSetBL(rChart, vec2(rChart.left + leftScaleWidth, rChart.bottom));
 
 		Rect graphRects[10];
 		Rect leftTextRects[10];
@@ -4811,17 +5305,147 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		Rect rTopBar = lTopBar->r;
-
-
-
-		// Draw background.
-		drawRect(screenRect, ac->windowBorder);
-		drawRect(rect(lMain->r.min, lFilters->r.max), ac->background);
 		ad->clientRect = lMain->r;
-		// drawRect(lay->r, ac->background);
 
-		for(int i = 0; i < ad->camCount; i++) {
-			drawRectNewColored(graphRects[i], ac->graphBackgroundBottom, ac->graphBackgroundTop, ac->graphBackgroundTop, ac->graphBackgroundBottom);
+
+		// Title bar.
+		if(!ws->fullscreen)
+		{
+			// Options.
+
+			float titlePadding = newas->padding;
+			float iconMargin = 0.4f;
+			float iconWidth = 1.0f;
+			char* titleText = fillString("%s - %i - %s", ad->playlist.title, ad->playlist.count, ad->playlist.id);
+			TextBoxSettings titleTextSettings = textBoxSettings(font, vec4(0,0), newac->font, newas->fontShadow, newac->fontShadow);
+
+			Vec4 iconColor = newac->font;
+			Vec4 iconBackgroundColor = newac->button;
+
+			//
+
+			drawRect(screenRect, colorWindowBorder);
+
+			Layout* lay = layoutAlloc(layout(rTopBar, false, vec2i(1,0), vec2(titlePadding, titlePadding), vec2(0)));
+
+			char* text = strLen(ad->playlist.id) != 0 ? titleText : "";
+			Layout* lTitle = layoutAdd(lay, layout(vec2(getTextDim(text, font).w, 0)));
+			lTitle->minDim.x = 0;
+
+			layoutAdd(lay, layout(vec2(0,0)));
+
+			Layout* lButtonMin = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
+			Layout* lButtonMax = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
+			Layout* lButtonClose = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
+
+			layoutCalc(lay);
+
+			// @Hack
+			Rect rTitle = lTitle->r;
+			if(rTitle.left < layoutGetRect(lay).left) {
+				rTitle.left += layoutGetRect(lay).left - rTitle.left;
+			}
+
+			scissorState();
+			drawTextBox(rTitle, text, vec2i(-1,0), titleTextSettings);
+			scissorState(false);
+
+			float iconSize = font->height*iconMargin;
+
+			if(newGuiGoButtonAction(ad->gui, lButtonMin->r, 0)) ShowWindow(windowHandle, SW_MINIMIZE);
+			drawRect(lButtonMin->r, iconBackgroundColor + newGuiColorModB(ad->gui));
+			Rect a = rectExpand(lButtonMin->r, -iconSize);
+			drawRect(rectSetT(a, a.bottom + iconWidth), iconColor);
+
+			if(newGuiGoButtonAction(ad->gui, lButtonMax->r, 0)) setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
+			drawRect(lButtonMax->r, iconBackgroundColor + newGuiColorModB(ad->gui));
+			drawRectHollow(rectExpand(lButtonMax->r, -iconSize), iconWidth, iconColor);
+
+			if(newGuiGoButtonAction(ad->gui, lButtonClose->r, 0)) *isRunning = false;
+			drawRect(lButtonClose->r, iconBackgroundColor + newGuiColorModB(ad->gui));
+			drawCross(rectCen(lButtonClose->r), rectH(rectExpand(lButtonClose->r, -iconSize))/2, iconWidth, vec2(0,1), iconColor);
+		}
+	
+		drawRect(lMain->r, colorWindowClient);
+
+
+		// Filters gui.
+		{
+			TIMER_BLOCK_NAMED("Filters Gui");
+
+			// Options.
+			float textMarginMod = 1.0f;
+			float borderSize = newas->border;
+			float padding = newas->padding;
+
+			TextBoxSettings textSettings = textBoxSettings(font, newac->uiBackground, newac->font, newas->fontShadow, newac->fontShadow);
+
+			TextBoxSettings buttonSettings = textBoxSettings(font, newac->button, newac->font, newas->fontShadow, newac->fontShadow, 0);
+			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), newac->font, newas->fontShadow, newac->fontShadow, 0);
+			TextEditSettings editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, newac->editSelection, newac->editCursor);
+			SliderSettings sliderSettings = {textSettings, 20, 20, 0, 0, 0, newac->button, newac->font};
+			//
+
+			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:", "0.00", "0.00", "<Filter_Inclusive>", "<Filter_Inclusive>"};
+			int li = 0;
+			float bp = font->height * textMarginMod;
+			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x+bp, 80, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp};
+
+
+			Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(padding,0), vec2(borderSize)));
+			for(int i = 0; i < arrayCount(widths); i++) layoutAdd(lay, layout(vec2(widths[i], 0)));
+			layoutCalc(lay);
+			Layout* l = lay->list;
+
+
+
+			Rect scissor = rFilters;
+			float z = 0;
+			li = 0;
+
+			scissorState();
+
+			if(newGuiQuickButton(ad->gui, layoutInc(&l), z, labels[li++], scissor, buttonSettings)) ad->panelActive = !ad->panelActive;
+			if(newGuiQuickButton(ad->gui, layoutInc(&l), z, labels[li++], scissor, buttonSettings)) {
+				ad->sortByDate = true;
+				ad->sortStat = -1;
+				ad->startLoadFile = true;
+			}
+			if(newGuiQuickButton(ad->gui, layoutInc(&l), z, labels[li++], scissor, buttonSettings)) {
+				shellExecuteNoWindow(fillString("explorer.exe %s", appSettingsFilePath));
+			}
+
+			layoutInc(&l);
+
+			drawQuickTextBox(layoutInc(&l), labels[li++], scissor, labelSettings);
+			newGuiQuickSlider(ad->gui, layoutInc(&l), z, &ad->graphDrawMode, 0, 2, scissor, sliderSettings);
+
+			drawQuickTextBox(layoutInc(&l), labels[li++], scissor, labelSettings);
+
+			bool updateStats = false;
+
+			if(newGuiQuickTextEdit(ad->gui, layoutInc(&l), &ad->statTimeSpan, z, scissor, editSettings)) updateStats = true;
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
+			clamp(&ad->statTimeSpan, 0.01f, 12*10);
+
+			if(newGuiQuickTextEdit(ad->gui, layoutInc(&l), &ad->statWidth, z, scissor, editSettings)) updateStats = true;
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
+			clamp(&ad->statWidth, 0.01f, 12*10);
+
+			editSettings.defaultText = "<Filter_Inclusive>";
+			if(newGuiQuickTextEdit(ad->gui, layoutInc(&l), ad->inclusiveFilter, z, arrayCount(ad->inclusiveFilter), scissor, editSettings)) 
+				ad->startLoadFile = true;
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
+
+			editSettings.defaultText = "<Filter_Exclusive>";
+			if(newGuiQuickTextEdit(ad->gui, layoutInc(&l), ad->exclusiveFilter, z, arrayCount(ad->exclusiveFilter), scissor, editSettings)) 
+				ad->startLoadFile = true;
+			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
+
+
+			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
+
+			scissorState(false);
 		}
 
 		// Height sliders.
@@ -4862,11 +5486,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			{
 				float z = 0;
 				if(newGuiGoButtonAction(ad->gui, rLeftText, z, Gui_Focus_MWheel)) 
-	    			graphCamScaleToPos(cam, 0, 0, 0, -input->mouseWheel, zoomSpeed, camMinH, input->mousePosNegative);
+	    			graphCamScaleToPos(cam, 0, 0, 0, -input->mouseWheel, Graph_Zoom_Speed, camMinH, input->mousePosNegative);
 
 	    		if(i == 0) {
 					if(newGuiGoButtonAction(ad->gui, rGraphs, z, Gui_Focus_MWheel)) {
-						graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, zoomSpeed, Graph_Zoom_Min, 0, 0, 0, input->mousePosNegative);
+						graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, Graph_Zoom_Speed, Graph_Zoom_Min, 0, 0, 0, input->mousePosNegative);
 					}
 	    		}
 			}
@@ -4907,29 +5531,46 @@ extern "C" APPMAINFUNCTION(appMain) {
 			graphCamPosClamp(cam);
 		}
 
+		// Draw graph backgrounds.
+		for(int i = 0; i < ad->camCount; i++) {
+			drawRectNewColoredH(graphRects[i], newac->graphBackgroundBottom, newac->graphBackgroundTop);
+		}
+
 		TIMER_BLOCK_END(appIntro);
 
-		// Draw left text.
+		// Draw left scale.
 		{
 			TIMER_BLOCK_NAMED("Left Text");
 
-			Vec4 mainColor = ac->font1;
-			Vec4 semiColor = ac->font2;
-			Vec4 horiLinesColor = ac->graphMarkers;
-			Vec4 subHoriLinesColor = ac->graphSubMarkers;
 			float markLength = 10;
-			float fontMargin = 4;
+			float textMarginMod = 0.2f;
+			float lineWidth = 1;
+			float shadow = newas->fontShadow;
+
+			Vec4 mainColor = newac->font;
+			Vec4 semiColor = newac->font2;
+			Vec4 horiLinesColor = newac->graphMark;
+			Vec4 subHoriLinesColor = newac->graphSubMark;
+			Vec4 shadowColor = newac->fontShadow;
+
 			float div = 10;
 			int subDiv = 4;
 			float splitSizePixels = font->height*3;
 
-			glLineWidth(1);
+
+			Vec4 leftScaleDividerColor = newac->edge;
+			float leftScaleDividerSize = 1;
+
+
+			glLineWidth(lineWidth);
 			glEnable(GL_SCISSOR_TEST);
+
+			float textMargin = font->height*textMarginMod;
+			float markSizeDifference = 0.5f;
 
 			bool calcMaxTextWidth;
 
-			for(int camIndex = 0; camIndex < ad->camCount; camIndex++)
-			{
+			for(int camIndex = 0; camIndex < ad->camCount; camIndex++) {
 				calcMaxTextWidth = camIndex == 0 ? true : false;
 
 				GraphCam* cam = ad->cams + camIndex;
@@ -4947,7 +5588,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					// Horizontal line.
 					scissorTestScreen(cam->viewPort);
-					drawLine(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), horiLinesColor); 
+					drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), horiLinesColor); 
 					scissorTestScreen(scaleRect);
 
 					// Base markers.
@@ -4957,26 +5598,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
 					else text = fillString("%f",p);
 
-					drawText(text, font, vec2(scaleRect.right - markLength - fontMargin, y), mainColor, vec2i(1,0), 0, as->fontShadow, ac->fontShadow);
+					drawText(text, font, vec2(scaleRect.right - markLength - textMargin, y), mainColor, vec2i(1,0), 0, shadow, shadowColor);
 					
 					float textWidth = getTextDim(text, font).w;
 
-					if(calcMaxTextWidth) maxTextWidth = max(maxTextWidth, textWidth + markLength+fontMargin);
+					if(calcMaxTextWidth) maxTextWidth = max(maxTextWidth, textWidth + markLength + textMargin*2);
 
 					// Semi markers.
 					for(int i = 1; i < subDiv; i++) {
 						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
-						drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength*0.5f,0), semiColor); 
+						drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength*markSizeDifference,0), semiColor); 
 
 						char* subText;
 						if(stepSize/subDiv > 10) subText = fillString("%i.",(int)(stepSize/subDiv));
 						else subText = fillString("%f",(stepSize/subDiv));
 
-						drawText(subText, font, vec2(scaleRect.right - markLength*0.5f - fontMargin, y), semiColor, vec2i(1,0), 0, as->fontShadow, ac->fontShadow);
+						drawText(subText, font, vec2(scaleRect.right - markLength*markSizeDifference - textMargin, y), semiColor, vec2i(1,0), 0, shadow, shadowColor);
 
 						// Draw horizontal line.
 						scissorTestScreen(cam->viewPort);
-						drawLine(vec2(scaleRect.right, y), vec2(cam->viewPort.right, y), subHoriLinesColor); 
+						drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), subHoriLinesColor); 
 						scissorTestScreen(scaleRect);
 					}
 
@@ -4991,27 +5632,43 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			glDisable(GL_SCISSOR_TEST);
+
+			// Draw dividers.
+			Vec4 color = leftScaleDividerColor;
+			float offset = 0;
+			glLineWidth(leftScaleDividerSize);
+			for(int camIndex = 0; camIndex < ad->camCount-1; camIndex++) {
+				Rect r = leftTextRects[camIndex];
+				drawLine(rectBL(r), rectBR(r), color);
+			}
+			glLineWidth(1);
 		}
 
-		// Draw bottom text.
+		// Draw bottom scale.
 		if(ad->sortByDate)
 		{
 			TIMER_BLOCK_NAMED("Bottom Text");
 
-			GraphCam* cam = &ad->cams[0];
 
 			int subStringMargin = font->height/2;
 			float splitOffset = font->height;
 
-			Vec4 mainColor = ac->font1;
-			Vec4 semiColor = ac->font2;
-			Vec4 horiLinesColor = ac->graphMarkers;
+			Vec4 mainColor = newac->font;
+			Vec4 semiColor = newac->font2;
+			Vec4 horiLinesColor = newac->graphMark;
+			Vec4 subHoriLinesColor = newac->graphSubMark;
+
 			float markLength = font->height - 3;
 			float fontMargin = 0;
+			float lineWidth = 1;
+
+			float shadow = newas->fontShadow;
+			Vec4 shadowColor = newac->fontShadow;
+
 			float div = 10;
 			float splitSizePixels = 1000;
 
-			glLineWidth(1);
+			glLineWidth(lineWidth);
 			glEnable(GL_SCISSOR_TEST);
 
 			Rect scaleRect = rBottomText;
@@ -5019,6 +5676,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			i64 oneYearInSeconds = (i64)365*86400;
 			i64 oneMonthInSeconds = (i64)30*86400;
 			i64 oneDayInSeconds = (i64)1*86400;
+
+			GraphCam* cam = &ad->cams[0];
 
 			float yearInPixels = graphCamCamToScreenSpaceX(cam, oneYearInSeconds);
 			float monthInPixels = graphCamCamToScreenSpaceX(cam, oneMonthInSeconds);
@@ -5099,12 +5758,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 						if(zoomStage == 2 && i != 0) dateString = fillString("%s%i:00", d.h<10?"0":"", d.h);
 
 						scissorTestScreen(rGraphs);
-						drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), i==0?ac->graphMarkers:ac->graphSubMarkers);
+						drawLine(vec2(roundFloat(x)+0.5f, rGraphs.bottom), vec2(roundFloat(x)+0.5f, rGraphs.top), i==0?horiLinesColor:subHoriLinesColor);
 						scissorTestScreen(scaleRect);
 
 						drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
 						// drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
-						drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1), 0, as->fontShadow, ac->fontShadow);
+						drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1), 0, shadow, shadowColor);
 
 						dateIncrement(&d, subMarkerWidth, zoomStage+1);
 						dateEncode(&d);
@@ -5120,7 +5779,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 						char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
 						// drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1));
-						drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1), 0, as->fontShadow, ac->fontShadow);
+						drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1), 0, shadow, shadowColor);
 
 						leftX = x;
 					}
@@ -5135,270 +5794,294 @@ extern "C" APPMAINFUNCTION(appMain) {
 			glDisable(GL_SCISSOR_TEST);
 		}
 
-
-
-		YoutubeVideo* vids = ad->videos;
-		int vidCount = ad->playlist.count;
-
-		glEnable(GL_SCISSOR_TEST);
-
-		TIMER_BLOCK_BEGIN_NAMED(drawGraphs, "DrawGraphs");
-
-		float settingHoverSearchWidth = 100;
-		float settingHoverDistance = 20;
-		ad->hoveredVideo = -1;
-
-		// Draw Graphs.
-		int graphCount = ad->camCount + 1;
-		int mode = ad->graphDrawMode;
-		for(int graphIndex = 0; graphIndex < graphCount; graphIndex++) {
-
-			Vec4 c1 = ac->graphLine1;
-			Vec4 c2 = ac->graphLine2;
-			Vec4 colors[] = {c1,c1,c2,c2,c1};
-
-			int camIndexes[] = {0,1,1,2,3};
-			GraphCam* cam = ad->cams + camIndexes[graphIndex];
-			Vec4 color = colors[graphIndex];
-			Rect graphRect = graphRects[camIndexes[graphIndex]];
-
-			scissorTestScreen(rectExpand(cam->viewPort, 1));
-
-			if(mode == 0) {
-				glLineWidth(1);
-				drawLineStripHeader(color);
-			} else if(mode == 1) {
-				glPointSize(3);
-				drawPointsHeader(color);
-			} else if(mode == 2) {
-				glLineWidth(3);
-				drawLinesHeader(color);
-			}
-
-			float statMouseDiff = FLT_MAX;
-			double searchDistance = graphCamScreenToCamSpaceX(cam, settingHoverSearchWidth)/2;
-
-			Vec2 mousePos = input->mousePosNegative;
-			bool mouseInGraphRect = pointInRect(mousePos, graphRect);
-
-			float camBottomY = graphCamMapY(cam, 0);
-
-			bool lastOneWasOverRight = false;
-			for(int i = 0; i < vidCount; i++) {
-
-				double xValue;
-				if(ad->sortByDate) {
-					if(i+1 < vidCount && vids[i+1].date.n < cam->left) continue;
-					if(lastOneWasOverRight) continue;
-					if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
-
-					xValue = vids[i].date.n;
-				} else {
-					if(i < cam->left-1 || i > cam->right+1) continue;
-					xValue = i;
-				}
-
-				double value;
-				     if(graphIndex == 0) value = vids[i].viewCount;
-				else if(graphIndex == 1) value = vids[i].likeCount + vids[i].dislikeCount;
-				else if(graphIndex == 2) value = vids[i].dislikeCount;
-				else if(graphIndex == 3) value = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
-				else if(graphIndex == 4) value = vids[i].commentCount;
-
-				Vec2 point = graphCamMap(cam, xValue, value);
-
-				// Get closest point to mouse.
-				if(mouseInGraphRect) {
-					if(valueBetweenDouble(xValue, xValue - searchDistance, xValue + searchDistance)) {
-						float diff = lenLine(point, mousePos);
-
-						if(diff < statMouseDiff && diff < settingHoverDistance) {
-							statMouseDiff = diff;
-							ad->hoveredPoint = point;
-							ad->hoveredVideo = i;
-							ad->hoveredVideoStat = value;
-						}
-					}
-				}
-
-				if(mode < 2) pushVec(point);
-				else pushVecs(vec2(point.x, camBottomY), point);
-			}
-
-			glEnd();
-		}
-
-		// Average line.
+		// Graphs.
 		{
-			glLineWidth(1);
-			glEnable(GL_SCISSOR_TEST);
-			Vec4 c = ac->graphLineAvg;
+			TIMER_BLOCK_BEGIN_NAMED(drawGraphs, "DrawGraphs");
 
-			for(int graphIndex = 0; graphIndex < Line_Graph_Count; graphIndex++) {
+			float settingHoverSearchWidth = 100;
+			float settingHoverDistance = 20;
+			Vec4 c1 = newac->graphData1;
+			Vec4 c2 = newac->graphData2;
 
-				GraphCam* cam = ad->cams + graphIndex;
+			Vec4 statColor = newac->graphData3;
 
-				double avgStartX = ad->videos[0].date.n;
-				double avgWidth = monthsToInt(ad->statWidth);
-				double avgTimeSpan = monthsToInt(ad->statTimeSpan);
+			int lineWidth1 = 1;
+			int lineWidth2 = 3;
+			int pointSize = 3;
+			int statLineWidth = 1;
 
-				scissorTestScreen(rectExpand(cam->viewPort, 1));
 
-				if(ad->sortByDate) {
-
-					drawLineStripHeader(c);
-
-					double xPos = avgStartX;
-					int endCount = ad->averagesLineGraph.count-1;
-					for(int i = 0; i < endCount; i++) {
-						if(xPos + avgWidth < cam->left) {
-							xPos += avgWidth;
-							continue;
-						}
-						if(xPos - avgWidth > cam->right) break;
-
-						{
-							Vec2 p0, p1, p2, p3;
-
-							p1 = graphCamMap(cam, xPos, ad->averagesLineGraph.points[graphIndex][i]);
-							p2 = graphCamMap(cam, xPos+avgWidth, ad->averagesLineGraph.points[graphIndex][i+1]);
-							
-							if(i != 0) p0 = graphCamMap(cam, xPos-avgWidth, ad->averagesLineGraph.points[graphIndex][i-1]);
-							else p0 = p1 + (p1 - p2);
-							if(i != endCount-1) p3 = graphCamMap(cam, xPos+avgWidth*2, ad->averagesLineGraph.points[graphIndex][i+2]);
-							else p3 = p2 - (p2 - p1);
-
-							int segmentCount = bezierCurveGuessLength(p0, p1, p2, p3)/Cubic_Curve_Segment_Mod;
-							segmentCount = clampMin(segmentCount, Cubic_Curve_Segment_Min);
-
-							for(int i = 0; i < segmentCount; i++) {
-								pushVec(cubicInterpolationVec2(p0, p1, p2, p3, (float)i/(segmentCount-1)));
-							}
-						}
-
-						xPos += avgWidth;
-					}
-					glEnd();
-
-				} else {
-					Statistic* stat = ad->stats + graphIndex;
-					float y = graphCamMapY(cam, stat->avg);
-					drawLine(vec2(cam->viewPort.left, y), vec2(cam->viewPort.right, y), c);
-				}
-
-			}
-
-			glDisable(GL_SCISSOR_TEST);
-			glLineWidth(1);
-		}
-
-		TIMER_BLOCK_END(drawGraphs);
-
-		glDisable(GL_SCISSOR_TEST);
-
-		// Mouse hover.
-		{
-			TIMER_BLOCK_NAMED("Mouse Hover");
 
 			int settingHoverPointSize = 10;
 			int settingHoverPointOffset = 10;
+			Font* graphTextFont = ad->font;
+			Vec2 graphTextOffset = vec2(5);
+			float graphTextOutline = newas->graphFontShadow;
+			float hoverTextOutline = newas->graphFontShadow;
 
-			int id = newGuiIncrementId(ad->gui);
-			bool mPosActive = newGuiGoMousePosAction(ad->gui, rGraphs, 0);
-			if(mPosActive && ad->hoveredVideo != -1) {
-				scissorTestScreen(rGraphs);
+			Vec4 graphTextColor = newac->graphFont;
+
+
+
+
+			Font* graphTitleFont = ad->fontTitle;
+			Vec2 graphTitleOffset = vec2(as->titleOffset, -as->titleOffset);
+			Vec4 graphTitleColor = newac->font;
+			float graphTitleOutline = newas->fontShadow;
+			Vec4 graphTitleOutlineColor = newac->fontShadow;
+
+			char* graphTitles[Line_Graph_Count] = {"Views", "Likes", "Likes/Dislikes", "Comments"};
+			char* sortButtonText = "Sort";
+			Vec2 sortButtonOffset = vec2(font->height*0.5f, 0);
+			float sortButtonMargin = font->height*0.5f;
+
+			TextBoxSettings graphUISettings = textBoxSettings(font, newac->button, newac->font, newas->fontShadow, newac->fontShadow, UI_Rounding);
+
+
+			float selectionWidth = 1;
+			Vec4 selectionColor = newac->graphFont;
+			selectionColor.a = 0.2f;
+
+
+
+			YoutubeVideo* vids = ad->videos;
+			int vidCount = ad->playlist.count;
+			ad->hoveredVideo = -1;
+
+			glEnable(GL_SCISSOR_TEST);
+
+			// Draw Graphs.
+			int graphCount = ad->camCount + 1;
+			int mode = ad->graphDrawMode;
+			for(int graphIndex = 0; graphIndex < graphCount; graphIndex++) {
+
+				Vec4 colors[] = {c1,c1,c2,c2,c1};
+
+				int camIndexes[] = {0,1,1,2,3};
+				GraphCam* cam = ad->cams + camIndexes[graphIndex];
+				Vec4 color = colors[graphIndex];
+				Rect graphRect = graphRects[camIndexes[graphIndex]];
+
+				scissorTestScreen(rectExpand(cam->viewPort, 1));
+
+				if(ad->playlist.count == 1) mode = 2;
+
+				if(mode == 0) {
+					glLineWidth(lineWidth1);
+					drawLineStripHeader(color);
+				} else if(mode == 1) {
+					glPointSize(pointSize);
+					drawPointsHeader(color);
+				} else if(mode == 2) {
+					glLineWidth(lineWidth2);
+					drawLinesHeader(color);
+				}
+
+				float statMouseDiff = FLT_MAX;
+				double searchDistance = graphCamScreenToCamSpaceX(cam, settingHoverSearchWidth)/2;
+
+				Vec2 mousePos = input->mousePosNegative;
+				bool mouseInGraphRect = pointInRect(mousePos, graphRect);
+
+				float camBottomY = graphCamMapY(cam, 0);
+
+				bool lastOneWasOverRight = false;
+				for(int i = 0; i < vidCount; i++) {
+
+					double xValue;
+					if(ad->sortByDate) {
+						if(i+1 < vidCount && vids[i+1].date.n < cam->left) continue;
+						if(lastOneWasOverRight) continue;
+						if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
+
+						xValue = vids[i].date.n;
+					} else {
+						if(i < cam->left-1 || i > cam->right+1) continue;
+						xValue = i;
+					}
+
+					double value;
+					     if(graphIndex == 0) value = vids[i].viewCount;
+					else if(graphIndex == 1) value = vids[i].likeCount + vids[i].dislikeCount;
+					else if(graphIndex == 2) value = vids[i].dislikeCount;
+					else if(graphIndex == 3) value = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
+					else if(graphIndex == 4) value = vids[i].commentCount;
+
+					Vec2 point = graphCamMap(cam, xValue, value);
+
+					// Get closest point to mouse.
+					if(mouseInGraphRect) {
+						if(valueBetweenDouble(xValue, xValue - searchDistance, xValue + searchDistance)) {
+							float diff = lenLine(point, mousePos);
+
+							if(diff < statMouseDiff && diff < settingHoverDistance) {
+								statMouseDiff = diff;
+								ad->hoveredPoint = point;
+								ad->hoveredVideo = i;
+								ad->hoveredVideoStat = value;
+							}
+						}
+					}
+
+					if(mode < 2) pushVec(point);
+					else pushVecs(vec2(point.x, camBottomY), point);
+				}
+
+				glEnd();
+			}
+
+			// Average line.
+			{
+				glLineWidth(statLineWidth);
 				glEnable(GL_SCISSOR_TEST);
 
-				int vi = ad->hoveredVideo;
+				for(int graphIndex = 0; graphIndex < Line_Graph_Count; graphIndex++) {
 
-				// Draw text top right.
-				Font* font = ad->font;
-				Vec4 c = ac->font3;
-				Vec2 p = rChart.max - vec2(5);
-				float os = 2;
-				drawTextOutlined(fillString("%s", ad->videos[vi].title), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
-				drawTextOutlined(fillString("%s", ad->videos[vi].dateString), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
-				drawTextOutlined(fillString("%i", vi), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+					GraphCam* cam = ad->cams + graphIndex;
 
-				// Draw Point.
-				glPointSize(settingHoverPointSize);
-				// drawText(fillString("%i", ad->videos[vi].viewCount), font, ad->hoveredPoint + vec2(10,10), c, vec2i(-1,-1));
-				char* text;
-				if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
-				else text = fillString("%f", ad->hoveredVideoStat);
-				os = 1;
+					double avgStartX = ad->videos[0].date.n;
+					double avgWidth = monthsToInt(ad->statWidth);
+					double avgTimeSpan = monthsToInt(ad->statTimeSpan);
 
-				// Get text pos and clamp to graph rect.
-				Vec2 hoverPos = ad->hoveredPoint + vec2(settingHoverPointOffset,settingHoverPointOffset);
-				Rect textRect = rectBLDim(hoverPos, getTextDim(text, font));
-				Vec2 offset = rectInsideRectClamp(textRect, rGraphs);
-				textRect = rectTrans(textRect, offset);
-				hoverPos = rectBL(textRect);
+					scissorTestScreen(rectExpand(cam->viewPort, 1));
 
-				drawTextOutlined(text, font, hoverPos, os, c, vec4(0,1), vec2i(-1,-1));
-				drawPoint(ad->hoveredPoint, ac->font3);
-				glPointSize(1);
+					if(ad->sortByDate) {
+						if(ad->playlist.count > 1) {
+							drawLineStripHeader(statColor);
+
+							double xPos = avgStartX;
+							int endCount = ad->averagesLineGraph.count-1;
+							for(int i = 0; i < endCount; i++) {
+								if(xPos + avgWidth < cam->left) {
+									xPos += avgWidth;
+									continue;
+								}
+								if(xPos - avgWidth > cam->right) break;
+
+								{
+									Vec2 p0, p1, p2, p3;
+
+									p1 = graphCamMap(cam, xPos, ad->averagesLineGraph.points[graphIndex][i]);
+									p2 = graphCamMap(cam, xPos+avgWidth, ad->averagesLineGraph.points[graphIndex][i+1]);
+									
+									if(i != 0) p0 = graphCamMap(cam, xPos-avgWidth, ad->averagesLineGraph.points[graphIndex][i-1]);
+									else p0 = p1 + (p1 - p2);
+									if(i != endCount-1) p3 = graphCamMap(cam, xPos+avgWidth*2, ad->averagesLineGraph.points[graphIndex][i+2]);
+									else p3 = p2 - (p2 - p1);
+
+									int segmentCount = bezierCurveGuessLength(p0, p1, p2, p3)/Cubic_Curve_Segment_Mod;
+									segmentCount = clampMin(segmentCount, Cubic_Curve_Segment_Min);
+
+									for(int i = 0; i < segmentCount; i++) {
+										pushVec(cubicInterpolationVec2(p0, p1, p2, p3, (float)i/(segmentCount-1)));
+									}
+								}
+
+								xPos += avgWidth;
+							}
+							glEnd();
+						}
+
+					} else {
+						Statistic* stat = ad->stats + graphIndex;
+						float y = graphCamMapY(cam, stat->avg);
+						drawLine(vec2(cam->viewPort.left, y), vec2(cam->viewPort.right, y), statColor);
+					}
+
+				}
 
 				glDisable(GL_SCISSOR_TEST);
-
-				if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
-					if(vi != ad->selectedVideo) {
-						ad->selectedPoint = ad->hoveredPoint;
-						ad->selectedVideo = vi;
-
-						downloadModeSet(Download_Mode_Snippet, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-					}
-				}
+				glLineWidth(1);
 			}
-		}
 
+			TIMER_BLOCK_END(drawGraphs);
 
+			glDisable(GL_SCISSOR_TEST);
 
-		Font* titleFont = ad->fontTitle;
-		glEnable(GL_SCISSOR_TEST);
-
-		for(int i = 0; i < ad->camCount; i++) {
-			Rect rGraph = graphRects[i];
-			Vec2 tp = rectTL(rGraph) + vec2(as->titleOffset,-as->titleOffset);
-
-			scissorTestScreen(rGraph);
-
-			// drawRect(rGraph, vec4(1,1));
-
-			char* text;
-			if(i == 0) text = "Views";
-			else if(i == 1) text = "Likes";
-			else if(i == 2) text = "Likes/Dislikes";
-			else if(i == 3) text = "Comments";
-			else text = "";
-
-			float textWidth = getTextDim(text, titleFont).w;
-
-			drawTextOutlined(text, titleFont, tp, 2, ac->font1, vec4(0,1), vec2i(-1,1));
-
-			// Sort buttons.
+			// Mouse hover.
 			{
-				char* text = "Sort";
-				Rect r = rectTLDim(tp + vec2(textWidth + font->height/2, 0), vec2(getTextDim(text, font).w + 8, font->height));
+				TIMER_BLOCK_NAMED("Mouse Hover");
 
-				TextBoxSettings settings = textBoxSettings(font, ac->buttons, ac->font1, as->fontShadow, ac->fontShadow, UI_Rounding);
-				if(newGuiQuickButton(ad->gui, r, 1, text, rGraph, settings)) {
-					if(ad->sortStat != i) {
-						ad->startLoadFile = true;
-						ad->sortByDate = false;
-						ad->sortStat = i;
+				Font* font = graphTextFont;
+				Vec4 c = graphTextColor;
+				float os = graphTextOutline;
+
+				int id = newGuiIncrementId(ad->gui);
+				bool mPosActive = newGuiGoMousePosAction(ad->gui, rGraphs, 0);
+				if(mPosActive && ad->hoveredVideo != -1) {
+					scissorTestScreen(rGraphs);
+					glEnable(GL_SCISSOR_TEST);
+
+					int vi = ad->hoveredVideo;
+
+					// Draw text top right.
+
+					Vec2 p = rChart.max - graphTextOffset;
+					drawTextOutlined(fillString("%s", ad->videos[vi].title), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+					drawTextOutlined(fillString("%s", ad->videos[vi].dateString), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+					drawTextOutlined(fillString("%i", vi), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+
+					// Draw Point.
+					glPointSize(settingHoverPointSize);
+					// drawText(fillString("%i", ad->videos[vi].viewCount), font, ad->hoveredPoint + vec2(10,10), c, vec2i(-1,-1));
+					char* text;
+					if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
+					else text = fillString("%f", ad->hoveredVideoStat);
+					os = hoverTextOutline;
+
+					// Get text pos and clamp to graph rect.
+					Vec2 hoverPos = ad->hoveredPoint + vec2(settingHoverPointOffset,settingHoverPointOffset);
+					Rect textRect = rectBLDim(hoverPos, getTextDim(text, font));
+					Vec2 offset = rectInsideRectClamp(textRect, rGraphs);
+					textRect = rectTrans(textRect, offset);
+					hoverPos = rectBL(textRect);
+
+					drawTextOutlined(text, font, hoverPos, os, c, vec4(0,1), vec2i(-1,-1));
+					drawPoint(ad->hoveredPoint, c);
+					glPointSize(1);
+
+					glDisable(GL_SCISSOR_TEST);
+
+					if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
+						if(vi != ad->selectedVideo) {
+							ad->selectedPoint = ad->hoveredPoint;
+							ad->selectedVideo = vi;
+
+							downloadModeSet(Download_Mode_Snippet, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+						}
 					}
 				}
-
 			}
-		}
-		glDisable(GL_SCISSOR_TEST);
 
+			// Draw graph titles. 
+			glEnable(GL_SCISSOR_TEST);
+			for(int i = 0; i < ad->camCount; i++) {
+				Rect rGraph = graphRects[i];
+				Vec2 tp = rectTL(rGraph) + graphTitleOffset;
 
-		// Side panel.
-		if(ad->selectedVideo != -1 && rectW(rSidePanel) != 0) {
+				scissorTestScreen(rGraph);
 
-			TIMER_BLOCK_NAMED("SidePanel");
+				char* text = graphTitles[i];
+				float textWidth = getTextDim(text, graphTitleFont).w;
+
+				drawTextOutlined(text, graphTitleFont, tp, graphTitleOutline, graphTitleColor, graphTitleOutlineColor, vec2i(-1,1));
+
+				// Sort buttons.
+				{
+					char* text = sortButtonText;
+					Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(getTextDim(text, font).w + sortButtonMargin, font->height));
+
+					if(newGuiQuickButton(ad->gui, r, 1, text, rGraph, graphUISettings)) {
+						if(ad->sortStat != i) {
+							ad->startLoadFile = true;
+							ad->sortByDate = false;
+							ad->sortStat = i;
+						}
+					}
+
+				}
+			}
+			glDisable(GL_SCISSOR_TEST);
 
 			// Graph selection line.
 			{
@@ -5406,14 +6089,51 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(ad->sortByDate) x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.n) + 1;
 				else x = graphCamMapX(&ad->cams[0], ad->selectedVideo);
 
+				glLineWidth(selectionWidth);
+				drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), selectionColor);
 				glLineWidth(1);
-				drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), ac->mouseHover);
 			}
+		}
+
+
+		// Side panel.
+		if(ad->selectedVideo != -1 && rectW(rSidePanel) != 0) {
+
+			TIMER_BLOCK_NAMED("SidePanel");
+
+			float padding = newas->padding;
+
+			float resizeRegionSize = as->resizeRegionSize;
+			Vec4 sidePanelColor = newac->background;
+			float border = newas->border;
+			Rect rPanel = rectExpand(rSidePanel, vec2(-border*2));
+			Font* font = ad->font;
+			Font* font2 = ad->fontComment;
+			float xMid = rectCen(rPanel).x;
+			float width = rectW(rPanel);
+			Vec4 fc = newac->font;
+			Vec4 fc2 = newac->font2;
+			Vec4 fcComment = newac->commentFont;
+
+			float heightMod = newas->heightMod;
+
+			float yOffset = padding;
+
+			Vec4 scrollBarColor = newac->button;
+			Vec4 scrollRegionColor = newac->uiBackground;
+			ScrollRegionSettings scrollSettings = {vec2(padding,0), 20, vec2(4,4), 6, 0, 40, font->height, true, true, true, scrollBarColor, vec4(0,0), vec4(0,0)};
+
+			float shadow = newas->fontShadow;
+			Vec4 shadowColor = newac->fontShadow;
+
+			float commentShadow = newas->commentFontShadow;
+			Vec4 commentShadowColor = newac->commentFontShadow;
+
+
 
 			// Panel width slider.
 			{
-				// Rect r = rectCenDim(rectL(rSidePanel), vec2(font->height, rectH(rSidePanel)-4));
-				Rect r = rectCenDim(rectL(rSidePanel), vec2(as->resizeRegionSize, rectH(rSidePanel)));
+				Rect r = rectCenDim(rectL(rSidePanel), vec2(resizeRegionSize, rectH(rSidePanel)));
 
 				int event = newGuiGoDragAction(ad->gui, r, 1);
 				if(event == 1) ad->gui->mouseAnchor.x = (ws->currentRes.w-input->mousePos.x) - ad->sidePanelWidth;
@@ -5425,93 +6145,77 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_SIZEWE);
 			}
 
-			Vec4 sidePanelColor = ac->sidePanel;
 			drawRect(rSidePanel, sidePanelColor);
 
-			float border = as->marginSidePanel;
-			Rect rPanel = rectExpand(rSidePanel, -vec2(border,border));
-			Font* font = ad->font;
-			Font* font2 = ad->fontComment;
-			float xMid = rectCen(rPanel).x;
-			float width = rectW(rPanel);
-			float yPos = rPanel.top;
-			Vec4 fc = ac->font1;
+			Vec2 writePos = rectTL(rPanel);
+			Vec2 writeDim = vec2(rectW(rPanel), font->height);
 
-			Rect infoPanelTop = rPanel;
-			infoPanelTop.min.y = infoPanelTop.top - font->height - as->marginButtonsHeight;
 
 			bool closePanel = false;
 
+			float z = 1;
+
 			// Top gui.
 			{
-				glEnable(GL_SCISSOR_TEST);
-
 				float offset = as->marginButtons;
-				float divs[] = {40,0,40, 30};
-				Rect buttons[arrayCount(divs)];
 
-				Layout* lay = layoutAlloc(layout(infoPanelTop, false, vec2i(-1,0), vec2(as->marginButtons, 0)));
-				for(int i = 0; i < arrayCount(divs); i++) layoutAdd(lay, layout(vec2(divs[i], 0)));
+				Rect infoPanelTop = rectTLDim(writePos, vec2(writeDim.w, font->height*heightMod)); 
+				writePos.y -= rectH(infoPanelTop) + padding;
+
+				Layout* lay = layoutAlloc(layout(infoPanelTop, false, vec2i(-1,0), vec2(padding, 0)));
 				layoutCalc(lay);
 
-				int i = 0;
-				For_Layout(lay) buttons[i++] = l->r;
+				Layout* l = layoutQuickRow(lay, infoPanelTop, 40, 0, 40, 30);
 
+				TextBoxSettings settings = textBoxSettings(font, newac->button, fc, shadow, shadowColor, UI_Rounding);
 
-				Vec4 buttonColor = ac->sidePanelButtons;
-				TextBoxSettings settings = textBoxSettings(font, buttonColor, fc, 0, vec4(0,0), UI_Rounding);
+				int modSelectedVideo = 0;
 
-				float z = 1;
+				glEnable(GL_SCISSOR_TEST);
 
-				if(ad->selectedVideo > 0) {
-					Rect r = buttons[0];
-
-					if(newGuiQuickButton(ad->gui, r, z, "", settings)) {
-						if(ad->selectedVideo != -1) {
-							int newSelection = clampMin(ad->selectedVideo - 1, 0);
-							if(newSelection != ad->selectedVideo) {
-								ad->selectedVideo = newSelection;
-
-								downloadModeSet(Download_Mode_Snippet, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-							}
-						}
+				{
+					Rect r = layoutInc(&l);
+					if(ad->selectedVideo > 0) {
+						if(newGuiQuickButton(ad->gui, r, z, "", settings)) modSelectedVideo = 1;
+						drawTriangle(rectCen(r), font->height/3, vec2(-1,0), fc);
 					}
-					drawTriangle(rectCen(r), font->height/3, vec2(-1,0), fc);
+				}
+
+				if(newGuiQuickButton(ad->gui, layoutInc(&l), z, "Open in Browser", settings)) {
+					shellExecuteNoWindow(fillString("cmd.exe /c start \"link\" \"https://www.youtube.com/watch?v=%s\"", ad->videos[ad->selectedVideo].id));
 				}
 
 				{
-					Rect r = buttons[1];
-					if(newGuiQuickButton(ad->gui, r, z, "Open in Browser", settings)) {
-						shellExecuteNoWindow(fillString("cmd.exe /c start \"link\" \"https://www.youtube.com/watch?v=%s\"", ad->videos[ad->selectedVideo].id));
+					Rect r = layoutInc(&l);
+					if(ad->selectedVideo != ad->playlist.count-1) {
+						if(newGuiQuickButton(ad->gui, r, z, "", settings)) modSelectedVideo = 2;
+						drawTriangle(rectCen(r), font->height/3, vec2(1,0), fc);
 					}
-				}
-
-				if(ad->selectedVideo != ad->playlist.count-1) {
-					Rect r = buttons[2];
-					if(newGuiQuickButton(ad->gui, r, z, "", settings)) {
-						if(ad->selectedVideo != -1) {
-							int newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
-							if(newSelection != ad->selectedVideo) {
-								ad->selectedVideo = newSelection;
-
-								downloadModeSet(Download_Mode_Snippet, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-							}
-						}
-					}
-					drawTriangle(rectCen(r), font->height/3, vec2(1,0), fc);
 				}
 
 				{
-					Rect r = buttons[3];
+					Rect r = layoutInc(&l);
 					if(newGuiQuickButton(ad->gui, r, z, "", settings)) closePanel = true;
 					drawCross(rectCen(r), font->height/3, 2, vec2(0,1), fc);
 				}
 
 				glDisable(GL_SCISSOR_TEST);
+
+				if(modSelectedVideo != 0) {
+					if(ad->selectedVideo != -1) {
+						int newSelection;
+						if(modSelectedVideo == 1) newSelection = clampMin(ad->selectedVideo - 1, 0);
+						else newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
+
+						if(newSelection != ad->selectedVideo) {
+							ad->selectedVideo = newSelection;
+
+							downloadModeSet(Download_Mode_Snippet, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
+						}
+					}
+				}
 			}
 
-
-			yPos -= rectH(infoPanelTop) + 8;
 
 			glEnable(GL_SCISSOR_TEST);
 			scissorTestScreen(rectExpand(rPanel,2));
@@ -5519,140 +6223,113 @@ extern "C" APPMAINFUNCTION(appMain) {
 			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
 			VideoSnippet* sn = &ad->videoSnippet;
 
-			drawText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, yPos), fc, vec2i(0,1));
+			drawText(fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id), font, vec2(xMid, writePos.y), fc, vec2i(0,1), 0, shadow, shadowColor);
+			writePos.y -= writeDim.y + yOffset;
 
-			yPos -= font->height;
+			{
+				Vec2 imageDim = vec2(Thumbnail_Size_X, Thumbnail_Size_Y);
+				if(imageDim.w > rectW(rPanel)) imageDim = vec2(rectW(rPanel), rectW(rPanel)*(divZero(imageDim.h, imageDim.w)));
+				Rect imageRect = rectCenDim(rectCenX(rPanel), writePos.y - imageDim.h/2, imageDim.w, imageDim.h);
+				writePos.y -= rectH(imageRect) + yOffset;
 
+				if(ad->downloadMode == Download_Mode_Snippet && ad->downloadStep < 3) 
+					drawTriangle(rectCen(imageRect), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
+				else drawRect(imageRect, rect(0.01,0,0.99,1), sn->thumbnailTexture.id);
+			}
 
-			Vec2 imageDim = vec2(Thumbnail_Size_X, Thumbnail_Size_Y);
-			if(imageDim.w > rectW(rPanel)) imageDim = vec2(rectW(rPanel), rectW(rPanel)*(divZero(imageDim.h, imageDim.w)));
-			Rect imageRect = rectCenDim(rectCenX(rPanel), yPos - imageDim.h/2, imageDim.w, imageDim.h);
+			drawText(sv->title, font, vec2(xMid, writePos.y), fc, vec2i(0,1), width, shadow, shadowColor);
+			writePos.y -= getTextHeight(sv->title, font, vec2(xMid, writePos.y), width) + yOffset;
 
-			if(ad->downloadMode == Download_Mode_Snippet && ad->downloadStep < 3) drawTriangle(rectCen(imageRect), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
-			// else drawRect(imageRect, rect(0,0,1,1), sn->thumbnailTexture.id);
-			else drawRect(imageRect, rect(0.01,0,0.99,1), sn->thumbnailTexture.id);
+			{
+				Rect r = rectTLDim(writePos, writeDim); writePos.y -= writeDim.y + yOffset;
+				rectSetDim(&r, vec2(writeDim.w, rectH(r)*0.7f));
 
-			yPos -= rectH(imageRect);
-			yPos -= font->height/2;
+				glLineWidth(1);
+				float dislikePercent = divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount));
+				drawRectProgress(r, 1-dislikePercent, newac->graphData1, newac->graphData2, true, newac->edge);
 
-			drawText(sv->title, font, vec2(xMid, yPos), fc, vec2i(0,1), width);
-			yPos -= getTextHeight(sv->title, font, vec2(xMid, yPos), width);
-			yPos -= font->height;
-
-			float dislikePercent = divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount));
-			glLineWidth(1);
-			drawRectProgress(rectLDim(rPanel.left, yPos, rectW(rPanel), font->height*0.6f), 1-dislikePercent, ac->likes, ac->dislikes, true, vec4(0,1));
-			yPos -= font->height;
+				drawText(fillString("%f", divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount))), font, rectCen(r), fc, vec2i(0,0), 0, shadow, shadowColor);
+			}
 
 			{
 				glEnable(GL_SCISSOR_TEST);
 
 				int lineCount = 6;
-				scissorTestScreen(rectTLDim(rPanel.left, yPos, rectW(rPanel)/2 - 1, font->height*lineCount));
-				drawText("Date:\nTime:\nViews:\nLikes/Dislikes:\nComments:\nFavorites:", font, vec2(rPanel.left, yPos), fc, vec2i(-1,1));
+				float height = font->height*lineCount;
+				Vec2 p = writePos; 
+				scissorTestScreen(rectTLDim(p, vec2(writeDim.w - 1, height)));
+				drawText("Date:\nTime:\nViews:\nLikes/Dislikes:\nComments:\nFavorites:", font, p, fc, vec2i(-1,1), 0, shadow, shadowColor);
 
-				scissorTestScreen(rectTRDim(rPanel.right, yPos, rectW(rPanel)/2 - 1, font->height*lineCount));
-				char* t;
+				p = writePos + vec2(writeDim.w, 0);
+				scissorTestScreen(rectTRDim(p, vec2(writeDim.w/2 - 1, height)));
 				for(int i = 0; i < lineCount; i++) {
+					char* t;
 					if(i == 0) t = fillString("%s%i..%s%i..%s%i", sv->date.d<10?"0":"", sv->date.d, sv->date.m<10?"0":"", sv->date.m, sv->date.y<10?"200":"20", sv->date.y);
 					if(i == 1) t = fillString("%s%i:%s%i:%s%i.", sv->date.h<10?"0":"", sv->date.h, sv->date.mins<10?"0":"", sv->date.mins, sv->date.secs<10?"0":"", sv->date.secs);
 					if(i == 2) t = fillString("%i.", sv->viewCount);
-					if(i == 3) t = fillString("%i | %i - %f", sv->likeCount, sv->dislikeCount, divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount)));
+					if(i == 3) t = fillString("%i | %i", sv->likeCount, sv->dislikeCount);
 					if(i == 4) t = fillString("%i", sv->commentCount);
 					if(i == 5) t = fillString("%i", sv->favoriteCount);
 				
-					drawText(t, font, vec2(rPanel.right, yPos), fc, vec2i(1,1)); 
-					yPos -= font->height;
+					drawText(t, font, p, fc, vec2i(1,1), 0, shadow, shadowColor); 
+					p.y -= font->height;
 				}
 
 				glDisable(GL_SCISSOR_TEST);
+
+				writePos.y -= height + yOffset;
 			}
 
-			yPos -= font->height/2;
+			drawText("Comments", font, vec2(writePos.x + writeDim.w/2, writePos.y), fc, vec2i(0,1), 0, shadow, shadowColor);
+			writePos.y -= writeDim.h + yOffset;
 
-			drawText("Comments", font, vec2(xMid, yPos), fc, vec2i(0,1));
-			yPos -= font->height;
+			scissorState(false);
 
 			{
-				static float commentHeight = 300;
-				bool hasScrollbar = commentHeight > 0;
+				ScrollRegionValues scrollValues = {};
+				Rect r = rectTLDim(writePos, vec2(writeDim.w, writePos.y - rPanel.bottom));
+				Rect scissor = r;
 
-				float scrollBarWidth = hasScrollbar?as->commentScrollbarWidth:0;
-				Rect commentScrollRect = rect(rPanel.left, rPanel.bottom, rPanel.right, yPos);
-				Rect commentRect = rect(rPanel.left, rPanel.bottom, rPanel.right-scrollBarWidth, yPos);
-				Rect scrollBarRect = rect(rPanel.right - scrollBarWidth, rPanel.bottom, rPanel.right, yPos);
+				drawRect(r, scrollRegionColor);
 
-				drawRect(commentRect, ac->comments);
-				drawRect(scrollBarRect, ac->comments);
-				Vec4 scrollBarColor = ac->commentScroll;
+				static float scrollHeight = 200;
+				clampMin(&scrollHeight, 0);
+				newGuiQuickScroll(ad->gui, r, z, scrollHeight, &ad->commentScrollValue, scissor, scrollSettings, &scrollValues);
 
-				rectExpand(&commentRect, vec2(-as->marginComments,0));
+				Rect scissorSave = scissor;
+				Vec2 writePosSave = writePos;
+				Vec2 writeDimSave = writeDim;
 
-				float scrollValue = ad->commentScrollValue;
-				static Vec2 mouseAnchor;
-				float z = 1;
+					scissor = scrollValues.scissor;
+					writePos = scrollValues.pos;
+					writeDim.w = rectW(scrollValues.region);
+
+					scissorTestScreen(r);
+					float wrapWidth = writeDim.w;
 		
-				float sliderSize = (rectH(scrollBarRect) / (rectH(commentRect)+commentHeight)) * rectH(scrollBarRect);
-				clampMin(&sliderSize, 20);
+					glEnable(GL_SCISSOR_TEST);
 
-				// Scroll with mousewheel.
-				{
-					if(newGuiGoButtonAction(ad->gui, commentScrollRect, z, Gui_Focus_MWheel)) {
-						float scrollAmount = font2->height;
-						if(input->keysDown[KEYCODE_SHIFT]) scrollAmount *= 2;
-						scrollValue = clamp(scrollValue + -input->mouseWheel*(scrollAmount/commentHeight), 0, 1);
+					if(!(ad->downloadMode == Download_Mode_Snippet && ad->downloadStep < 4)) {
+						for(int i = 0; i < sn->selectedCommentCount; i++) {
+							drawText(sn->selectedTopComments[i], font2, writePos, fcComment, vec2i(-1,1), wrapWidth, commentShadow, commentShadowColor);
+							writePos.y -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, writePos.y), wrapWidth);
+							
+							drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, writePos + vec2(writeDim.w,0), fc2, vec2i(1,1), wrapWidth, commentShadow, commentShadowColor);
+							writePos.y -= font2->height;
+						}
+						scrollHeight = scrollValues.pos.y - writePos.y;
+					} else {
+						scrollHeight = 0;
+						drawTriangle(rectCen(r), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
 					}
-				}
 
-				Rect slider;
-				int sliderId;
-				// Scroll with handle.
-				{
-					slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, 0, 1, false);
-					int event = newGuiGoDragAction(ad->gui, slider, z);
-					sliderId = newGuiCurrentId(ad->gui);
-					if(event == 1) mouseAnchor = input->mousePosNegative - rectCen(slider);
-					if(event > 0) {
-						scrollValue = 1-newGuiSliderGetValue(input->mousePosNegative - mouseAnchor, scrollBarRect, sliderSize, 0, 1, false);
-						slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, 0, 1, false);
-					}
-				}
+				scissor = scissorSave;
+				writePos = writePosSave;
+				writeDim = writeDimSave;
 
-				// Scroll with background drag.
-				{
-					int event = newGuiGoDragAction(ad->gui, commentRect, z);
-					if(event == 1) mouseAnchor.y = input->mousePosNegative.y - (scrollValue*commentHeight);
-					if(event > 0) {
-						scrollValue = (input->mousePosNegative.y - mouseAnchor.y)/commentHeight;
-						clamp(&scrollValue, 0, 1);
+				scissorTestScreen(scissor);
 
-						slider = newGuiCalcSlider(1-scrollValue, scrollBarRect, sliderSize, 0, 1, false);
-					}
-				}
-
-				rectExpand(&slider, -as->marginSlider);
-				if(hasScrollbar) drawRectRounded(slider, scrollBarColor + newGuiColorModId(ad->gui, sliderId), rectW(slider)/2);
-
-				ad->commentScrollValue = scrollValue;
-				float startYPos = yPos + scrollValue*commentHeight;
-				if(hasScrollbar) yPos = startYPos;
-
-				glEnable(GL_SCISSOR_TEST);
-				scissorTestScreen(commentRect);
-				float wrapWidth = rectW(commentRect);
-
-				if(!(ad->downloadMode == Download_Mode_Snippet && ad->downloadStep < 4)) {
-					for(int i = 0; i < sn->selectedCommentCount; i++) {
-						drawText(sn->selectedTopComments[i], font2, vec2(commentRect.left, yPos), fc, vec2i(-1,1), wrapWidth);
-						yPos -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, yPos), wrapWidth);
-						
-						drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, vec2(commentRect.right, yPos), ac->font2, vec2i(1,1), wrapWidth);
-						yPos -= font2->height;
-					}
-				} 
-				else drawTriangle(rectCen(commentRect), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
-
-				commentHeight = startYPos - yPos - (rectH(commentRect));
+				writePos.y -= rectH(scrollValues.region);
 			}
 
 			glDisable(GL_SCISSOR_TEST);
@@ -5664,190 +6341,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 		}
-
-		// Title bar.
-		if(!ws->fullscreen)
-		{
-			float padding = as->windowBorder;
-			float borderPadding = 0;
-			float iconMargin = font->height*0.4f;
-			float iconSize = 1.0f;
-			Vec4 iconColor = ac->font1;
-
-			Layout* lay = layoutAlloc(layout(rTopBar, false, vec2i(1,0), vec2(padding, padding), vec2(borderPadding)));
-
-			char* title;
-			if(strLen(ad->playlist.id) != 0) title = fillString("%s - %i - %s", ad->playlist.title, ad->playlist.count, ad->playlist.id);
-			else title = "";
-			Layout* lTitle = layoutAdd(lay, layout(vec2(getTextDim(title, font).w, 0)));
-			lTitle->minDim.x = 0;
-
-			layoutAdd(lay, layout(vec2(0,0)));
-
-			Layout* lButtonMin = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
-			Layout* lButtonMax = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
-			Layout* lButtonClose = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
-
-			layoutCalc(lay);
-
-
-			// @Hack
-			Rect rTitle = lTitle->r;
-			if(rTitle.left < layoutGetRect(lay).left) {
-				rTitle.left += layoutGetRect(lay).left - rTitle.left;
-			}
-
-			scissorState();
-			drawTextBox(rTitle, title, vec2i(-1,0), textBoxSettings(font, vec4(0,0), ac->font1, as->fontShadow, ac->fontShadow));
-			scissorState(false);
-
-			if(newGuiGoButtonAction(ad->gui, lButtonMin->r, 0)) ShowWindow(windowHandle, SW_MINIMIZE);
-			// drawRectOutlined(lButtonMin->r, ac->background - vec4(0.1f,0.1f,0,0) + newGuiColorModB(ad->gui), vec4(0,1));
-			drawRect(lButtonMin->r, ac->background + newGuiColorModB(ad->gui));
-			Rect a = rectExpand(lButtonMin->r, -iconMargin);
-			drawRect(rectSetT(a, a.bottom + iconSize), iconColor);
-
-			if(newGuiGoButtonAction(ad->gui, lButtonMax->r, 0)) setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
-			// drawRectOutlined(lButtonMax->r, ac->background - vec4(0.1f,0.1f,0,0) + newGuiColorModB(ad->gui), vec4(0,1));
-			drawRect(lButtonMax->r, ac->background + newGuiColorModB(ad->gui));
-			drawRectHollow(rectExpand(lButtonMax->r, -iconMargin), iconSize, iconColor);
-
-			if(newGuiGoButtonAction(ad->gui, lButtonClose->r, 0)) *isRunning = false;
-			// drawRectOutlined(lButtonClose->r, ac->background - vec4(0.1f,0.1f,0,0) + newGuiColorModB(ad->gui), vec4(0,1));
-			drawRect(lButtonClose->r, ac->background + newGuiColorModB(ad->gui));
-			drawCross(rectCen(lButtonClose->r), rectH(rectExpand(lButtonClose->r, -iconMargin))/2, iconSize, vec2(0,1), iconColor);
-		}
-
-		// Filters gui.
-		{
-			TIMER_BLOCK_NAMED("Filtesr Gui");
-
-			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:"};
-			int li = 0;
-			float bp = font->height;
-			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x, 80, getTextDim(labels[li++], font).x, 40, 40, 200, 200};
-			Rect regions[arrayCount(widths)];
-
-			scissorState();
-
-			float borderPadding = (float)as->windowBorder/2;
-			// float padding = font->height/3;
-			float padding = (float)as->windowBorder/2;
-
-			Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(padding,0), vec2(borderPadding)));
-			for(int i = 0; i < arrayCount(widths); i++) layoutAdd(lay, layout(vec2(widths[i], 0)));
-			layoutCalc(lay);
-
-			int i = 0;
-			For_Layout(lay) regions[i++] = l->r;
-
-
-
-			Rect scissor = rFilters;
-			Vec4 bc = ac->buttons;
-			Vec4 ec = ac->editBackground;
-			Vec4 tc = ac->font1;
-
-			TextBoxSettings buttonSettings = textBoxSettings(font, bc, tc, as->fontShadow, ac->fontShadow, 0);
-			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), tc, as->fontShadow, ac->fontShadow, 0);
-			TextEditSettings editSettings = textEditSettings(font, ad->gui->editText, true, true, 2, ec, tc, ac->editSelection, ac->editCursor);
-
-			float z = 0;
-			int ri = 0;
-			li = 0;
-
-			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) ad->panelActive = !ad->panelActive;
-			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) {
-				ad->sortByDate = true;
-				ad->sortStat = -1;
-				ad->startLoadFile = true;
-			}
-			if(newGuiQuickButton(ad->gui, regions[ri++], z, labels[li++], scissor, buttonSettings)) {
-				shellExecuteNoWindow(fillString("explorer.exe %s", appSettingsFilePath));
-			}
-
-			ri++;
-
-			drawQuickTextBox(regions[ri++], labels[li++], scissor, labelSettings);
-			newGuiQuickSlider(ad->gui, regions[ri++], z, &ad->graphDrawMode, 0,2, 20, font, ac->font2, tc, ac->buttons, scissor);
-
-			drawQuickTextBox(regions[ri++], labels[li++], scissor, labelSettings);
-
-			bool updateStats = false;
-
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statTimeSpan, z, scissor, editSettings)) updateStats = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
-			clamp(&ad->statTimeSpan, 0.01f, 12*10);
-
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], &ad->statWidth, z, scissor, editSettings)) updateStats = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
-			clamp(&ad->statWidth, 0.01f, 12*10);
-
-			editSettings.defaultText = "<Filter_Inclusive>";
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->inclusiveFilter, z, arrayCount(ad->inclusiveFilter), scissor, editSettings)) 
-				ad->startLoadFile = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
-
-			editSettings.defaultText = "<Filter_Exclusive>";
-			if(newGuiQuickTextEdit(ad->gui, regions[ri++], ad->exclusiveFilter, z, arrayCount(ad->exclusiveFilter), scissor, editSettings)) 
-				ad->startLoadFile = true;
-			if(newGuiIsWasHotOrActive(ad->gui)) setCursor(ws, IDC_IBEAM);
-
-
-			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
-
-			scissorState(false);
-		}
-
-
-		// Draw outlines.
-		{
-			glLineWidth(1.0f);
-
-
-			// Rect r = leftTextRects[1];
-			// Rect r2 = leftTextRects[2];
-
-			// float g = 0.15f;
-			// Vec4 c1 = vec4(0.5f,g,g,1);
-			// Vec4 c2 = vec4(0.40f,g,g,1);
-			// float h = 5;
-			// drawRectNewColored(rectBDim(rectB(r), vec2(rectW(r), h)), c1,c2,c2,c1);
-			// drawRectNewColored(rectTDim(rectT(r2), vec2(rectW(r2), h)), c2,c1,c1,c2);
-
-
-
-			// drawRectOutline(rect(rChart.min-vec2(0,rectH(rBottomText)), rFilters.max), vec4(0,1), 1);
-			// drawRectOutline(rect(rectBR(rLeftTexts), rChart.max), vec4(0,1), -1);
-
-			// drawRectOutline(rFilters, vec4(0,1), 1);
-
-
-			Vec4 color = ac->outlines;
-			float offset = 0;
-			for(int camIndex = 0; camIndex < ad->camCount-1; camIndex++) {
-				Rect r = leftTextRects[camIndex];
-				drawLine(rectBL(r), rectBR(r), color);
-			}
-
-
-			// drawRect(rect(rectBR(rLeftTexts), rChart.max), vec4(1,1));
-
-
-			// Vec4 color = ac->outlines;
-			// float offset = 0;
-			// for(int camIndex = 0; camIndex < ad->camCount; camIndex++) {
-			// 	drawRectOutline(leftTextRects[camIndex], color, offset);
-			// }
-
-			// drawRectOutline(rBottomText, color, offset);
-			// drawRectOutline(rSidePanel, color, offset);
-			// drawRectOutline(rFilters, color, offset);
-
-			// Rect rDownLeftCorner = rect(rChart.min-vec2(0,rectH(rBottomText)), rectTL(rBottomText));
-			// drawRectOutline(rectExpand(rDownLeftCorner, vec2(-0)), color, offset);
-
-		}
 		
 	}
 
@@ -5858,6 +6351,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	// Main Panel.
 	if(ad->panelActive) {
+		NewAppSettings newas = ad->newAppSettings;
+		NewAppColors newac = ad->newAppColors;
+
 		bool clampToWindow = true;
 		bool resizable = true;
 		bool resizableX = true;
@@ -5866,42 +6362,53 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		Font* font = ad->font;
 
-		float panelBorder = 4;
+		float panelBorder = newas.windowBorder;
 		float roundedCorners = 5;
-		float titleHeightMod = 1.2f;
+		float titleHeightMod = newas.windowHeightMod;
 		char* titleText = "App";
 		float windowControlsPadding = 0.6f;
 		float windowControlsSize = 1.5f;
 
-		Vec2 clientBorder = vec2(panelBorder);
-		float rowHeight = font->height;
-		float rowOffset = panelBorder;
+		Vec2 clientBorder = vec2(newas.border);
+		float heightMod = newas.heightMod;
+		float rowHeight = font->height*heightMod;
+		float padding = newas.padding;
+		float rowOffset = padding;
+
 
 		float sectionOffset = 20;
+		float listOffset = 1;
 
-		Vec4 fontColor = vec4(0.9f, 1);
-		Vec4 fontShadowColor = vec4(0,1);
-		Vec4 borderColor = vec4(0.4,0.2,0.6,1);
-		Vec4 backgroundColor = vec4(0.2f,0,0.5,1);
-		Vec4 windowControlsColor = vec4(0.4f,0,0,1);
+		Vec4 fontColor = newac.font;
+		Vec4 fontShadowColor = newac.fontShadow;
+		Vec4 borderColor = newac.windowBorder;
+		Vec4 backgroundColor = newac.background;
+		Vec4 buttonColor = newac.button;
 
-		Vec4 buttonColor = backgroundColor + vec4(0.2f,0.2f,0,0);
+		Vec4 editBackgroundColor = newac.uiBackground;
+		Vec4 editSelectionColor = newac.editSelection;
+		Vec4 editCursorColor = newac.editCursor;
 
-		Vec4 editBackgroundColor = backgroundColor + vec4(0.1f, 0, 0.3f,0);
-		Vec4 editSelectionColor = backgroundColor + vec4(0.4f,0,0,0);
-		Vec4 editCursorColor = vec4(0.2f,0.8,0.1f,1);
+		Vec4 scrollRegionColor = newac.uiBackground;
+		Vec4 scrollSliderColor = buttonColor;
 
-		Vec4 scrollRegionColor = backgroundColor + vec4(-0.2f, 0, -0.1f, 0);
-		Vec4 scrollSliderColor = backgroundColor + vec4(0.3f,0.2f,0,0);
+		Vec4 windowControlsColor = buttonColor;
+
+		Vec4 progressLeft = newac.graphData1;
+		Vec4 progressRight = newac.graphData2;
+
+		Vec4 edgeColor = newac.edge;
 
 		float textMargin = 0.5f;
 
 		float zOrder = 2;
 
-		TextBoxSettings buttonSettings = textBoxSettings(font, buttonColor, fontColor);
-		TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor);
-		TextEditSettings editSettings = textEditSettings(font, ad->gui->editText, true, true, 2, editBackgroundColor, fontColor, editSelectionColor, editCursorColor);
-		ScrollRegionSettings scrollSettings = {vec2(10,0), 20, vec2(4,4), 6, 0, 40, rowHeight, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
+		TextBoxSettings textSettings = textBoxSettings(font, editBackgroundColor, newac.font, newas.fontShadow, newac.fontShadow);
+
+		TextBoxSettings buttonSettings = textBoxSettings(font, buttonColor, fontColor, newas.fontShadow, newac.fontShadow);
+		TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor, newas.fontShadow, newac.fontShadow);
+		TextEditSettings editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, editSelectionColor, editCursorColor);
+		ScrollRegionSettings scrollSettings = {vec2(10,0), 20, vec2(4,4), 6, 0, 40, rowHeight+listOffset, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
 
 
 		static float lastPanelHeight = 0;
@@ -5936,7 +6443,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 					gui->mode = input->keysDown[KEYCODE_CTRL];
 
 					if(!gui->mode) {
-						gui->mouseAnchor = input->mousePosNegative - rectTL(ad->panelRect);
+						POINT p; 
+						GetCursorPos(&p);
+						Vec2 mp = vec2(p.x, -p.y);
+
+						// gui->mouseAnchor = input->mousePosNegative - rectTL(ad->panelRect);
+						gui->mouseAnchor = mp - rectTL(ad->panelRect);
 						gui->mouseAnchor2 = rectDim(ad->panelRect);
 					}
 				}
@@ -5948,7 +6460,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 					} else {
 						move = true;
 
-						Vec2 pos = input->mousePosNegative - gui->mouseAnchor;
+						POINT p; 
+						GetCursorPos(&p);
+						Vec2 mp = vec2(p.x, -p.y);
+
+						// Vec2 pos = input->mousePosNegative - gui->mouseAnchor;
+						Vec2 pos = mp - gui->mouseAnchor;
 						clamp(&pos.x, sr.left, sr.right - gui->mouseAnchor2.w);
 						clamp(&pos.y, sr.bottom + gui->mouseAnchor2.h, sr.top);
 						ad->panelRect = rectTLDim(pos, gui->mouseAnchor2);
@@ -6044,7 +6561,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Rect insideRect = rectExpand(ad->panelRect, -panelBorder*2);
 			float titleHeight = font->height*titleHeightMod;
 
-			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight + panelBorder);
+			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight);
 			drawTextBox(titleRect, titleText, labelSettings);
 
 			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
@@ -6057,7 +6574,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				drawTriangle(rectL(titleRect) + vec2(rectH(titleRect)/2,0), rectH(titleRect)/3, rotateVec2(vec2(1,0), ad->time*2), fontColor);
 			}
 
-			insideRect.top -= titleHeight;
+			insideRect.top -= titleHeight+panelBorder;
 
 
 
@@ -6082,7 +6599,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			// region = rectTLDim(writePos, vec2(rectW(insideRect), rowHeight)); writePos.y -= rowHeight + rowOffset;
 
-			Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(clientBorder.x,0));
+			Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
 			Layout layTemp = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(0,0));
 			Layout* l;
 
@@ -6112,8 +6629,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
 			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.w, z, scissor, editSettings)) 
 				clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
+			ad->screenShotDim.w = clampMin(ad->screenShotDim.w, Screenshot_Min_X);
 			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.h, z, scissor, editSettings)) 
 				clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
+			ad->screenShotDim.h = clampMin(ad->screenShotDim.h, Screenshot_Min_Y);
 
 			writePos.y -= font->height*yOffset;
 
@@ -6128,8 +6647,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			scissorTestScreen(scissor);
 			if(newGuiQuickButton(gui, layoutInc(&l), z, "Open folder", scissor, buttonSettings)) 
 				shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));
-
-
 			
 			{
 				writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
@@ -6137,8 +6654,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				static float scrollValue = 0;
 
 				ScrollRegionValues scrollValues = {};
-				Rect r = rectTLDim(writePos, vec2(rowDim.w, 150));
-				newGuiQuickScroll(gui, r, z, ad->playlistFolderCount * rowHeight, &scrollValue, scissor, scrollSettings, &scrollValues);
+				Rect r = rectTLDim(writePos, vec2(rowDim.w, 10 * (rowHeight+listOffset)));
+				newGuiQuickScroll(gui, r, z, ad->playlistFolderCount * (rowHeight+listOffset), &scrollValue, scissor, scrollSettings, &scrollValues);
 
 				Rect scissorSave = scissor;
 				Vec2 writePosSave = writePos;
@@ -6154,7 +6671,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					for(int i = 0; i < ad->playlistFolderCount; i++) {
 						YoutubePlaylist* playlist = ad->playlistFolder + i;
 
-						l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0.1f,0,buttonTextWidth); writePos.y -= rowHeight;
+						l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0.1f,0,buttonTextWidth); writePos.y -= rowHeight + listOffset;
 						if(newGuiQuickButton(gui, layoutInc(&l), z, fillString("%s", playlist->title), vec2i(-1,0), scissor, buttonSettings)) {
 							memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
 							ad->playlist.count = playlist->count;
@@ -6222,8 +6739,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					static float scrollValue = 0;
 
 					ScrollRegionValues scrollValues = {};
-					Rect r = rectTLDim(writePos, vec2(rowDim.w, rowHeight*10));
-					newGuiQuickScroll(gui, r, z, ad->searchResultCount * rowHeight, &scrollValue, scissor, scrollSettings, &scrollValues);
+					Rect r = rectTLDim(writePos, vec2(rowDim.w, (rowHeight+listOffset)*10));
+					newGuiQuickScroll(gui, r, z, ad->searchResultCount * (rowHeight+listOffset), &scrollValue, scissor, scrollSettings, &scrollValues);
 
 					Rect scissorSave = scissor;
 					Vec2 writePosSave = writePos;
@@ -6236,7 +6753,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						for(int i = 0; i < ad->searchResultCount; i++) {
 							SearchResult* sResult = ad->searchResults + i;
 
-							r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight;
+							r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + listOffset;
 							if(newGuiQuickButton(gui, r, z, fillString("%s", sResult->title), vec2i(-1,0), scissor, buttonSettings)) {
 								if(ad->lastSearchMode == 0) {
 									strCpy(ad->channelId, sResult->id);
@@ -6270,8 +6787,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				drawQuickTextBox(layoutInc(&l), ad->downloadPlaylist.title, scissor, labelSettings); 
 				drawQuickTextBox(layoutInc(&l), ad->downloadPlaylist.id, scissor, labelSettings); 
 
-				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0.2f,0.2f,0); writePos.y -= rowHeight + rowOffset;
-				drawQuickTextBox(layoutInc(&l), "Count: ", vec2i(-1,0), scissor, labelSettings); 
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), getTextDim("Count:", font).w + font->height*textMargin,0.2f,0); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(layoutInc(&l), "Count:", vec2i(-1,0), scissor, labelSettings); 
 				newGuiQuickTextEdit(gui, layoutInc(&l), &ad->downloadPlaylist.count, z, scissor, editSettings);
 				ad->downloadPlaylist.count = clampIntMin(ad->downloadPlaylist.count, 1);
 				if(newGuiQuickButton(gui, layoutInc(&l), z, "Get video count", scissor, buttonSettings)) {
@@ -6308,7 +6825,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					Rect r = layoutInc(&lTemp);
 					scissorTestIntersect(scissor, r);
-					drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), ad->appColors.likes, ad->appColors.dislikes, true, vec4(0,1));
+					drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
 					drawQuickTextBox(r, fillString("%i/%i", ad->downloadProgress, ad->downloadMax), scissor, labelSettings);
 
 					r = scissorTestIntersect(scissor, layoutInc(&lTemp));
@@ -6328,8 +6845,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				drawQuickTextBox(layoutInc(&l), "Channel Id:", vec2i(-1,0), scissor, labelSettings); 
 				drawQuickTextBox(layoutInc(&l), ad->channelId, scissor, labelSettings); 
 
-				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0.2f,0.2f,0); writePos.y -= rowHeight + rowOffset;
-				drawQuickTextBox(layoutInc(&l), "Count: ", vec2i(-1,0), scissor, labelSettings); 
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), getTextDim("Count:", font).w + font->height*textMargin,0.2f,0); writePos.y -= rowHeight + rowOffset;
+				drawQuickTextBox(layoutInc(&l), "Count:", vec2i(-1,0), scissor, labelSettings); 
 				newGuiQuickTextEdit(gui, layoutInc(&l), &ad->playlistDownloadCount, z, scissor, editSettings);
 				ad->playlistDownloadCount = clampIntMin(ad->playlistDownloadCount, 1);
 				if(newGuiQuickButton(gui, layoutInc(&l), z, "Get playlist count", scissor, buttonSettings)) {
@@ -6340,7 +6857,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0, getTextDim(buttonText, font).w + font->height*textMargin); writePos.y -= rowHeight + rowOffset;
 				Rect r = layoutInc(&l);
 				if(ad->downloadMode != Download_Mode_ChannelPlaylists) {
-					if(newGuiQuickButton(gui, r, z, "Load Playlist from Channel", scissor, buttonSettings)) {
+					if(newGuiQuickButton(gui, r, z, "Load playlist from channel", scissor, buttonSettings)) {
 						downloadModeSet(Download_Mode_ChannelPlaylists, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
 					}
 				} else {
@@ -6349,7 +6866,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					Rect r = layoutInc(&lTemp);
 					scissorTestIntersect(scissor, r);
-					drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), ad->appColors.likes, ad->appColors.dislikes, true, vec4(0,1));
+					drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
 					drawQuickTextBox(r, fillString("%i/%i", ad->downloadProgress, ad->downloadMax), scissor, labelSettings);
 
 					r = scissorTestIntersect(scissor, layoutInc(&lTemp));
@@ -6366,8 +6883,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					static float scrollValue = 0;
 
 					ScrollRegionValues scrollValues = {};
-					Rect r = rectTLDim(writePos, vec2(rowDim.w, rowHeight*10));
-					newGuiQuickScroll(gui, r, z, ad->playlistCount * rowHeight, &scrollValue, scissor, scrollSettings, &scrollValues);
+					Rect r = rectTLDim(writePos, vec2(rowDim.w, (rowHeight+listOffset)*10));
+					newGuiQuickScroll(gui, r, z, ad->playlistCount * (rowHeight+listOffset), &scrollValue, scissor, scrollSettings, &scrollValues);
 
 					Rect scissorSave = scissor;
 					Vec2 writePosSave = writePos;
@@ -6380,7 +6897,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						for(int i = 0; i < ad->playlistCount; i++) {
 							YoutubePlaylist* playlist = ad->playlists + i;
 
-							r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight;
+							r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + listOffset;
 							if(newGuiQuickButton(gui, r, z, fillString("%i: %s. (%i.)", i, playlist->title, playlist->count), vec2i(-1,0), scissor, buttonSettings)) {
 								strCpy(ad->downloadPlaylist.id, playlist->id);
 								strCpy(ad->downloadPlaylist.title, playlist->title);
@@ -6405,7 +6922,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-
 	// Block everything for debug panels.
 	{
 		int id = newGuiIncrementId(ad->gui);
@@ -6418,278 +6934,98 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
 
-
-	if(false) {
-		// Layout test.
-
-		newGuiSetHotAll(ad->gui, 0);
-
-		Rect sr = getScreenRect(ws);
-		Vec2 cen = rectCen(sr);
-
-		float alpha = 1.0f;
-		Vec3 hslColor = vec3(0.5, 0.5f, 0.1f);
-		drawRectNewColoredH(getScreenRect(ws), vec4(colorHSL(hslColor).rgb, alpha), vec4(colorHSL(hslColor+vec3(0,0,0.1f)).rgb, alpha));
-
-
-
-
-		Layout* mainNode = getTStruct(Layout);
-		layout(mainNode, rectExpand(sr, -vec2(632, 100)), false, vec2i(0,1), vec2(10,10));
-
-		layoutAdd(mainNode, layout(vec2(100,100)));
-		Layout* ln2 = layoutAdd(mainNode, layout(vec2(300,300), false, vec2i(-1,1), vec2(10,10), vec2(10,10)));
-		layoutAdd(mainNode, layout(vec2(100,100)));
-		
-		layoutAdd(ln2, layout(vec2(50,50)));
-		layoutAdd(ln2, layout(vec2(50,50)));
-
-		layoutAdd(mainNode, layout(vec2(120,40)), false);
-		layoutAdd(mainNode, layout(vec2(120,40)));
-
-		layoutCalc(mainNode, true);
-
-
-
-		drawRect(mainNode->r, vec4(0,0.1f));
-		Font* font = getFont(FONT_CALIBRI, 20);
-
-		// Draw all nodes.
-		{
-			int i = 0;
-			Layout* node = mainNode->list;
-			while(node != 0) {
-
-				drawRect(node->r, colorHSL(hslColor+0.2f+vec3((float)i++/20,0,0.1f)));
-				drawText(fillString("%f", node->finalDim.x), font, rectCen(node->r), vec4(0.9,1), vec2i(0,0));
-
-				Layout* node2 = node->list;
-				while(node2 != 0) {
-					drawRect(node2->r, colorHSL(hslColor+0.2f+vec3((float)i++/20,0,0.1f)));
-					drawText(fillString("%f", node2->finalDim.x), font, rectCen(node2->r), vec4(0.9,1), vec2i(0,0));
-
-					node2 = node2->next;
-				}
-
-				node = node->next;
-			}
-		}
-
-	}
-
 	if(false)
 	{
-		newGuiSetHotAll(ad->gui, 0);
-
-		drawRectNewColoredH(getScreenRect(ws), colorHSL(0.5f, 0.5f,0.1f), colorHSL(0.5f, 0.5f,0.2f));
-
-		glLineWidth(2);
-		Rect sr = getScreenRect(ws);
-		Vec2 cen = rectCen(sr);
-		int event;
-
-		static Vec2 lp1 = vec2(cen.x-20, sr.top - 100);
-		Rect rHandle1 = rectCenDim(lp1, vec2(10,10));
-
-		drawRect(rHandle1, vec4(0.8f,1));
-
-		event = newGuiGoDragAction(ad->gui, rHandle1, 5);
-		if(event == 1) ad->gui->mouseAnchor = input->mousePosNegative - lp1;
-		if(event > 0) lp1 = input->mousePosNegative - ad->gui->mouseAnchor;
+		// newGuiSetHotAll(ad->gui, 123123, 5);
+		newGuiSetHotAll(ad->gui, 5);
+// void newGuiSetHotAll(NewGui* gui, float z) {
 
 
-		static Vec2 lp2 = vec2(cen.x+20,sr.top - 100);
-		Rect rHandle2 = rectCenDim(lp2, vec2(10,10));
+		drawRect(getScreenRect(ws), vec4(0.9f,1));
 
-		drawRect(rHandle2, vec4(0.8f,1));
+		// drawRect(rectCenDim(rectCen(getScreenRect(ws)), vec2(ad->font->tex.dim)/4), vec4(1,1), rect(0,0,1,1), ad->font->tex.id);
+		// drawText("This is a test! 2q3ra2q3%W#$<?>,dg j3[4-0?}}{_)", ad->fontComment, vec2(500,-500), vec4(0,1));
+		// drawText("This is a test! 2q3ra2q3%W#$<?>,dg j3[4-0?}}{_)", ad->fontComment, vec2(500,-500), vec4(0,1));
 
-		event = newGuiGoDragAction(ad->gui, rHandle2, 5);
-		if(event == 1) ad->gui->mouseAnchor = input->mousePosNegative - lp2;
-		if(event > 0) lp2 = input->mousePosNegative - ad->gui->mouseAnchor;
+		// drawText("TiIhHlL345NM", ad->fontComment, vec2(500.0f,-500.0f), vec4(0,1));
+
+
+		drawText("T", ad->fontComment, vec2(500.00f,-500.25f), vec4(0,1));
+		drawText("i", ad->fontComment, vec2(510.50f,-500.5f), vec4(0,1));
+		drawText("h", ad->fontComment, vec2(530.50f,-500.5f), vec4(0,1));
+		drawText("L", ad->fontComment, vec2(540.25f,-500.0f), vec4(0,1));
+		drawText("1", ad->fontComment, vec2(550.50f,-500.0f), vec4(0,1));
+		drawText("4", ad->fontComment, vec2(560.00f,-500.0f), vec4(0,1));
+		drawText("K", ad->fontComment, vec2(570.25f,-500.0f), vec4(0,1));
+		drawText("F", ad->fontComment, vec2(580.25f,-500.0f), vec4(0,1));
+		drawText("B", ad->fontComment, vec2(590.25f,-500.0f), vec4(0,1));
+		drawText("N", ad->fontComment, vec2(600.25f,-500.0f), vec4(0,1));
 
 
 
-		Vec2 lp0 = vec2(cen.x-200,sr.top - 200);
-		Vec2 lp3 = vec2(cen.x+200,sr.top - 200);
-
-		drawLine(lp0, lp1, vec4(0.7,0.3f,0,1));
-		drawLine(lp2, lp3, vec4(0.7,0.3f,0,1));
-
-		drawLineStripHeader(vec4(0.4f,0.5f,0.7f,1));
-		int segmentCount = 100;	
-		for(int i = 0; i < segmentCount+1; i++) {
-
-			float a = (float)i/(float)segmentCount;
- 
-			Vec2 p0 = lerpVec2(a, lp0, lp1);
-			Vec2 p1 = lerpVec2(a, lp1, lp2);
-
-			Vec2 pf0 = lerpVec2(a, p0, p1);
-
-			Vec2 p2 = lerpVec2(a, lp1, lp2);
-			Vec2 p3 = lerpVec2(a, lp2, lp3);
-
-			Vec2 pf1 = lerpVec2(a, p2, p3);
-
-			Vec2 p = lerpVec2(a, pf0, pf1);
-
-			pushVec(p);
-		}
-		glEnd();
+		// drawText("T", ad->fontComment, vec2(500.00f,-500.25f), vec4(0,1));
+		// drawText("i", ad->fontComment, vec2(510.00f,-500.5f), vec4(0,1));
+		// drawText("h", ad->fontComment, vec2(530.00f,-500.5f), vec4(0,1));
+		// drawText("L", ad->fontComment, vec2(540.00f,-500.0f), vec4(0,1));
+		// drawText("1", ad->fontComment, vec2(550.00f,-500.0f), vec4(0,1));
 
 
+		// T -0.375000 9.375000 9.750000
+		// i  0.875000 3.375000 2.500000
+		// h  0.875000 9.125000 8.250000
+		// L  1.125000 8.625000 7.500000
+		// 1  0.875000 6.125000 5.250000
+		// 4 -0.125000 9.375000 9.500000
 
 
-
-		static Vec2 lines[1000] = {};
-		static int lineCount = 0;
-
-		static int segmentLineCount[100] = {};
-		static int lineSegmentCount = 2;
-
-		if(init) segmentLineCount[0] = 0;
-
-		glPointSize(5);
-
-		if(input->mouseButtonDown[0] && input->mouseDelta != vec2(0,0)) {
-			lines[lineCount++] = input->mousePosNegative;
-			segmentLineCount[lineSegmentCount-1] = lineCount;
-		}
-
-		if(input->mouseButtonReleased[0]) {
-			lineSegmentCount++;
-		}
-
-		Vec4 c2 = vec4(0.9f,1);
-
-		for(int segmentIndex = 1; segmentIndex < lineSegmentCount; segmentIndex++) {
-
-			int linesStart = segmentLineCount[segmentIndex-1];
-			int linesEnd = segmentLineCount[segmentIndex];
-
-			if(linesEnd - linesStart >= 4) {
-
-				for(int i = linesStart; i < linesEnd-1; i++) {
-
-					Vec2 p0;
-					if(i == linesStart) p0 = lines[i] + (lines[i] - lines[i+1]);
-					else p0 = lines[i-1];
-
-					Vec2 p1 = lines[i];
-					Vec2 p2 = lines[i+1];
-					Vec2 p3;
-					if(i == linesEnd-2) p3 = lines[i+1] + (lines[i+1] - lines[i]);
-					else p3 = lines[i+2];
-
-					{
-						drawLineStripHeader(c2);
-						for(int i = 0; i < segmentCount; i++) {
-							float t = ((float)i/((float)segmentCount-1));
-
-							float x = cubicInterpolation(p0.x, p1.x, p2.x, p3.x, t);
-							float y = cubicInterpolation(p0.y, p1.y, p2.y, p3.y, t);
-
-							Vec2 p = vec2(x,y);
-
-							pushVec(p);
-						}
-						glEnd();
-					}
-
-				}
-
-				// glPointSize(5);
-				// drawPointsHeader(vec4(1,0,0,1));
-				// for(int i = linesStart; i < linesEnd; i++) {
-				// 	pushVec(lines[i]);
-				// }
-				// glEnd();
-
-			} else {
-				drawLineStripHeader(c2);
-				for(int i = linesStart; i < linesEnd; i++) {
-					pushVec(lines[i]);
-				}
-				glEnd();
-			}
-		}
-
-		// glPointSize(3);
-		// drawPointsHeader(vec4(1,0,1,1));
-		// for(int i = 0; i < lineCount; i++) {
-		// 	pushVec(lines[i]);
-		// }
-		// glEnd();
+		// T -0.375000 9.375000 9.750000
+		// i  1.375000 3.875000 2.500000
+		// h  1.375000 9.625000 8.250000
+		// L  1.375000 8.875000 7.500000
+		// 1  1.375000 6.625000 5.250000
 
 
-		glLineWidth(1);
+		// T -0.375000 9.375000 9.750000
+		// i  1.375000 3.875000 2.500000
+		// h  1.375000 9.625000 8.250000
+		// L  1.375000 8.875000 7.500000
+		// 1  1.375000 6.625000 5.250000
+		// K  1.375000 10.625000 9.250000
+		// F  1.375000 8.875000 7.500000
+
+		Rect r, uv;
+		// getTextQuad('T', ad->fontComment, vec2(0,0), &r, &uv);
+		// printf("T %f %f %f\n", r.left, r.right, rectW(r));
+
+		// getTextQuad('i', ad->fontComment, vec2(0,0), &r, &uv);
+		// printf("i %f %f %f\n", r.left, r.right, rectW(r));
+		// printf("i %f %f %f\n", r.left + 0.5f, r.right + 0.5f, rectW(r));
+
+		// getTextQuad('h', ad->fontComment, vec2(0,0), &r, &uv);
+		// printf("h %f %f %f\n", r.left, r.right, rectW(r));
+		// printf("h %f %f %f\n", r.left + 0.5f, r.right + 0.5, rectW(r));
+
+		// getTextQuad('L', ad->fontComment, vec2(0,0), &r, &uv);
+		// printf("L %f %f %f\n", r.left, r.right, rectW(r));
+		// printf("L %f %f %f\n", r.left + 0.25, r.right + 0.25, rectW(r));
+
+		// getTextQuad('1', ad->fontComment, vec2(0,0), &r, &uv);
+		// printf("1 %f %f %f\n", r.left, r.right, rectW(r));
+		// printf("1 %f %f %f\n", r.left + 0.5f, r.right + 0.5f, rectW(r));
+
+		getTextQuad('F', ad->fontComment, vec2(0,0), &r, &uv);
+		printf("K %f %f %f\n", r.left, r.right, rectW(r));
+		printf("K %f %f %f\n", r.left + 0.25, r.right + 0.25, rectW(r));
+
 	}
 
 	newGuiEnd(ad->gui);
 
-	if(false)
-	{
-		newGuiSetHotAll(ad->gui, 3);
-
-		// int i = 11;
-		// {
-		// 	Texture* tex = globalGraphicsState->textures + i;
-		// 	drawRect(rectTRDim(rectTR(getScreenRect(ws)), vec2(tex->dim)), vec4(0,1));
-		// 	drawRect(rectTRDim(rectTR(getScreenRect(ws)), vec2(tex->dim)), vec4(1,1), rect(0,0,1,1), tex->id);
-		// }
-
-		drawRect(getScreenRect(ws), vec4(0.2f,1));
-
-// void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
-		char* text = "This is a Text, Yo! AV To | 123 _., ABC abc";
-		int fontSize = 60;
-		Font* font;
-		Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100);
-		// Vec2 pos = rectT(getScreenRect(ws)) + vec2(0,-100) + vec2(1, 0)*(fmod(ad->time*10, 100));
-		Vec4 c = vec4(1,1);
-		// Vec4 c2 = vec4((sin(ad->time*2)+1)/2 , 1);
-		Vec4 c2 = vec4(0,1);
-		int shadow = 3;
-
-		font = getFont(FONT_LIBERATION_MONO, fontSize);
-		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2); 
-		pos.y -= 80;
-
-		font = getFont(FONT_SOURCESANS_PRO, fontSize);
-		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
-		pos.y -= 80;
-
-		font = getFont(FONT_CONSOLAS, fontSize);
-		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
-		pos.y -= 80;
-
-		font = getFont(FONT_ARIAL, fontSize);
-		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
-		pos.y -= 80;
-
-		font = getFont(FONT_CALIBRI, fontSize);
-		drawText(text, font, pos, c, vec2i(0,0), 0, shadow, c2);
-		pos.y -= 80;
-
-		// printf("\n\n\n\n\n\n\n");
-		// printf("%f %f %f %f");
-
-		// *isRunning = false;
-	}
-
-
-
-
-
-	{
-		TIMER_BLOCK_NAMED("DebugBegin");
-	}
+	{ TIMER_BLOCK_NAMED("DebugBegin"); }
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
 
-	{
-		TIMER_BLOCK_NAMED("DebugEnd");
-	}
+	{ TIMER_BLOCK_NAMED("DebugEnd"); }
 
 	// Render.
 	{
@@ -6773,15 +7109,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// Swap window background buffer.
 	{
 		TIMER_BLOCK_NAMED("Swap");
-		// if(ad->updateWindow) {
-		// 	MoveWindow(windowHandle, ad->updateWindowX, ad->updateWindowY, ad->updateWidth, ad->updateHeight, true);
-		// 	ad->updateWindow = false;
 
-	 // 		printf("%i %i %i %i\n", ad->updateWindowX, ad->updateWidth, ad->updateWidth, ad->updateHeight);
-	 // 		printf("%i %i\n", ws->currentRes.w, ws->currentRes.h);
-		// }
-
-		// Sleep untill monitor refresh.
+		// Sleep until monitor refresh.
 		if(!init) {
 			double frameTime = timerUpdate(ad->swapTime);
 			double sleepTime = ((double)1/60) - frameTime;
@@ -6800,13 +7129,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-	// debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue);
-
-	// debugUpdatePlayback(ds, appMemory);
-
 	// @App End.
-
-	// if(init) printf("Startup Time: %fs\n", timerUpdate(startupTimer));
 
 	// Save app state.
 	if(*isRunning == false && fileExists(appSaveFilePath)) {
@@ -6824,6 +7147,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		appWriteTempSettings(appSaveFilePath, &at);
 	}
+
+	// if(init) printf("Startup Time: %fs\n", timerUpdate(startupTimer));
 }
 
 
