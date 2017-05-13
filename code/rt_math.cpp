@@ -37,7 +37,7 @@ int mod(int a, int b) {
 }
 
 float modFloat(float val, float d) {
-	// fmod seems to be wrong
+	// fmod seems to be wrong.
 	float result = fmod(val, d);
 	if(result < 0 && abs(result) < d) {
 		result = d + result;
@@ -2334,7 +2334,7 @@ inline Mat4 projMatrix(float fov, float ar, float n, float f) {
 
 inline Vec4 colorHSL(Vec3 hsl) {
 	float c[3];
-	hsl.x = fmod(hsl.x, 1.0f);
+	hsl.x = modFloat(hsl.x, 1.0f);
 	hsl.y = clamp(hsl.y, 0, 1);
 	hsl.z = clamp(hsl.z, 0, 1);
 	hslToRgbFloat(c, hsl.x, hsl.y, hsl.z);

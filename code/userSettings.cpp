@@ -1,6 +1,13 @@
 
 #define USE_SRGB 1
-const int INTERNAL_TEXTURE_FORMAT = USE_SRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+
+#if USE_SRGB == 1
+#define INTERNAL_TEXTURE_FORMAT GL_SRGB8_ALPHA8
+#define COLOR_SRGB(color) colorSRGB(color)
+#else 
+#define INTERNAL_TEXTURE_FORMAT GL_RGBA8
+#define COLOR_SRGB(color) color
+#endif
 
 #define editor_executable_path "C:\\Program Files\\Sublime Text 3\\sublime_text.exe"
 

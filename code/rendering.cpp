@@ -476,14 +476,16 @@ Font* fontInit(Font* fontSlot, char* file, char* filePath, int height, int id) {
 	font.pixelScale = stbtt_ScaleForPixelHeight(&font.info, font.height);
 
 	for(int i = 0; i < size.w*size.h; i++) {
-		fontBitmap[i*4] = fontBitmapBuffer[i];
-		fontBitmap[i*4+1] = fontBitmapBuffer[i];
-		fontBitmap[i*4+2] = fontBitmapBuffer[i];
+		fontBitmap[i*4] = 255;
+		fontBitmap[i*4+1] = 255;
+		fontBitmap[i*4+2] = 255;
 		fontBitmap[i*4+3] = fontBitmapBuffer[i];
 	}
 
 	Texture tex;
-	loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+
 	font.tex = tex;
 
 	addTexture(tex);
@@ -635,21 +637,21 @@ void depthState(bool state = true) {
 
 void drawLinesHeader(Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_LINES);
 }
 
 void drawLineStripHeader(Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_LINE_STRIP);
 }
 
 void drawPointsHeader(Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_POINTS);
 }
@@ -675,7 +677,7 @@ inline void pushColor(Vec4 c) {
 
 void drawPoint(Vec2 p, Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_POINTS);
 		glVertex3f(p.x, p.y, globalGraphicsState->zOrder);
@@ -685,7 +687,7 @@ void drawPoint(Vec2 p, Vec4 color) {
 void drawLine(Vec2 p0, Vec2 p1, Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_LINES);
 		glVertex3f(p0.x, p0.y, globalGraphicsState->zOrder);
@@ -696,7 +698,7 @@ void drawLine(Vec2 p0, Vec2 p1, Vec4 color) {
 void drawLineNewOff(Vec2 p0, Vec2 p1, Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_LINES);
 		glVertex3f(p0.x, p0.y, 0.0f);
@@ -710,7 +712,7 @@ void drawRect(Rect r, Vec4 color, Rect uv, int texture) {
 
 	glBindTexture(GL_TEXTURE_2D, texture);
 
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_QUADS);
 		glTexCoord2f(uv.left,  uv.top); glVertex3f(r.left, r.bottom, z);
@@ -729,7 +731,7 @@ void drawRect(Rect r, Vec4 color) {
 
 	float z = globalGraphicsState->zOrder;
 
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_QUADS);
 		glVertex3f(r.left, r.bottom, z);
@@ -765,10 +767,10 @@ void drawRectNewColored(Rect r, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3) {
 
 	float z = globalGraphicsState->zOrder;
 
-	Vec4 cs0 = colorSRGB(c0);
-	Vec4 cs1 = colorSRGB(c1);
-	Vec4 cs2 = colorSRGB(c2);
-	Vec4 cs3 = colorSRGB(c3);
+	Vec4 cs0 = COLOR_SRGB(c0);
+	Vec4 cs1 = COLOR_SRGB(c1);
+	Vec4 cs2 = COLOR_SRGB(c2);
+	Vec4 cs3 = COLOR_SRGB(c3);
 
 	glColor4f(1,1,1,1);
 	glBegin(GL_QUADS);
@@ -793,7 +795,7 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	drawRect(rect(r.min.x, r.min.y+s, r.max.x, r.max.y-s), color);
 
 	glBindTexture(GL_TEXTURE_2D, 0);
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_TRIANGLE_FAN);
 
@@ -827,8 +829,8 @@ void drawRectHollow(Rect r, float size, Vec4 c) {
 
 void drawRectProgress(Rect r, float p, Vec4 c0, Vec4 c1, bool outlined, Vec4 oc) {	
 	if(outlined) {
-		drawRectOutlined(rectSetR(r, r.left + rectW(r)*p), c0, oc, 0);
-		drawRectOutlined(rectSetL(r, r.right - rectW(r)*(1-p)), c1, oc, 0);
+		drawRectOutlined(rectSetR(r, r.left + rectW(r)*p), c0, oc, 1);
+		drawRectOutlined(rectSetL(r, r.right - rectW(r)*(1-p)), c1, oc, 1);
 	} else {
 		drawRect(rectSetR(r, r.left + rectW(r)*p), c0);
 		drawRect(rectSetL(r, r.right - rectW(r)*(1-p)), c1);
@@ -840,7 +842,7 @@ void drawTriangle(Vec2 p, float size, Vec2 dir, Vec4 color) {
 
 	float z = globalGraphicsState->zOrder;
 
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	dir = normVec2(dir) * size;
 	Vec2 tp;
@@ -863,7 +865,7 @@ void drawCross(Vec2 p, float size, float size2, Vec2 dir, Vec4 color) {
 
 	dir = normVec2(dir);
 
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 
 	Vec2 tr = p + vec2(1,1)*size;
@@ -962,23 +964,6 @@ void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	// float baseLine = 0.0f;
 	float off = baseLine * font->height;
 	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
-
-	Vec2 dim = rectDim(*r);
-
-	// r->left = (int)r->left;
-	// r->bottom = (int)r->bottom;
-
-		// r->left += (roundFloat(r->left)+0.375f) - r->left;
-		// r->right = r->left + dim.w;
-
-		// r->bottom += (roundFloat(r->bottom)+0.375f) - r->bottom;
-		// r->top = r->bottom + dim.h;
-
-	// printf("%f\n", r->left);
-
-	// r->right = r->left + dim.w;
-	// r->top = r->bottom + dim.h;
-	
 	*uv = rect(q.s0, q.t0, q.s1, q.t1);
 }
 
@@ -991,8 +976,8 @@ float getCharAdvance(int c, Font* font) {
 float getCharAdvance(int c, int c2, Font* font) {
 	int unicodeOffset = getUnicodeRangeOffset(c, font);
 	float result = font->cData[unicodeOffset].xadvance;
-	// float kernAdvance = stbtt_GetCodepointKernAdvance(&font->info, c, c2) * font->pixelScale;
-	// result += kernAdvance;
+	float kernAdvance = stbtt_GetCodepointKernAdvance(&font->info, c, c2) * font->pixelScale;
+	result += kernAdvance;
 
 	return result;
 }
@@ -1152,14 +1137,13 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 }
 
 void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
-
 	float z = globalGraphicsState->zOrder;
 
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
 	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
 	glBindTexture(GL_TEXTURE_2D, font->tex.id);
-	Vec4 c = colorSRGB(color);
+	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_QUADS);
 
@@ -1186,8 +1170,8 @@ void drawTextOutlined(char* text, Font* font, Vec2 startPos, float outlineSize, 
 	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
 
 	glBindTexture(GL_TEXTURE_2D, font->tex.id);
-	Vec4 c = colorSRGB(color);
-	Vec4 c2 = colorSRGB(colorOutline);
+	Vec4 c = COLOR_SRGB(color);
+	Vec4 c2 = COLOR_SRGB(colorOutline);
 	glBegin(GL_QUADS);
 
 	TextSimInfo tsi = initTextSimInfo(startPos);
@@ -1231,8 +1215,8 @@ void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align, in
 
 	Vec4 c, sc;
 	glBindTexture(GL_TEXTURE_2D, font->tex.id);
-	c = colorSRGB(color);
-	sc = colorSRGB(shadowColor);
+	c = COLOR_SRGB(color);
+	sc = COLOR_SRGB(shadowColor);
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_QUADS);
 

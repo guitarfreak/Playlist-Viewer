@@ -482,6 +482,17 @@ Vec2 getMousePos(HWND windowHandle, bool yInverted = true) {
 	return mousePos;
 }
 
+Vec2 getMousePosS(bool yInverted = true) {
+	POINT point;    
+	GetCursorPos(&point);
+	Vec2 mousePos = vec2(0,0);
+	mousePos.x = point.x;
+	mousePos.y = point.y;
+	if(yInverted) mousePos.y = -mousePos.y;
+
+	return mousePos;
+}
+
 void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 	input->anyKey = false;
 
@@ -611,12 +622,8 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
     	}
     }
 
-    POINT point;    
-    GetCursorPos(&point);
-    ScreenToClient(windowHandle, &point);
-    input->mousePos.x = point.x;
-    input->mousePos.y = point.y;
-    input->mousePosNegative = vec2(input->mousePos.x, -input->mousePos.y);
+    input->mousePos = getMousePos(windowHandle, false);
+    input->mousePosNegative = getMousePos(windowHandle, true);
 
     input->mouseDelta = input->mousePos - input->lastMousePos;
     input->lastMousePos = input->mousePos;

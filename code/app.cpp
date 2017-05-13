@@ -31,38 +31,31 @@
 	- Make UI look more 3D instead of plain flat.
 	- Fix layout system.
 	- Show download speed.
+	- When grabbing take mouse pos from OS not from input struct.
 
+
+	- Make a gui function/abstraction for window moving/resizing at border.
 
 	- Channel video count should be there automatically.
 	- Window resize, make corners bigger to grab.
-	- When grabbing take mouse pos from OS not from input struct.
 
 	- Runs poorly when aero is enabled.
-
-	- Make a gui function/abstraction for window moving/resizing at border.
-	- Window draggin left border wrong.
-
 	- Put in server timeout.
-	- Edit box hover is gone.
-
-	- Try out text rendering at pixel boundaries again. Maybe it will look better now since we changed added 
-	  linear texture sampling.
 
 	Done Today: 
-
+	
 
 
 	Bugs:
 	- Drag with other window white trail.
 	- Can't do 100*100 screenshot.
-
 */
 
 
 
 // External.
 
-#define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN 
 #define NOMINMAX
 #include <windows.h>
 #include <gl\gl.h>
@@ -1519,6 +1512,7 @@ struct NewGui {
 	int contenderIdZ[Gui_Focus_Size];
 
 	Input* input;
+	WindowSettings* windowSettings;
 
 	// Temp vars for convenience.
 
@@ -2274,8 +2268,6 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float z, float height, float* scroll
 	scrollValues->region = itemRegion;
 }
 
-#if 1
-
 TextEditSettings textEditSettings(TextBoxSettings textSettings, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, Vec4 colorSelection, Vec4 colorCursor) {
 	return {textSettings, textBuffer, wrapping, singleLine, cursorWidth, "", colorSelection, colorCursor};
 }
@@ -2510,7 +2502,172 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 	// // tev->cursorTime += tes.dt * tes.cursorSpeed;
 	// // Vec4 cmod = vec4(0,cos(tev->cursorTime)*tes.cursorColorMod - tes.cursorColorMod,0,0);
 }
-#endif
+
+void newGuiSetCursor(NewGui* gui, LPCSTR cursorType) {
+	setCursor(gui->windowSettings, cursorType);
+}
+
+struct GuiWindowSettings {
+	float borderSize;
+	float cornerSize;
+	Vec2 minDim;
+	Vec2 maxDim;
+	Rect insideRect;
+
+	bool movable;
+	bool resizableX;
+	bool resizableY;
+};
+
+bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings settings) {
+	Rect region = *r;
+	Rect sr = settings.insideRect;
+	bool insideClamp = !rectEmpty(sr);
+
+	float w = settings.borderSize;
+	Vec2 p = gui->input->mousePosNegative;
+
+	int uiEvent = 0;
+	bool changeCursor = false;
+	Vec2i resizeAlign;
+
+	bool move = false;
+
+	if((settings.resizableY || settings.resizableX) || settings.movable) {
+		int event = newGuiGoDragAction(gui, region, z);
+		int eventRightClick = newGuiGoDragAction(gui, region, z, Gui_Focus_MRight);
+		event = max(event, eventRightClick);
+		if(event == 1) {
+			gui->mode = gui->input->keysDown[KEYCODE_CTRL];
+
+			if(!gui->mode) {
+				POINT p; 
+				GetCursorPos(&p);
+				Vec2 mp = vec2(p.x, -p.y);
+
+				// gui->mouseAnchor = input->mousePosNegative - rectTL(region);
+				gui->mouseAnchor = mp - rectTL(region);
+				gui->mouseAnchor2 = rectDim(region);
+			}
+		}
+
+		if(event > 0) {
+			if(gui->mode) {
+				uiEvent = event;
+				resizeAlign = vec2i(1,-1);
+			} else {
+				move = true;
+
+				POINT p; 
+				GetCursorPos(&p);
+				Vec2 mp = vec2(p.x, -p.y);
+
+				// Vec2 pos = input->mousePosNegative - gui->mouseAnchor;
+				Vec2 pos = mp - gui->mouseAnchor;
+
+				if(insideClamp) {
+					clamp(&pos.x, sr.left, sr.right - gui->mouseAnchor2.w);
+					clamp(&pos.y, sr.bottom + gui->mouseAnchor2.h, sr.top);
+				}
+				region = rectTLDim(pos, gui->mouseAnchor2);
+			}
+		}
+	}
+
+	float cornerSize = settings.cornerSize;
+    for(int x = -1; x < 2; x++) {
+    	for(int y = -1; y < 2; y++) {
+    		if(x == 0 && y == 0) continue;
+
+    		Vec2i align = vec2i(x,y);
+    		Vec2 dim = vec2(align.x==0?rectW(region)-cornerSize*2+2:w+1, align.y==0?rectH(region)-cornerSize*2+2:w+1);
+    		Rect r = rectAlignDim(region, align, dim);
+
+    		int event;
+    		bool corner = abs(x) == 1 && abs(y) == 1;
+    		if(corner) {
+    			r = rectAlignDim(region, align, vec2(w+1,cornerSize));
+	    		event = newGuiGoDragAction(gui, r, z);
+    			r = rectAlignDim(region, align, vec2(cornerSize,w+1));
+    			gui->id--;
+				event = newGuiGoDragAction(gui, r, z);
+    		} else {
+	    		event = newGuiGoDragAction(gui, r, z);
+    		}
+
+    		if(event > 0) {
+    			uiEvent = event;
+    			resizeAlign = align;
+    		}
+			if(newGuiIsWasHotOrActive(gui)) {
+    			changeCursor = true;
+    			resizeAlign = align;
+			}
+    	}
+    }
+
+    if(!move) {
+        if(uiEvent == 1) {
+        	if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - region.left;
+        	if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - region.right;
+        	if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - region.top;
+        	if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - region.bottom;
+        }
+
+        if(uiEvent > 0) {
+			if(resizeAlign.x == -1) region.left = (p - gui->mouseAnchor).x;
+			else if(resizeAlign.x == 1) region.right = (p - gui->mouseAnchor).x;
+
+			if(settings.resizableY) {
+				if(resizeAlign.y == -1) region.bottom = (p - gui->mouseAnchor).y;
+				else if(resizeAlign.y == 1) region.top = (p - gui->mouseAnchor).y;
+			}
+        }
+
+    	if(changeCursor) {
+    		if(resizeAlign == vec2i(-1,-1) || resizeAlign == vec2i(1,1)) newGuiSetCursor(gui, IDC_SIZENESW);
+    		if(resizeAlign == vec2i(-1,1) || resizeAlign == vec2i(1,-1)) newGuiSetCursor(gui, IDC_SIZENWSE);
+    		if(resizeAlign == vec2i(-1,0) || resizeAlign == vec2i(1, 0)) newGuiSetCursor(gui, IDC_SIZEWE);
+    		if(resizeAlign == vec2i(0,-1) || resizeAlign == vec2i(0, 1)) newGuiSetCursor(gui, IDC_SIZENS);
+    	}
+
+    	if(uiEvent > 0 && insideClamp) {
+    		if(resizeAlign.x == -1) region.left = clamp(region.left, sr.left, region.right - settings.minDim.x);
+    		if(resizeAlign.x ==  1) region.right = clamp(region.right, region.left + settings.minDim.x, sr.right);
+
+			if(settings.resizableY) {
+	    		if(resizeAlign.y == -1) region.bottom = clamp(region.bottom, sr.bottom, region.top - settings.minDim.y);
+	    		if(resizeAlign.y ==  1) region.top = clamp(region.top, region.bottom + settings.minDim.y, sr.top);
+    		}
+    	}
+    }
+
+
+    // If window is resizing clamp panel.
+    if(insideClamp)
+    {
+    	Vec2 dim = rectDim(region);
+    	if(region.left < sr.left) rectTrans(&region, vec2(sr.left - region.left, 0));
+    	if(region.right > sr.right) rectTrans(&region, vec2(sr.right - region.right, 0));
+    	if(region.bottom < sr.bottom) rectTrans(&region, vec2(0, sr.bottom - region.bottom));
+    	if(region.top > sr.top) rectTrans(&region, vec2(0, sr.top - region.top));
+
+    	if(rectH(region) > rectH(sr)) {
+    		region.top = sr.top;
+    		region.bottom = sr.bottom;
+    	}
+    	if(rectW(region) > rectW(sr)) {
+    		region.left = sr.left;
+    		region.right = sr.right;
+    	}
+    }
+
+    *r = region;
+
+    if(move || uiEvent) return true;
+
+    return false;
+}
 
 
 
@@ -3868,6 +4025,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->gui = &ad->newGui;
 		newGuiBegin(ad->gui, input);
+		ad->gui->windowSettings = ws;
 
 		if(!ws->customCursor) {
 			SetCursor(LoadCursor(0, IDC_ARROW));
@@ -3879,14 +4037,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 			NewAppSettings as;
 			NewAppColors ac;
 
+			// as.font = "OpenSans-Bold.ttf";
 			as.font = "OpenSans-Bold.ttf";
 			as.fontHeight = 20;
 			as.fontShadow = 2;
 			// as.commentFont = "SourceSansPro-Regular.ttf";
 			as.commentFont = "OpenSans-Regular.ttf";
-			// as.commentFont = "consola.ttf";
+			// as.commentFont = "arial.ttf";
+			// as.commentFontHeight = 22;
 			as.commentFontHeight = 22;
-			as.commentFontShadow = 1;
+			as.commentFontShadow = 2;
 
 			as.graphTitleFontHeight = 30;
 			as.graphFontShadow = 1;
@@ -3907,28 +4067,32 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ac.commentFont = ac.font;
 			ac.commentFontShadow = ac.fontShadow;
 
-			Vec3 hslBackground = vec3(0.7f, 0.3f, 0.3f);
+			Vec3 hslBackground = vec3(0.65f, 0.5f, 0.3f);
 			Vec3 hslButton = hslBackground + vec3(0.25f,0,0);
-			Vec3 hslGraph = hslBackground - vec3(0.25f,0,0);
+			Vec3 hslGraph = hslBackground + vec3(0.1f,0,0);
 
 			ac.background =            colorHSL(hslBackground);
-			ac.windowBorder =          colorHSL(hslBackground + vec3(0,0,-0.1f));
-			ac.button =                colorHSL(hslButton);
-			ac.uiBackground =          colorHSL(hslBackground + vec3(0,0,0.1f));
-			ac.editCursor =            colorHSL(hslButton + vec3(0,0,0.2f));
-			ac.editSelection =         colorHSL(hslBackground + vec3(0.5f,0,0));;
+			ac.windowBorder =          colorHSL(hslBackground + vec3(0,-0.05f,+0.05f));
+			ac.button =                colorHSL(hslBackground + vec3(-0.05f,-0.05f, 0.05f));
+			ac.uiBackground =          colorHSL(hslBackground + vec3(0,0.05f,-0.05f));
+
+			// ac.graphFont =             colorHSL(hslButton + vec3(0,0.2f,0.3f));
+			ac.graphFont =             ac.font;
+			// ac.graphBackgroundTop =    colorHSL(hslGraph + vec3(0,0,-0.05f));
+			// ac.graphBackgroundBottom = colorHSL(hslGraph + vec3(0,0,-0.15f));
+			ac.graphBackgroundTop =    colorHSL(hslBackground + vec3(0,-0.4f,-0.12f));
+			ac.graphBackgroundBottom = colorHSL(hslBackground + vec3(0,-0.54f,-0.2f));
+
+			ac.graphData1 =            colorHSL(hslGraph + vec3(-0.25f, 0.2f,0.1f));
+			ac.graphData2 =            colorHSL(hslGraph + vec3(0.18f,0.2f,0.1f));
+			ac.graphData3 =            colorHSL(hslGraph + vec3(0.5,   0.2f,0.1f));
+
+			ac.graphMark =             vec4(1,0.03f);
+			ac.graphSubMark =          vec4(1,0.015f);
+
+			ac.editCursor =            colorHSL(hslBackground + vec3(-0.3f,-0.1,0.3f));
+			ac.editSelection =         colorHSL(hslGraph + vec3(0.25f,0.0f,0.1f));
 			ac.edge =                  vec4(0,1);
-
-			ac.graphFont =             colorHSL(hslButton + vec3(0,0.2f,0.3f));
-			ac.graphBackgroundTop =    colorHSL(hslGraph + vec3(0,0,-0.05f));
-			ac.graphBackgroundBottom = colorHSL(hslGraph + vec3(0,0,-0.15f));
-
-			ac.graphData1 =            colorHSL(hslGraph + vec3(0.25f, 0.3f,0.3f));
-			ac.graphData2 =            colorHSL(hslGraph + vec3(-0.25f,0.3f,0.3f));
-			ac.graphData3 =            colorHSL(hslGraph + vec3(0.5,   0.3f,0.3f));
-
-			ac.graphMark =             vec4(1,0.05f);
-			ac.graphSubMark =          vec4(1,0.025f);
 
 			// 
 
@@ -4107,12 +4271,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	    if(newGuiGotActive(gui, id) || newGuiGotActive(gui, id2)) {
 	    	if(!input->keysDown[KEYCODE_CTRL]) {
 	    		gui->mode = 0;
-		    	POINT p;
-		    	GetCursorPos(&p);
-		    	ScreenToClient(windowHandle, &p);
-
-	    		gui->mouseAnchor = vec2(p.x+1, p.y+1);
-	    		// gui->mouseAnchor = vec2(p.x, p.y);
+	    		gui->mouseAnchor = input->mousePos + vec2(1);
 	    	} else {
 	    		gui->mode = 1;
 	    		setupResize = true;
@@ -4177,12 +4336,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	    	if(resizeAlign.x == -1) {
 	    		nx = p.x - gui->mouseAnchor.x;
-	    		nx = clampMax(nx, r.right - Window_Min_Size_X);
+	    		nx = clamp(nx, r.right - ws->biggestMonitorSize.w, r.right - Window_Min_Size_X);
 	    		nw = r.right-nx;
 	    	}
 	    	if(resizeAlign.y == 1) {
 	    		ny = p.y - gui->mouseAnchor.y;
-	    		ny = clampMax(ny, r.bottom - Window_Min_Size_X);
+	    		ny = clamp(ny, r.bottom - ws->biggestMonitorSize.h, r.bottom - Window_Min_Size_X);
 	    		nh = r.bottom-ny;
 	    	}
 	    	if(resizeAlign.x == 1) nw = (p.x - gui->mouseAnchor.x) - r.left;
@@ -4203,7 +4362,58 @@ extern "C" APPMAINFUNCTION(appMain) {
 			BringWindowToTop(windowHandle);
 			MoveWindow(windowHandle, nx, ny, nw, nh, true);
         }
-	}	
+	}
+
+
+	// // Window drag.
+	// bool resize = false;
+	// if(!ws->fullscreen)
+	// {
+	// 	TIMER_BLOCK_NAMED("WindowDrag");
+
+	//     NewGui* gui = ad->gui;
+	//     float z = 2;
+
+	//     Vec2i res = ws->currentRes;
+	//     Rect screenRect = getScreenRect(ws);
+
+	//     RECT r; 
+	//     GetWindowRect(windowHandle, &r);
+
+	//     // Rect wr = rect(r.left, r.bottom, r.right, r.top);
+	//     // Rect wr = rect(r.left, r.top, r.right, r.bottom);
+
+
+	//     // Rect wr = rect(r.left, r.top, r.right, r.bottom);
+	//     Rect wr = getScreenRect(ws);
+
+
+	//     GuiWindowSettings windowSettings = {ad->appSettings.windowBorder, ad->appSettings.windowBorder*4, vec2(Window_Min_Size_X, Window_Min_Size_Y), vec2(ws->biggestMonitorSize), rect(0,0,0,0), true, true, true};
+	//     bool active = newGuiWindowUpdate(gui, &wr, z, windowSettings);
+
+	//     if(active) {
+	// 	    // Rect realRect = rect(r.left, r.top, r.right, r.bottom);
+
+	//     	float nx, ny, nw, nh;
+	//     	nx = wr.left;
+	//     	ny = wr.top;
+	//     	nw = rectW(wr);
+	//     	nh = rectH(wr);
+
+	//     	ws->currentRes.w = nw -2;
+	//     	ws->currentRes.h = nh -2;
+	//     	ws->aspectRatio = ws->currentRes.w / (float)ws->currentRes.h;
+
+	//     	ad->updateFrameBuffers = true;	
+
+	//     	globalScreenHeight = ws->currentRes.h;
+
+	// 		BringWindowToTop(windowHandle);
+	// 		MoveWindow(windowHandle, nx, ny, nw, nh, true);
+	//     }
+
+ //    	MoveWindow(windowHandle, -1000, 500, 500,500, true);
+	// }
 
 
 
@@ -4315,8 +4525,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glBlendEquation(GL_FUNC_ADD);
+		// glBlendEquation(GL_FUNC_ADD);
 		// glViewport(0,0, ad->cur3dBufferRes.x, ad->cur3dBufferRes.y);
+
+
 
 
 		bindFrameBuffer(FRAMEBUFFER_2dMsaa);
@@ -5456,9 +5668,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 				Rect r = rectCenDim(rectB(leftTextRects[i]), vec2(ad->leftTextWidth, as->resizeRegionSize));
 
 				int event = newGuiGoDragAction(ad->gui, r, z);
-				if(event == 1) ad->gui->mouseAnchor = input->mousePos - ad->graphOffsets[i+1]*rectH(rGraphs);
+				if(event == 1) ad->gui->mouseAnchor = getMousePosS(false) - ad->graphOffsets[i+1]*rectH(rGraphs);
 				if(event > 0) {
-					ad->graphOffsets[i+1] = (input->mousePos - ad->gui->mouseAnchor).y/rectH(rGraphs);
+					ad->graphOffsets[i+1] = (getMousePosS(false) - ad->gui->mouseAnchor).y/rectH(rGraphs);
 					clamp(&ad->graphOffsets[i+1], ad->graphOffsets[i] + Graph_Min_Height/2, ad->graphOffsets[i+2] - Graph_Min_Height/2);
 
 					setCursor(ws, IDC_SIZENS);
@@ -5508,9 +5720,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				if(i == 0) {
 		    		event = newGuiGoDragAction(gui, rGraphs, z, Gui_Focus_MLeft);
-		    		if(event == 1) gui->mouseAnchor.x = -input->mousePosNegative.x - graphCamCamToScreenSpaceX(cam, cam->x);
+		    		if(event == 1) gui->mouseAnchor.x = -getMousePosS().x - graphCamCamToScreenSpaceX(cam, cam->x);
 		    		if(event > 0) {
-		    			double camX = graphCamScreenToCamSpaceX(cam, -input->mousePosNegative.x - gui->mouseAnchor.x);
+		    			double camX = graphCamScreenToCamSpaceX(cam, -getMousePosS().x - gui->mouseAnchor.x);
 
 						for(int i = 0; i < ad->camCount; i++) {
 							ad->cams[i].x = camX;
@@ -6121,6 +6333,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			Vec4 scrollBarColor = newac->button;
 			Vec4 scrollRegionColor = newac->uiBackground;
+			Vec4 scrollRegionOutlineColor = newac->edge;
+			bool scrollRegionHasOutline = true;
+
 			ScrollRegionSettings scrollSettings = {vec2(padding,0), 20, vec2(4,4), 6, 0, 40, font->height, true, true, true, scrollBarColor, vec4(0,0), vec4(0,0)};
 
 			float shadow = newas->fontShadow;
@@ -6290,7 +6505,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				Rect r = rectTLDim(writePos, vec2(writeDim.w, writePos.y - rPanel.bottom));
 				Rect scissor = r;
 
-				drawRect(r, scrollRegionColor);
+				// drawRect(r, scrollRegionColor);
+				drawRectOutlined(r, scrollRegionColor, scrollRegionOutlineColor);
 
 				static float scrollHeight = 200;
 				clampMin(&scrollHeight, 0);
@@ -6304,7 +6520,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					writePos = scrollValues.pos;
 					writeDim.w = rectW(scrollValues.region);
 
-					scissorTestScreen(r);
+					if(scrollRegionHasOutline) scissorTestScreen(rectExpand(r, vec2(0,-2)));
+					else scissorTestScreen(r);
 					float wrapWidth = writeDim.w;
 		
 					glEnable(GL_SCISSOR_TEST);
@@ -6342,6 +6559,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 		}
 		
+		// Draw Borders.
+		{
+			glLineWidth(1);
+			drawRectOutline(rGraphs, newac->edge);
+			drawRectOutline(ad->clientRect, newac->edge);
+		}
+
 	}
 
 	TIMER_BLOCK_END(appMain);
@@ -6358,11 +6582,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 		bool resizable = true;
 		bool resizableX = true;
 		bool resizableY = false;
+		// bool resizableY = true;
 		bool movable = true;
 
 		Font* font = ad->font;
 
 		float panelBorder = newas.windowBorder;
+		float windowCornerGraphSize = panelBorder*4;
 		float roundedCorners = 5;
 		float titleHeightMod = newas.windowHeightMod;
 		char* titleText = "App";
@@ -6408,7 +6634,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		TextBoxSettings buttonSettings = textBoxSettings(font, buttonColor, fontColor, newas.fontShadow, newac.fontShadow);
 		TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor, newas.fontShadow, newac.fontShadow);
 		TextEditSettings editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, editSelectionColor, editCursorColor);
-		ScrollRegionSettings scrollSettings = {vec2(10,0), 20, vec2(4,4), 6, 0, 40, rowHeight+listOffset, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
+		ScrollRegionSettings scrollSettings = {vec2(padding,0), 20, vec2(4,4), 6, 0, 40, rowHeight+listOffset, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
 
 
 		static float lastPanelHeight = 0;
@@ -6423,133 +6649,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, z);
 
 
-		// Resize and move.
-		{
-			Rect region = ad->panelRect;
-    		Rect sr = ad->clientRect;
-
-			float w = panelBorder;
-			Vec2 p = input->mousePosNegative;
-
-			int uiEvent = 0;
-			bool changeCursor = false;
-			Vec2i resizeAlign;
-
-			bool move = false;
-
-			if(resizable || movable) {
-				int event = newGuiGoDragAction(gui, ad->panelRect, z);
-				if(event == 1) {
-					gui->mode = input->keysDown[KEYCODE_CTRL];
-
-					if(!gui->mode) {
-						POINT p; 
-						GetCursorPos(&p);
-						Vec2 mp = vec2(p.x, -p.y);
-
-						// gui->mouseAnchor = input->mousePosNegative - rectTL(ad->panelRect);
-						gui->mouseAnchor = mp - rectTL(ad->panelRect);
-						gui->mouseAnchor2 = rectDim(ad->panelRect);
-					}
-				}
-
-				if(event > 0) {
-					if(gui->mode) {
-						uiEvent = event;
-						resizeAlign = vec2i(1,-1);
-					} else {
-						move = true;
-
-						POINT p; 
-						GetCursorPos(&p);
-						Vec2 mp = vec2(p.x, -p.y);
-
-						// Vec2 pos = input->mousePosNegative - gui->mouseAnchor;
-						Vec2 pos = mp - gui->mouseAnchor;
-						clamp(&pos.x, sr.left, sr.right - gui->mouseAnchor2.w);
-						clamp(&pos.y, sr.bottom + gui->mouseAnchor2.h, sr.top);
-						ad->panelRect = rectTLDim(pos, gui->mouseAnchor2);
-					}
-				}
-			}
-
-
-		    for(int x = -1; x < 2; x++) {
-		    	for(int y = -1; y < 2; y++) {
-		    		if(x == 0 && y == 0) continue;
-
-		    		Vec2i align = vec2i(x,y);
-		    		Vec2 dim = vec2(align.x==0?rectW(region)-w*2:w+1, align.y==0?rectH(region)-w*2:w+1);
-		    		Rect r = rectAlignDim(region, align, dim);
-
-		    		int event = newGuiGoDragAction(gui, r, z);
-		    		if(event > 0) {
-		    			uiEvent = event;
-		    			resizeAlign = align;
-		    		}
-	    			if(newGuiIsWasHotOrActive(gui)) {
-		    			changeCursor = true;
-		    			resizeAlign = align;
-	    			}
-		    	}
-		    }
-
-		    if(!move) {
-		        if(uiEvent == 1) {
-		        	if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - ad->panelRect.left;
-		        	if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - ad->panelRect.right;
-		        	if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - ad->panelRect.top;
-		        	if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - ad->panelRect.bottom;
-		        }
-
-		        if(uiEvent > 0) {
-					if(resizeAlign.x == -1) ad->panelRect.left = (p - gui->mouseAnchor).x;
-					else if(resizeAlign.x == 1) ad->panelRect.right = (p - gui->mouseAnchor).x;
-
-					if(resizableY) {
-						if(resizeAlign.y == -1) ad->panelRect.bottom = (p - gui->mouseAnchor).y;
-						else if(resizeAlign.y == 1) ad->panelRect.top = (p - gui->mouseAnchor).y;
-					}
-		        }
-
-		    	if(changeCursor) {
-		    		if(resizeAlign == vec2i(-1,-1) || resizeAlign == vec2i(1,1)) setCursor(ws, IDC_SIZENESW);
-		    		if(resizeAlign == vec2i(-1,1) || resizeAlign == vec2i(1,-1)) setCursor(ws, IDC_SIZENWSE);
-		    		if(resizeAlign == vec2i(-1,0) || resizeAlign == vec2i(1, 0)) setCursor(ws, IDC_SIZEWE);
-		    		if(resizeAlign == vec2i(0,-1) || resizeAlign == vec2i(0, 1)) setCursor(ws, IDC_SIZENS);
-		    	}
-
-		    	if(uiEvent > 0) {
-		    		if(resizeAlign.x == -1) ad->panelRect.left = clamp(ad->panelRect.left, sr.left, ad->panelRect.right - Panel_Min_X);
-		    		if(resizeAlign.x ==  1) ad->panelRect.right = clamp(ad->panelRect.right, ad->panelRect.left + Panel_Min_X, sr.right);
-
-					if(resizableY) {
-			    		if(resizeAlign.y == -1) ad->panelRect.bottom = clamp(ad->panelRect.bottom, sr.bottom, ad->panelRect.top - Panel_Min_Y);
-			    		if(resizeAlign.y ==  1) ad->panelRect.top = clamp(ad->panelRect.top, ad->panelRect.bottom + Panel_Min_Y, sr.top);
-		    		}
-		    	}
-		    }
-
-
-		    // If window is resizing clamp panel.
-		    {
-		    	Vec2 dim = rectDim(ad->panelRect);
-		    	if(ad->panelRect.left < sr.left) rectTrans(&ad->panelRect, vec2(sr.left - ad->panelRect.left, 0));
-		    	if(ad->panelRect.right > sr.right) rectTrans(&ad->panelRect, vec2(sr.right - ad->panelRect.right, 0));
-		    	if(ad->panelRect.bottom < sr.bottom) rectTrans(&ad->panelRect, vec2(0, sr.bottom - ad->panelRect.bottom));
-		    	if(ad->panelRect.top > sr.top) rectTrans(&ad->panelRect, vec2(0, sr.top - ad->panelRect.top));
-
-		    	if(rectH(ad->panelRect) > rectH(sr)) {
-		    		ad->panelRect.top = sr.top;
-		    		ad->panelRect.bottom = sr.bottom;
-		    	}
-		    	if(rectW(ad->panelRect) > rectW(sr)) {
-		    		ad->panelRect.left = sr.left;
-		    		ad->panelRect.right = sr.right;
-		    	}
-
-		    }
-		}
+		GuiWindowSettings windowSettings = {panelBorder, windowCornerGraphSize, vec2(Panel_Min_X, Panel_Min_Y), vec2(0,0), ad->clientRect, movable, resizableX, resizableY};
+		newGuiWindowUpdate(gui, &ad->panelRect, z, windowSettings);
 
 
 
@@ -6916,7 +7017,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 
-			lastPanelHeight = (insideRect.top - writePos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset;
+			// lastPanelHeight = (insideRect.top - writePos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset;
+			lastPanelHeight = (insideRect.top - writePos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset + clientBorder.y;
 
 			glDisable(GL_SCISSOR_TEST);
 		}
@@ -6931,92 +7033,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(ds->showStats) {
 			newGuiSetHotAllMouseOver(ad->gui, id, ds->gui2->getPanelBackgroundRect(), 5);
 		}
-	}
-
-
-	if(false)
-	{
-		// newGuiSetHotAll(ad->gui, 123123, 5);
-		newGuiSetHotAll(ad->gui, 5);
-// void newGuiSetHotAll(NewGui* gui, float z) {
-
-
-		drawRect(getScreenRect(ws), vec4(0.9f,1));
-
-		// drawRect(rectCenDim(rectCen(getScreenRect(ws)), vec2(ad->font->tex.dim)/4), vec4(1,1), rect(0,0,1,1), ad->font->tex.id);
-		// drawText("This is a test! 2q3ra2q3%W#$<?>,dg j3[4-0?}}{_)", ad->fontComment, vec2(500,-500), vec4(0,1));
-		// drawText("This is a test! 2q3ra2q3%W#$<?>,dg j3[4-0?}}{_)", ad->fontComment, vec2(500,-500), vec4(0,1));
-
-		// drawText("TiIhHlL345NM", ad->fontComment, vec2(500.0f,-500.0f), vec4(0,1));
-
-
-		drawText("T", ad->fontComment, vec2(500.00f,-500.25f), vec4(0,1));
-		drawText("i", ad->fontComment, vec2(510.50f,-500.5f), vec4(0,1));
-		drawText("h", ad->fontComment, vec2(530.50f,-500.5f), vec4(0,1));
-		drawText("L", ad->fontComment, vec2(540.25f,-500.0f), vec4(0,1));
-		drawText("1", ad->fontComment, vec2(550.50f,-500.0f), vec4(0,1));
-		drawText("4", ad->fontComment, vec2(560.00f,-500.0f), vec4(0,1));
-		drawText("K", ad->fontComment, vec2(570.25f,-500.0f), vec4(0,1));
-		drawText("F", ad->fontComment, vec2(580.25f,-500.0f), vec4(0,1));
-		drawText("B", ad->fontComment, vec2(590.25f,-500.0f), vec4(0,1));
-		drawText("N", ad->fontComment, vec2(600.25f,-500.0f), vec4(0,1));
-
-
-
-		// drawText("T", ad->fontComment, vec2(500.00f,-500.25f), vec4(0,1));
-		// drawText("i", ad->fontComment, vec2(510.00f,-500.5f), vec4(0,1));
-		// drawText("h", ad->fontComment, vec2(530.00f,-500.5f), vec4(0,1));
-		// drawText("L", ad->fontComment, vec2(540.00f,-500.0f), vec4(0,1));
-		// drawText("1", ad->fontComment, vec2(550.00f,-500.0f), vec4(0,1));
-
-
-		// T -0.375000 9.375000 9.750000
-		// i  0.875000 3.375000 2.500000
-		// h  0.875000 9.125000 8.250000
-		// L  1.125000 8.625000 7.500000
-		// 1  0.875000 6.125000 5.250000
-		// 4 -0.125000 9.375000 9.500000
-
-
-		// T -0.375000 9.375000 9.750000
-		// i  1.375000 3.875000 2.500000
-		// h  1.375000 9.625000 8.250000
-		// L  1.375000 8.875000 7.500000
-		// 1  1.375000 6.625000 5.250000
-
-
-		// T -0.375000 9.375000 9.750000
-		// i  1.375000 3.875000 2.500000
-		// h  1.375000 9.625000 8.250000
-		// L  1.375000 8.875000 7.500000
-		// 1  1.375000 6.625000 5.250000
-		// K  1.375000 10.625000 9.250000
-		// F  1.375000 8.875000 7.500000
-
-		Rect r, uv;
-		// getTextQuad('T', ad->fontComment, vec2(0,0), &r, &uv);
-		// printf("T %f %f %f\n", r.left, r.right, rectW(r));
-
-		// getTextQuad('i', ad->fontComment, vec2(0,0), &r, &uv);
-		// printf("i %f %f %f\n", r.left, r.right, rectW(r));
-		// printf("i %f %f %f\n", r.left + 0.5f, r.right + 0.5f, rectW(r));
-
-		// getTextQuad('h', ad->fontComment, vec2(0,0), &r, &uv);
-		// printf("h %f %f %f\n", r.left, r.right, rectW(r));
-		// printf("h %f %f %f\n", r.left + 0.5f, r.right + 0.5, rectW(r));
-
-		// getTextQuad('L', ad->fontComment, vec2(0,0), &r, &uv);
-		// printf("L %f %f %f\n", r.left, r.right, rectW(r));
-		// printf("L %f %f %f\n", r.left + 0.25, r.right + 0.25, rectW(r));
-
-		// getTextQuad('1', ad->fontComment, vec2(0,0), &r, &uv);
-		// printf("1 %f %f %f\n", r.left, r.right, rectW(r));
-		// printf("1 %f %f %f\n", r.left + 0.5f, r.right + 0.5f, rectW(r));
-
-		getTextQuad('F', ad->fontComment, vec2(0,0), &r, &uv);
-		printf("K %f %f %f\n", r.left, r.right, rectW(r));
-		printf("K %f %f %f\n", r.left + 0.25, r.right + 0.25, rectW(r));
-
 	}
 
 	newGuiEnd(ad->gui);
@@ -7098,7 +7114,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			glViewport(0,0, res.w, res.h);
 			glOrtho(0,1,1,0, -1, 1);
 			drawRect(rect(0, 1, 1, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
-			// drawRect(rect(0, 2, 2, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
 		}
 
 		#if USE_SRGB
