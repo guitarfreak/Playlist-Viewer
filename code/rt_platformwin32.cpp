@@ -80,6 +80,9 @@ struct Input {
 	bool firstFrame;
 	Vec2 mousePos;
 	Vec2 mousePosNegative;
+
+	Vec2 mousePosScreen;
+	Vec2 mousePosNegativeScreen;
 	
 	int mouseDeltaX, mouseDeltaY; // These are useless.
 
@@ -624,6 +627,9 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 
     input->mousePos = getMousePos(windowHandle, false);
     input->mousePosNegative = getMousePos(windowHandle, true);
+
+    input->mousePosScreen = getMousePosS(false);
+    input->mousePosNegativeScreen = getMousePosS(true);
 
     input->mouseDelta = input->mousePos - input->lastMousePos;
     input->lastMousePos = input->mousePos;

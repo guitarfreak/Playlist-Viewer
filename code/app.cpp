@@ -31,13 +31,9 @@
 	- Make UI look more 3D instead of plain flat.
 	- Fix layout system.
 	- Show download speed.
-	- When grabbing take mouse pos from OS not from input struct.
-
-
-	- Make a gui function/abstraction for window moving/resizing at border.
+	- Clamp by view count, like count and so on.
 
 	- Channel video count should be there automatically.
-	- Window resize, make corners bigger to grab.
 
 	- Runs poorly when aero is enabled.
 	- Put in server timeout.
@@ -48,7 +44,6 @@
 
 	Bugs:
 	- Drag with other window white trail.
-	- Can't do 100*100 screenshot.
 */
 
 
@@ -463,6 +458,7 @@ struct YoutubePlaylist {
 struct SearchResult {
 	char title[151];
 	char id[40];
+	int count;
 };
 
 char* curlPath = "C:\\Standalone\\curl\\curl.exe";
@@ -1700,18 +1696,19 @@ int newGuiDragAction(NewGui* gui, Rect r, float z, int focus = 0) {
 	return newGuiDragAction(gui, newGuiIncrementId(gui), r, z, gui->input->mousePosNegative, input, inputRelease, focus);
 }
 
-int newGuiGoDragAction(NewGui* gui, Rect r, float z, bool input, bool inputRelease, int focus = 0) {
-	int id = newGuiDragAction(gui, r, z, gui->input->mousePosNegative, input, inputRelease, focus);
+int newGuiGoDragAction(NewGui* gui, Rect r, float z, bool input, bool inputRelease, int focus = 0, bool screenMouse = false) {
+	Vec2 mousePos = screenMouse ? gui->input->mousePosNegativeScreen : gui->input->mousePosNegative;
+	int id = newGuiDragAction(gui, r, z, mousePos, input, inputRelease, focus);
 	if(newGuiGotActive(gui, id)) return 1;
 	if(newGuiIsActive(gui, id)) return 2;
 	if(newGuiWasActive(gui, id)) return 3;
 	
 	return 0;
 }
-int newGuiGoDragAction(NewGui* gui, Rect r, float z, int focus = 0) {
+int newGuiGoDragAction(NewGui* gui, Rect r, float z, int focus = 0, bool screenMouse = false) {
 	bool input = newGuiInputFromFocus(gui->input, focus, true);
 	bool inputRelease = newGuiInputFromFocus(gui->input, focus, false);
-	return newGuiGoDragAction(gui, r, z, input, inputRelease, focus);
+	return newGuiGoDragAction(gui, r, z, input, inputRelease, focus, screenMouse);
 }
 
 bool newGuiGoMousePosAction(NewGui* gui, Rect r, float z) {
@@ -2517,15 +2514,22 @@ struct GuiWindowSettings {
 	bool movable;
 	bool resizableX;
 	bool resizableY;
+
+	bool mouseScreenCoordinates;
 };
 
 bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings settings) {
 	Rect region = *r;
 	Rect sr = settings.insideRect;
 	bool insideClamp = !rectEmpty(sr);
+	if(!insideClamp) sr = rectCenDim(vec2(0,0), vec2(FLT_MAX, FLT_MAX)); // So we don't clamp.
+
+	if(settings.maxDim == vec2(0,0)) settings.maxDim = vec2(FLT_MAX,FLT_MAX);
+
+	bool screenMouse = settings.mouseScreenCoordinates;
 
 	float w = settings.borderSize;
-	Vec2 p = gui->input->mousePosNegative;
+	Vec2 p = screenMouse?gui->input->mousePosNegativeScreen:gui->input->mousePosNegative;
 
 	int uiEvent = 0;
 	bool changeCursor = false;
@@ -2533,9 +2537,10 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
 
 	bool move = false;
 
+
 	if((settings.resizableY || settings.resizableX) || settings.movable) {
-		int event = newGuiGoDragAction(gui, region, z);
-		int eventRightClick = newGuiGoDragAction(gui, region, z, Gui_Focus_MRight);
+		int event = newGuiGoDragAction(gui, region, z, Gui_Focus_MLeft, screenMouse);
+		int eventRightClick = newGuiGoDragAction(gui, region, z, Gui_Focus_MRight, screenMouse);
 		event = max(event, eventRightClick);
 		if(event == 1) {
 			gui->mode = gui->input->keysDown[KEYCODE_CTRL];
@@ -2587,12 +2592,12 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
     		bool corner = abs(x) == 1 && abs(y) == 1;
     		if(corner) {
     			r = rectAlignDim(region, align, vec2(w+1,cornerSize));
-	    		event = newGuiGoDragAction(gui, r, z);
+	    		event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
     			r = rectAlignDim(region, align, vec2(cornerSize,w+1));
     			gui->id--;
-				event = newGuiGoDragAction(gui, r, z);
+				event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
     		} else {
-	    		event = newGuiGoDragAction(gui, r, z);
+	    		event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
     		}
 
     		if(event > 0) {
@@ -2631,13 +2636,19 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
     		if(resizeAlign == vec2i(0,-1) || resizeAlign == vec2i(0, 1)) newGuiSetCursor(gui, IDC_SIZENS);
     	}
 
-    	if(uiEvent > 0 && insideClamp) {
-    		if(resizeAlign.x == -1) region.left = clamp(region.left, sr.left, region.right - settings.minDim.x);
-    		if(resizeAlign.x ==  1) region.right = clamp(region.right, region.left + settings.minDim.x, sr.right);
+    	// if(uiEvent > 0 && insideClamp) {
+    	if(uiEvent > 0) {
+    		Vec2 minDim = settings.minDim;
+    		Vec2 maxDim = settings.maxDim;
+
+			if(settings.resizableX) {
+    			if(resizeAlign.x == -1) region.left = clamp(region.left, max(sr.left, region.right - maxDim.x), region.right - minDim.x);
+    			if(resizeAlign.x ==  1) region.right = clamp(region.right, region.left + minDim.x, min(sr.right, region.left + maxDim.x));
+			}
 
 			if(settings.resizableY) {
-	    		if(resizeAlign.y == -1) region.bottom = clamp(region.bottom, sr.bottom, region.top - settings.minDim.y);
-	    		if(resizeAlign.y ==  1) region.top = clamp(region.top, region.bottom + settings.minDim.y, sr.top);
+	    		if(resizeAlign.y == -1) region.bottom = clamp(region.bottom, max(sr.bottom, region.top - maxDim.y), region.top - minDim.y);
+	    		if(resizeAlign.y ==  1) region.top = clamp(region.top, region.bottom + minDim.y, min(sr.top, region.bottom + maxDim.y));
     		}
     	}
     }
@@ -3111,8 +3122,8 @@ union JSonValue {
 
 #define Graph_Zoom_Min 24*60*60
 #define Graph_Zoom_MinNoDate 10
-#define Window_Min_Size_X 300
-#define Window_Min_Size_Y 300
+#define Window_Min_Size_X 500
+#define Window_Min_Size_Y 500
 #define Side_Panel_Min_Width 200
 
 #define Graph_Min_Height 0.1f
@@ -3329,6 +3340,8 @@ struct AppData {
 
 	bool sortByDate;
 	int sortStat;
+
+	Vec2 clampFilter[Line_Graph_Count];
 
 	//
 
@@ -4045,7 +4058,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			as.commentFont = "OpenSans-Regular.ttf";
 			// as.commentFont = "arial.ttf";
 			// as.commentFontHeight = 22;
-			as.commentFontHeight = 22;
+			as.commentFontHeight = 20;
 			as.commentFontShadow = 2;
 
 			as.graphTitleFontHeight = 30;
@@ -4249,173 +4262,33 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->panelActive = !ad->panelActive;
 	}
 
-
-	bool resize = false;
 	// Window drag.
+	bool resize = false;
 	if(!ws->fullscreen)
 	{
 		TIMER_BLOCK_NAMED("WindowDrag");
 
-	    NewGui* gui = ad->gui;
+	    float z = 0;
 
-	    float z = 2;
+	    RECT r; 
+	    GetWindowRect(windowHandle, &r);
+	    Rect wr = rect(r.left, -r.bottom, r.right, -r.top);
 
-		bool setupResize = false;
+	    GuiWindowSettings windowSettings = {ad->appSettings.windowBorder, ad->appSettings.windowBorder*4, vec2(Window_Min_Size_X, Window_Min_Size_Y), vec2(ws->biggestMonitorSize), rect(0,0,0,0), true, true, true, true};
+	    bool active = newGuiWindowUpdate(ad->gui, &wr, z, windowSettings);
 
-	    Vec2i res = ws->currentRes;
-	    Rect screenRect = getScreenRect(ws);
-	    // Rect screenRect = rectExpand(getScreenRect(ws), 2);
-	    int id = newGuiDragAction(gui, screenRect, z, Gui_Focus_MRight);
-        int id2 = newGuiDragAction(gui, screenRect, 0);
+	    if(active) {
+	    	Rect r = rectTLDim(wr.left, -wr.top, wr.right-wr.left, -wr.bottom - -wr.top);
 
-	    if(newGuiGotActive(gui, id) || newGuiGotActive(gui, id2)) {
-	    	if(!input->keysDown[KEYCODE_CTRL]) {
-	    		gui->mode = 0;
-	    		gui->mouseAnchor = input->mousePos + vec2(1);
-	    	} else {
-	    		gui->mode = 1;
-	    		setupResize = true;
-	    	}
-	    }
-
-	    if(newGuiIsActive(gui, id) || newGuiIsActive(gui, id2)) {
-	    	POINT p; 
-	    	GetCursorPos(&p);
-	    	RECT r; 
-	    	GetWindowRect(windowHandle, &r);
-
-	    	if(!gui->mode) {
-		    	MoveWindow(windowHandle, p.x - gui->mouseAnchor.x, p.y - gui->mouseAnchor.y, r.right-r.left, r.bottom-r.top, true);
-	    	} else {
-	    		resize = true;
-	    	}
-	    }
-
-	    float w = ad->appSettings.windowBorder;
-
-	    int i = 0;
-	    Vec2i resizeAlign = vec2i(1,-1);
-	    for(int x = -1; x < 2; x++) {
-	    	for(int y = -1; y < 2; y++) {
-	    		if(x == 0 && y == 0) continue;
-
-	    		Vec2i align = vec2i(x,y);
-	    		Vec2 dim = vec2(align.x==0?rectW(screenRect)-w*2:w+1, align.y==0?rectH(screenRect)-w*2:w+1);
-	    		Rect r = rectAlignDim(screenRect, align, dim);
-
-	    		int guiId = newGuiDragAction(gui, r, z, Gui_Focus_MLeft);
-			    if(newGuiGotActive(gui, guiId)) setupResize = true;
-			    if(newGuiIsActive(gui, guiId)) {
-			    	resizeAlign = align;
-				    resize = true;				    
-			    }
-
-				if(newGuiIsWasHotOrActive(gui, guiId)) {
-					if(align == vec2i(-1,-1) || align == vec2i(1,1)) setCursor(ws, IDC_SIZENESW);
-					if(align == vec2i(-1,1) || align == vec2i(1,-1)) setCursor(ws, IDC_SIZENWSE);
-					if(align == vec2i(-1,0) || align == vec2i(1, 0)) setCursor(ws, IDC_SIZEWE);
-					if(align == vec2i(0,-1) || align == vec2i(0, 1)) setCursor(ws, IDC_SIZENS);
-				}
-	    	}
-	    }
-
-        if(resize) {
-        	POINT p; 
-        	GetCursorPos(&p);
-        	RECT r; 
-        	GetWindowRect(windowHandle, &r);
-
-        	if(setupResize) {
-    			if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - r.left;
-    			if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - r.right;
-    			if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - r.top;
-    			if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - r.bottom;
-        	}
-
-	    	int nx = r.left, ny = r.top, nw = r.right-r.left, nh = r.bottom-r.top;
-
-	    	if(resizeAlign.x == -1) {
-	    		nx = p.x - gui->mouseAnchor.x;
-	    		nx = clamp(nx, r.right - ws->biggestMonitorSize.w, r.right - Window_Min_Size_X);
-	    		nw = r.right-nx;
-	    	}
-	    	if(resizeAlign.y == 1) {
-	    		ny = p.y - gui->mouseAnchor.y;
-	    		ny = clamp(ny, r.bottom - ws->biggestMonitorSize.h, r.bottom - Window_Min_Size_X);
-	    		nh = r.bottom-ny;
-	    	}
-	    	if(resizeAlign.x == 1) nw = (p.x - gui->mouseAnchor.x) - r.left;
-	    	if(resizeAlign.y == -1) nh = (p.y - gui->mouseAnchor.y) - r.top;
-
-	    	nw = clamp(nw, Window_Min_Size_X, ws->biggestMonitorSize.w);
-	    	nh = clamp(nh, Window_Min_Size_X, ws->biggestMonitorSize.h);
-
-
-	    	ws->currentRes.w = nw -2;
-	    	ws->currentRes.h = nh -2;
+	    	ws->currentRes = vec2i(rectW(r) - 2, rectH(r) - 2); // 1 pixel border.
 	    	ws->aspectRatio = ws->currentRes.w / (float)ws->currentRes.h;
-
 	    	ad->updateFrameBuffers = true;	
-
 	    	globalScreenHeight = ws->currentRes.h;
 
 			BringWindowToTop(windowHandle);
-			MoveWindow(windowHandle, nx, ny, nw, nh, true);
-        }
+			MoveWindow(windowHandle, r.left, r.top, rectW(r), rectH(r), true);
+	    }
 	}
-
-
-	// // Window drag.
-	// bool resize = false;
-	// if(!ws->fullscreen)
-	// {
-	// 	TIMER_BLOCK_NAMED("WindowDrag");
-
-	//     NewGui* gui = ad->gui;
-	//     float z = 2;
-
-	//     Vec2i res = ws->currentRes;
-	//     Rect screenRect = getScreenRect(ws);
-
-	//     RECT r; 
-	//     GetWindowRect(windowHandle, &r);
-
-	//     // Rect wr = rect(r.left, r.bottom, r.right, r.top);
-	//     // Rect wr = rect(r.left, r.top, r.right, r.bottom);
-
-
-	//     // Rect wr = rect(r.left, r.top, r.right, r.bottom);
-	//     Rect wr = getScreenRect(ws);
-
-
-	//     GuiWindowSettings windowSettings = {ad->appSettings.windowBorder, ad->appSettings.windowBorder*4, vec2(Window_Min_Size_X, Window_Min_Size_Y), vec2(ws->biggestMonitorSize), rect(0,0,0,0), true, true, true};
-	//     bool active = newGuiWindowUpdate(gui, &wr, z, windowSettings);
-
-	//     if(active) {
-	// 	    // Rect realRect = rect(r.left, r.top, r.right, r.bottom);
-
-	//     	float nx, ny, nw, nh;
-	//     	nx = wr.left;
-	//     	ny = wr.top;
-	//     	nw = rectW(wr);
-	//     	nh = rectH(wr);
-
-	//     	ws->currentRes.w = nw -2;
-	//     	ws->currentRes.h = nh -2;
-	//     	ws->aspectRatio = ws->currentRes.w / (float)ws->currentRes.h;
-
-	//     	ad->updateFrameBuffers = true;	
-
-	//     	globalScreenHeight = ws->currentRes.h;
-
-	// 		BringWindowToTop(windowHandle);
-	// 		MoveWindow(windowHandle, nx, ny, nw, nh, true);
-	//     }
-
- //    	MoveWindow(windowHandle, -1000, 500, 500,500, true);
-	// }
-
-
 
 	if(!resize) {
 		if(windowSizeChanged(windowHandle, ws)) {
@@ -4697,7 +4570,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-				ad->downloadMode = 0;
 
 				SearchResult* searchResults = ad->searchResults;
 				char* buffer = requestData->buffer;
@@ -4720,6 +4592,37 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 
 				ad->searchResultCount = count;
+
+				// Get count.
+
+				if(!searchForChannels) {
+					char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
+					for(int index = 0; index < count; index++) {
+						strAppend(idCollection, fillString("%s,", searchResults[index].id));
+					}
+
+					curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", count));
+				} else {
+					ad->downloadMode = 0;
+
+					for(int i = 0; i < count; i++) ad->searchResults[i].count = 0;
+				}
+
+			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+				ad->downloadMode = 0;
+
+				SearchResult* searchResults = ad->searchResults;
+				char* buffer = requestData->buffer;
+
+				int index = 0;
+				int advance = 0;
+				for(;;) {
+					char* s = getJSONIntNewline(buffer, "itemCount", &buffer);
+					if(strLen(s) == 0) break;
+
+					searchResults[index].count = strToInt(s);
+					index++;
+				}
 			}
 		}
 
@@ -5127,8 +5030,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->startLoadFile = false;
 
 		YoutubePlaylist tempPlaylist;		
-		loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id));
+		int maxCount = 1;
+		loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id), &maxCount);
 		memCpy(&ad->playlist, &tempPlaylist, sizeof(YoutubePlaylist));
+
+		ad->downloadPlaylist.count = maxCount-tempPlaylist.count;
 
 		pushTMemoryStack();
 
@@ -5255,22 +5161,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 								corrupted = true;
 
 							notFiltered = notFiltered && !corrupted;
+
+							// if(vid->viewCount < 50000) {
+								// notFiltered = false;
+							// }
 						}
-
-						// // Filter dupllicates.
-						// bool duplicate = false;
-						// if(notFiltered)
-						// {
-						// 	YoutubeVideo* vid = tempVids + i;
-						// 	for(int j = i+1; j < tempVidCount; j++) {
-						// 		if(strCompare(tempVids[i].id, tempVids[j].id)) {
-						// 			duplicate = true;
-						// 			break;
-						// 		}
-						// 	}
-
-						// 	notFiltered = notFiltered && !duplicate;
-						// }
 
 						if(notFiltered) filteredIndexes[filteredIndexesCount++] = i;
 					}
@@ -5465,15 +5360,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		//
 
-
 		// Screen layout.
-		float sidePanelWidth = ad->selectedVideo!=-1 ? ad->sidePanelWidth : 0;
-		clamp(&ad->sidePanelWidth, Side_Panel_Min_Width, ws->currentRes.w*ad->sidePanelMax);
+		bool hasSidePanel = ad->selectedVideo!=-1;
+		float sidePanelWidth = hasSidePanel ? ad->sidePanelWidth : 0;
+		if(hasSidePanel) clamp(&ad->sidePanelWidth, Side_Panel_Min_Width, ws->currentRes.w*ad->sidePanelMax);
 		float leftScaleWidth = ad->leftTextWidth + leftScaleOffset;
 		float windowTitleHeight = font->height * windowTitleHeightMod;
 		float topBarHeight = font->height * topBarHeightMod + newas->border*2;
 		float bottomScaleHeight = font->height*2 + bottomScaleOffset;
-
 
 		Layout* lay = layoutAlloc(layout(rectExpand(getScreenRect(ws), ws->fullscreen?0:-windowBorderSize*2), true));
 
@@ -5804,7 +5698,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					scissorTestScreen(scaleRect);
 
 					// Base markers.
-					drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength,0), mainColor); 
+					drawLineNewOff(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(-markLength,0), mainColor); 
 
 					char* text;
 					if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
@@ -5819,7 +5713,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					// Semi markers.
 					for(int i = 1; i < subDiv; i++) {
 						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
-						drawLineNewOff(vec2(scaleRect.right, y), vec2(-markLength*markSizeDifference,0), semiColor); 
+						drawLineNewOff(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(-markLength*markSizeDifference,0), semiColor); 
 
 						char* subText;
 						if(stepSize/subDiv > 10) subText = fillString("%i.",(int)(stepSize/subDiv));
@@ -5973,7 +5867,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						drawLine(vec2(roundFloat(x)+0.5f, rGraphs.bottom), vec2(roundFloat(x)+0.5f, rGraphs.top), i==0?horiLinesColor:subHoriLinesColor);
 						scissorTestScreen(scaleRect);
 
-						drawLineNewOff(vec2(x, scaleRect.top), vec2(0,-markLength), mainColor); 
+						drawLineNewOff(vec2(roundFloat(x)+0.5f, scaleRect.top), vec2(0,-markLength), mainColor); 
 						// drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
 						drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1), 0, shadow, shadowColor);
 
@@ -6291,11 +6185,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 					}
 
+					// // Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(padding,0), vec2(borderSize)));
+					// // l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
+
+					// char* text = sortButtonText;
+					// // Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(getTextDim(text, font).w + sortButtonMargin, font->height));
+					// Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(500, font->height));
+					// Layout* lay = layoutAlloc(layout(r, false, vec2i(-1,0), vec2(ad->newAppSettings.padding,0), vec2(0)));
+					// layoutCalc(lay);
+
+					// Layout* l = layoutQuickRow(lay, r, getTextDim(text, font).w + sortButtonMargin, 100,100);
+
+					// drawRect(layoutInc(&l), vec4(1,1));
+					// drawRect(layoutInc(&l), vec4(1,1));
+					// drawRect(layoutInc(&l), vec4(1,1));
 				}
 			}
 			glDisable(GL_SCISSOR_TEST);
 
 			// Graph selection line.
+			if(ad->selectedVideo != -1)
 			{
 				float x;
 				if(ad->sortByDate) x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.n) + 1;
@@ -6635,24 +6544,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 		TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), fontColor, newas.fontShadow, newac.fontShadow);
 		TextEditSettings editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, editSelectionColor, editCursorColor);
 		ScrollRegionSettings scrollSettings = {vec2(padding,0), 20, vec2(4,4), 6, 0, 40, rowHeight+listOffset, true, true, true, scrollSliderColor, vec4(0,0), scrollRegionColor};
-
+		GuiWindowSettings windowSettings = {panelBorder, windowCornerGraphSize, vec2(Panel_Min_X, Panel_Min_Y), vec2(0,0), ad->clientRect, movable, resizableX, resizableY, false};
 
 		static float lastPanelHeight = 0;
 
-
 		NewGui* gui = ad->gui;
-
 		float z = zOrder;
 
 		ad->panelRect.bottom = ad->panelRect.top - lastPanelHeight;
 
 		newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, z);
-
-
-		GuiWindowSettings windowSettings = {panelBorder, windowCornerGraphSize, vec2(Panel_Min_X, Panel_Min_Y), vec2(0,0), ad->clientRect, movable, resizableX, resizableY};
 		newGuiWindowUpdate(gui, &ad->panelRect, z, windowSettings);
-
-
 
 		drawRectRounded(ad->panelRect, borderColor, roundedCorners);
 	
@@ -6682,7 +6584,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Rect scissor = insideRect;
 			scissorTestScreen(scissor);
 
-			drawRect(insideRect, backgroundColor);
+			// drawRect(insideRect, backgroundColor);
+			drawRectOutlined(insideRect, backgroundColor, edgeColor);
 
 			insideRect = rectExpand(insideRect, -clientBorder*2);
 
@@ -6855,12 +6758,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 							SearchResult* sResult = ad->searchResults + i;
 
 							r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + listOffset;
-							if(newGuiQuickButton(gui, r, z, fillString("%s", sResult->title), vec2i(-1,0), scissor, buttonSettings)) {
+							if(newGuiQuickButton(gui, r, z, fillString("%s. (%i)", sResult->title, sResult->count), vec2i(-1,0), scissor, buttonSettings)) {
 								if(ad->lastSearchMode == 0) {
 									strCpy(ad->channelId, sResult->id);
 								} else {
 									strCpy(ad->downloadPlaylist.id, sResult->id);
 									strCpy(ad->downloadPlaylist.title, sResult->title);
+									ad->playlistDownloadCount = sResult->count;
 								}
 							}
 						}
