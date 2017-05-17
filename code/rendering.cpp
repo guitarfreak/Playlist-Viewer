@@ -935,6 +935,19 @@ int unicodeDecode(uchar* s, int* byteCount) {
 	return unicodeChar;
 }
 
+int unicodeGetSize(uchar* s) {
+	if(s[0] <= 127) return 1;
+
+	int bitCount = 1;
+	for(;;) {
+		char bit = (1 << 8-bitCount-1);
+		if(s[0]&bit) bitCount++;
+		else break;
+	}
+
+	return bitCount;
+}
+
 int getUnicodeRangeOffset(int c, Font* font) {
 	int unicodeOffset = -1;
 

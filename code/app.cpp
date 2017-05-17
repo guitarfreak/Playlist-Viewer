@@ -27,16 +27,22 @@
 	- Standard deviation graph.
 	- Avg. line of number videos of released in a month or so.
 	- Two modes for windows border or self made border.
-	- True JSon parser.
 	- Make UI look more 3D instead of plain flat.
 	- Fix layout system.
 	- Show download speed.
 	- Clamp by view count, like count and so on.
 
-	- Channel video count should be there automatically.
 
-	- Runs poorly when aero is enabled.
+	- True JSon parser.
+	- Channel video count should be there automatically.
 	- Put in server timeout.
+	- Load video count automatically in panel.
+	- Make panel its own window.
+	- Runs poorly when aero is enabled.
+	- Get settings file working again.
+	- UI polish. (Colors, outlines and so on.)
+	- Total cleanup of the code.
+
 
 	Done Today: 
 	
@@ -3096,27 +3102,404 @@ enum JSonType {
 	JSON_NUMBER,
 	JSON_BOOL,
 	JSON_OBJECT,
+	JSON_OBJECT_PAIR,
 	JSON_ARRAY,
+	JSON_NULL,
 };
 
-union JSonValue {
-	char type;
+struct JSonValue {
+	int type;
 
-	char* string;
-	float number;
-	bool b;
-
-	struct {
+	union {
 		char* string;
-		JSonValue* value;
-	};
+		float number;
+		bool b;
 
-	struct {
-		JSonValue* array; 
-		int size;
+		struct {
+			char* string;
+			JSonValue* value;
+		};
+
+		struct {
+			JSonValue* array; 
+			int size;
+		};
 	};
 };
 
+struct JSonNode {
+	JSonValue value;
+	JSonNode* next;
+};
+
+enum JSonTokenType {
+	JSON_TOKEN_BRACE_OPEN = 0,
+	JSON_TOKEN_BRACE_CLOSE,
+	JSON_TOKEN_BRACKET_OPEN,
+	JSON_TOKEN_BRACKET_CLOSE,
+	JSON_TOKEN_COLON,
+	JSON_TOKEN_COMMA,
+	JSON_TOKEN_STRING,
+	JSON_TOKEN_NUMBER,
+	JSON_TOKEN_TRUE,
+	JSON_TOKEN_FALSE,
+	JSON_TOKEN_NULL,
+};
+
+struct Token {
+	int type;
+	char* data;
+	int size;
+};
+
+Token jsonGetToken(char** buffer, bool advance = true) {
+	Token token;
+
+	char* b = *buffer;
+	b = eatWhiteSpaces(b);
+
+	char* startAddress = b;
+
+	token.data = b;
+	token.size = 1;
+
+	char c = b[0];
+	b++;
+	switch(c) {
+		case '{': token.type = JSON_TOKEN_BRACE_OPEN; break;
+		case '}': token.type = JSON_TOKEN_BRACE_CLOSE; break;
+		case '[': token.type = JSON_TOKEN_BRACKET_OPEN; break;
+		case ']': token.type = JSON_TOKEN_BRACKET_CLOSE; break;
+		case ':': token.type = JSON_TOKEN_COLON; break;
+		case ',': token.type = JSON_TOKEN_COMMA; break;
+		case 't': token.type = JSON_TOKEN_TRUE; token.size = 4; b+=3; break;
+		case 'f': token.type = JSON_TOKEN_FALSE; token.size = 5; b+=4; break;
+		case 'n': token.type = JSON_TOKEN_NULL; token.size = 4; b+=3; break;
+
+		case '\"': {
+			token.data = b;
+			while(*b != '\"') {
+				if(*b == '\\') {
+					b++;
+					if(*b == 'u') b += 5;
+					else b++;
+				} else {
+					// Assuming utf-8
+					b += unicodeGetSize((uchar*)b);
+				}
+			}
+			b++;
+
+			token.type = JSON_TOKEN_STRING;
+			token.size = b - startAddress - 2;
+		} break;
+
+		default: {
+			b--;
+			if(*b == '-') b++;
+			if(*b == '0') b++;
+			else while(charIsDigit(*b)) b++;
+			if(*b == '.') {
+				b++;
+				while(charIsDigit(*b)) b++;
+			}
+			if(*b == 'e' || *b == 'E') {
+				b++;
+				if(*b == '+' || *b == '-') b++;
+				while(charIsDigit(*b)) b++;
+			}
+
+			token.type = JSON_TOKEN_NUMBER;
+			token.size = b - startAddress;
+		} break;
+	}
+
+	if(advance) {
+		*buffer = b;
+	}
+
+	return token;
+}
+
+int jsonPeekToken(char** buffer) {
+	Token token = jsonGetToken(buffer, false);
+	return token.type;
+}
+
+struct JSonParseInfo {
+	char* buffer;
+	Token* tokens;
+	int size;
+};
+
+JSonValue* jsonParseValue(char** buffer);
+
+JSonValue* jsonParseString(char** buffer) {
+	Token token = jsonGetToken(buffer);
+	myAssert(token.type == JSON_TOKEN_STRING);
+
+	JSonValue* value = getTStruct(JSonValue);
+	value->type = JSON_STRING;
+
+	// Transform json string to c string.
+	value->string = getTString(token.size+1);
+	char* t = token.data;
+	char* s = value->string;
+	int size = 0;
+	for(int i = 0; i < token.size; i++) {
+		char c = t[i];
+		if(c == '\\') {
+			switch(t[i+1]) {
+				case '\"': s[size] = '\"'; break;
+				case '\\': s[size] = '\\'; break;
+				case '/' : s[size] = '/' ; break;
+				case 'b': s[size] = '\b'; break;
+				case 'f': s[size] = '\f'; break;
+				case 'n': s[size] = '\n'; break;
+				case 'r': s[size] = '\r'; break;
+				case 't': s[size] = '\t'; break;
+				case 'u': {
+					s[size]   = t[i+1];
+					s[size+1] = t[i+2];
+					s[size+2] = t[i+3];
+					s[size+3] = t[i+4];
+					size += 3;
+					i += 3-1;
+				} break;
+			}
+			size++;
+			i += 2-1;
+		} else {
+			s[size] = c;
+			size++;
+		}
+	}
+	s[size] = '\0';
+
+	return value;
+}
+
+JSonValue* jsonParseArray(char** buffer) {
+	myAssert(jsonGetToken(buffer).type == JSON_TOKEN_BRACKET_OPEN);
+
+	JSonNode* node = 0;
+	int listSize = 0;
+
+	if(jsonPeekToken(buffer) != JSON_TOKEN_BRACKET_CLOSE) {
+		for(;;) {
+			JSonNode* n = getTStruct(JSonNode);
+			n->next = 0;
+
+			n->value = *(jsonParseValue(buffer));
+
+			if(node == 0) node = n;
+			else {
+				JSonNode* it = node;
+				while(it->next != 0) it = it->next;
+				it->next = n;
+			}
+			listSize++;
+
+			if(jsonPeekToken(buffer) != JSON_TOKEN_COMMA) break;
+			myAssert(jsonGetToken(buffer).type == JSON_TOKEN_COMMA);
+		}	
+	}
+	myAssert(jsonGetToken(buffer).type == JSON_TOKEN_BRACKET_CLOSE);
+
+	JSonValue* value = getTStruct(JSonValue);
+	value->type = JSON_ARRAY;
+	value->size = listSize;
+	value->array = getTArray(JSonValue, listSize);
+	JSonNode* it = node;
+	for(int i = 0; i < listSize; i++) {
+		value->array[i] = it->value;
+		it = it->next;
+	}
+
+	return value;
+}
+
+JSonValue* jsonParseObject(char** buffer) {
+	myAssert(jsonGetToken(buffer).type == JSON_TOKEN_BRACE_OPEN);
+
+	JSonNode* node = 0;
+	int listSize = 0;
+
+	if(jsonPeekToken(buffer) != JSON_TOKEN_BRACE_CLOSE) {
+		for(;;) {
+			JSonNode* n = getTStruct(JSonNode);
+			n->next = 0;
+
+			JSonValue* value = &n->value;
+			value->type = JSON_OBJECT_PAIR;
+
+			Token token = jsonGetToken(buffer);
+			myAssert(token.type == JSON_TOKEN_STRING);
+			// Transform string before copying.
+			value->string = getTString(token.size+1);
+			strCpy(value->string, token.data, token.size);
+
+			myAssert(jsonGetToken(buffer).type == JSON_TOKEN_COLON);
+
+			value->value = jsonParseValue(buffer);
+
+			if(node == 0) node = n;
+			else {
+				JSonNode* it = node;
+				while(it->next != 0) it = it->next;
+				it->next = n;
+			}
+			listSize++;
+
+			if(jsonPeekToken(buffer) != JSON_TOKEN_COMMA) break;
+			myAssert(jsonGetToken(buffer).type == JSON_TOKEN_COMMA);
+		}	
+	}
+	myAssert(jsonGetToken(buffer).type == JSON_TOKEN_BRACE_CLOSE);
+
+	JSonValue* value = getTStruct(JSonValue);
+	value->type = JSON_OBJECT;
+	value->size = listSize;
+	value->array = getTArray(JSonValue, listSize);
+	JSonNode* it = node;
+	for(int i = 0; i < listSize; i++) {
+		value->array[i] = it->value;
+		it = it->next;
+	}
+
+	return value;
+}
+
+JSonValue* jsonParseValue(char** buffer) {
+
+	int tokenType = jsonPeekToken(buffer);
+	if(tokenType == JSON_TOKEN_BRACE_OPEN) {
+		JSonValue* value = jsonParseObject(buffer);
+		return value;
+	} else if(tokenType == JSON_TOKEN_BRACKET_OPEN) {
+		JSonValue* value = jsonParseArray(buffer);
+		return value;
+	} else if(tokenType == JSON_TOKEN_STRING) {
+		JSonValue* value = jsonParseString(buffer);
+		return value;
+	} else if(tokenType == JSON_TOKEN_TRUE || tokenType == JSON_TOKEN_FALSE) {
+		jsonGetToken(buffer);
+		JSonValue* value = getTStruct(JSonValue);
+		value->type = JSON_BOOL;
+		value->b = tokenType == JSON_TOKEN_TRUE ? true : false;
+		return value;
+	} else if(tokenType == JSON_TOKEN_NUMBER) {
+		Token token = jsonGetToken(buffer);
+		JSonValue* value = getTStruct(JSonValue);
+		value->type = JSON_NUMBER;
+		value->number = strToFloat(token.data);
+		return value;
+	} else if(tokenType == JSON_TOKEN_NULL) {
+		jsonGetToken(buffer);
+		JSonValue* value = getTStruct(JSonValue);
+		value->type = JSON_NULL;
+		return value;
+	}
+
+	return 0;
+}
+
+void jsonPrint(JSonValue* value) {
+	if(value->type == JSON_STRING) {
+		printf("\"%s\"", value->string);
+	} else if(value->type == JSON_NUMBER) {
+		printf("%f", value->number);
+	} else if(value->type == JSON_BOOL) {
+		printf("\"%i\"", value->b);
+	} else if(value->type == JSON_NULL) {
+		printf("null");
+	} else if(value->type == JSON_OBJECT) {
+		printf("{\n");
+		for(int i = 0; i < value->size; i++) {
+			printf("\"%s\": ", value->array[i].string);
+			jsonPrint(value->array[i].value);
+			printf(", \n");
+		}
+		printf("}\n");
+	} else if(value->type == JSON_ARRAY) {
+		printf("[\n");
+		for(int i = 0; i < value->size; i++) {
+			jsonPrint(value->array + i);
+			printf(", \n");
+		}
+		printf("]\n");
+	} 
+}
+
+
+#if 0
+if(mode == Download_Mode_Snippet) {
+	// Use Case:
+	JSon* node = ad->jsonObject;
+
+	// JSonValue* jsonTree = parseJSon(buffer);
+
+	int commentCount = 10;
+	VideoSnippet* snippet = &ad->videoSnippet;
+	YoutubeVideo* vid = ad->videos + ad->selectedVideo;
+
+	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+		snippet->selectedCommentCount = 0;
+		ad->commentScrollValue = 0;
+	}
+
+	// Download thumbnail 
+	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+		curlRequestDataInitAdd(threadQueue, requestData, vid->thumbnail);
+	}
+
+	// Upload texture.
+	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+		if(snippet->thumbnailTexture.id != -1) deleteTexture(&snippet->thumbnailTexture);
+		loadTextureFromMemory(&snippet->thumbnailTexture, requestData->buffer, requestData->size, -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
+
+		curlRequestDataInitAdd(threadQueue, requestData, requestCommentThread(vid->id, commentCount));
+	}
+
+	// Get comments.
+	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+		TIMER_BLOCK_NAMED("ParseComments");
+
+		ad->downloadMode = 0;
+
+		char* buffer = requestData->buffer;
+
+		int totalResults = strToInt(getJSONInt(buffer, "totalResults"));
+
+		char* commentBuffer = getTString(kiloBytes(1)); strClear(commentBuffer);
+
+		char* content;
+		int advance;
+		for(int i = 0; i < totalResults; i++) {
+			int commentStart = strFindRight(buffer, "\"textOriginal\": \"");
+			if(commentStart == -1) break;
+
+			buffer += commentStart;
+			copyOverTextAndFixTokens(commentBuffer, buffer);
+
+			char* s = getPString(strLen(commentBuffer)+1);
+			strCpy(s, commentBuffer);
+
+			buffer += strLen(commentBuffer);
+
+			snippet->selectedTopComments[snippet->selectedCommentCount] = s;
+
+			content = getJSONInt(buffer, "likeCount", &buffer);
+			snippet->selectedCommentLikeCount[snippet->selectedCommentCount] = strToInt(content);
+
+			content = getJSONInt(buffer, "totalReplyCount", &buffer);
+			snippet->selectedCommentReplyCount[snippet->selectedCommentCount] = strToInt(content);
+
+			snippet->selectedCommentCount++;
+		}
+	}
+}
+#endif
 
 
 
@@ -4513,7 +4896,32 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				ad->downloadMode = 0;
 
-				ad->downloadPlaylist.count = strToInt(getJSONInt(requestData->buffer, "totalResults"));
+				// ad->downloadPlaylist.count = strToInt(getJSONInt(requestData->buffer, "totalResults"));
+
+				char* buffer = requestData->buffer;
+				JSonValue* object = jsonParseValue(&buffer);
+
+				JSonValue* array = object->array;
+				JSonValue* pageInfo = 0;
+				for(int i = 0; i < array->size; i++) {
+					if(strCompare(array[i].string, "pageInfo")) {
+						pageInfo = array[i].value;
+						break;
+					}
+				}
+
+				array = pageInfo->array;
+				JSonValue* totalResults = 0;
+				for(int i = 0; i < pageInfo->size; i++) {
+					if(strCompare(array[i].string, "totalResults")) {
+						totalResults = array[i].value;
+						break;
+					}
+				}
+
+				ad->downloadPlaylist.count = roundInt(totalResults->number);
+
+				jsonPrint(object);
 			}
 		}
 
@@ -5162,9 +5570,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 							notFiltered = notFiltered && !corrupted;
 
-							// if(vid->viewCount < 50000) {
-								// notFiltered = false;
-							// }
+							// if(!valueBetween(vid->viewCount, ad->clampFilter[0].min, ad->clampFilter[0].max)) notFiltered = false;
+							// if(!valueBetween(vid->viewCount, ad->clampFilter[1].min, ad->clampFilter[1].max)) notFiltered = false;
+							// if(!valueBetween(vid->viewCount, ad->clampFilter[2].min, ad->clampFilter[2].max)) notFiltered = false;
+							// if(!valueBetween(vid->viewCount, ad->clampFilter[3].min, ad->clampFilter[3].max)) notFiltered = false;
 						}
 
 						if(notFiltered) filteredIndexes[filteredIndexesCount++] = i;
@@ -5298,6 +5707,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 					ad->stats[1] = statLikes;
 					ad->stats[2] = statLikesDiff;
 					ad->stats[3] = statComments;
+
+					// ad->clampFilter[0].min = ad->stats[0].min;
+					// ad->clampFilter[0].max = ad->stats[0].max;
+					// ad->clampFilter[1].min = ad->stats[1].min;
+					// ad->clampFilter[1].max = ad->stats[1].max;
+					// ad->clampFilter[2].min = ad->stats[2].min;
+					// ad->clampFilter[2].max = ad->stats[2].max;
+					// ad->clampFilter[3].min = ad->stats[3].min;
+					// ad->clampFilter[3].max = ad->stats[3].max;
 				}
 
 				// Init cam after loading.
@@ -5522,6 +5940,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			layoutInc(&l);
+
+			
 
 			drawQuickTextBox(layoutInc(&l), labels[li++], scissor, labelSettings);
 			newGuiQuickSlider(ad->gui, layoutInc(&l), z, &ad->graphDrawMode, 0, 2, scissor, sliderSettings);
@@ -5932,6 +6352,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			Font* graphTitleFont = ad->fontTitle;
 			Vec2 graphTitleOffset = vec2(as->titleOffset, -as->titleOffset);
+			// Vec2 graphTitleOffset = vec2(graphTitleFont->height*0.25f,-1);
 			Vec4 graphTitleColor = newac->font;
 			float graphTitleOutline = newas->fontShadow;
 			Vec4 graphTitleOutlineColor = newac->fontShadow;
@@ -6185,20 +6606,39 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 					}
 
+
+
+
 					// // Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(padding,0), vec2(borderSize)));
 					// // l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
 
+					// float z = 1;
+
+					// TextBoxSettings textSettings = textBoxSettings(font, newac->uiBackground, newac->font, newas->fontShadow, newac->fontShadow);
+					// SliderSettings sliderSettings = {textSettings, 20, 20, 0, 0, 0, newac->button, newac->font};
+
+					// TextEditSettings editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, newac->editSelection, newac->editCursor);
+
+
 					// char* text = sortButtonText;
 					// // Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(getTextDim(text, font).w + sortButtonMargin, font->height));
-					// Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(500, font->height));
+					// Rect r = rectTLDim(rectTL(rGraph), vec2(500, font->height));
 					// Layout* lay = layoutAlloc(layout(r, false, vec2i(-1,0), vec2(ad->newAppSettings.padding,0), vec2(0)));
 					// layoutCalc(lay);
 
 					// Layout* l = layoutQuickRow(lay, r, getTextDim(text, font).w + sortButtonMargin, 100,100);
 
-					// drawRect(layoutInc(&l), vec4(1,1));
-					// drawRect(layoutInc(&l), vec4(1,1));
-					// drawRect(layoutInc(&l), vec4(1,1));
+					// if(newGuiQuickButton(ad->gui, layoutInc(&l), z, text, rGraph, graphUISettings)) {
+					// 	if(ad->sortStat != i) {
+					// 		ad->startLoadFile = true;
+					// 		ad->sortByDate = false;
+					// 		ad->sortStat = i;
+					// 	}
+					// }
+
+					// Rect scissor = getScreenRect(ws);
+					// newGuiQuickTextEdit(ad->gui, layoutInc(&l), &ad->clampFilter[i].min, z, scissor, editSettings);
+					// newGuiQuickTextEdit(ad->gui, layoutInc(&l), &ad->clampFilter[i].max, z, scissor, editSettings);
 				}
 			}
 			glDisable(GL_SCISSOR_TEST);
@@ -6937,6 +7377,27 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(ds->showStats) {
 			newGuiSetHotAllMouseOver(ad->gui, id, ds->gui2->getPanelBackgroundRect(), 5);
 		}
+	}
+
+
+
+	if(false)
+	{
+		char* buffer = getTString(kiloBytes(20));
+		readFileToBuffer(buffer, "..\\test.json");
+
+		printf("%s", buffer);
+
+		char* b = buffer;
+		JSonValue* value = jsonParseValue(&b);
+		
+
+		// for(int i = 
+
+		jsonPrint(value);
+
+
+		*isRunning = false;
 	}
 
 	newGuiEnd(ad->gui);
