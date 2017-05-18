@@ -33,7 +33,6 @@
 	- Clamp by view count, like count and so on.
 
 
-	- True JSon parser.
 	- Channel video count should be there automatically.
 	- Put in server timeout.
 	- Load video count automatically in panel.
@@ -45,11 +44,11 @@
 
 
 	Done Today: 
-	
 
 
 	Bugs:
-	- Drag with other window white trail.
+	- Crash when server takes too long to respond.
+
 */
 
 
@@ -1753,8 +1752,22 @@ struct TextBoxSettings {
 
 	Vec4 backgroundColor;
 	float roundedCorner;
+
+	Vec4 borderColor;
 };
 
+TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor, float roundedCorners) {
+	return {font, shadow, textColor, shadowColor, backgroundColor, roundedCorners};
+}
+TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor) {
+	return textBoxSettings(font, backgroundColor, textColor, shadow, shadowColor, 0);
+}
+TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor) {
+	return {font, 0, textColor, vec4(0,0), backgroundColor, 0};
+}
+TextBoxSettings textBoxSettings(Font* font, Vec4 textColor) {
+	return textBoxSettings(font, vec4(0,0), textColor);
+}
 
 struct TextEditSettings {
 	TextBoxSettings textBoxSettings;
@@ -1918,26 +1931,17 @@ Rect scissorTestIntersect(Rect scissor, Rect r) {
 }
 
 
-TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor, float roundedCorners) {
-	return {font, shadow, textColor, shadowColor, backgroundColor, roundedCorners};
-}
-TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor) {
-	return textBoxSettings(font, backgroundColor, textColor, shadow, shadowColor, 0);
-}
-TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor) {
-	return {font, 0, textColor, vec4(0,0), backgroundColor, 0};
-}
-TextBoxSettings textBoxSettings(Font* font, Vec4 textColor) {
-	return textBoxSettings(font, vec4(0,0), textColor);
-}
+
 
 void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
 	// scissorTestScreen(rectExpand(scissor, vec2(2,2)));
 	scissorTestScreen(scissor);
 
 	if(settings.backgroundColor.a != 0) {
-		if(settings.roundedCorner == 0) drawRect(r, settings.backgroundColor);
 		drawRectRounded(r, settings.backgroundColor, settings.roundedCorner);
+	}
+	if(settings.borderColor.a != 0) {
+		drawRectRoundedOutlined(r, settings.backgroundColor, settings.borderColor, settings.roundedCorner);
 	}
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
@@ -1964,11 +1968,12 @@ void drawTextBox(Rect r, char* text, TextBoxSettings settings) {
 void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
 	TextBoxSettings textSettings = editSettings.textBoxSettings;
 
-	Vec2 startPos = rectL(textRect);
+	Vec2 startPos = rectL(textRect) + vec2(1,0);
 	if(active) startPos += editVars.scrollOffset;
 
 	scissorTestScreen(scissor);
 	drawRect(textRect, textSettings.backgroundColor);
+	if(textSettings.borderColor.a != 0) drawRectOutline(textRect, textSettings.borderColor);
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 	scissorTestScreen(getRectScissor(textRect, scissor));
@@ -2032,6 +2037,8 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSett
 
 	if(settings.rounding > 0) drawRectRounded(sr, settings.color, settings.rounding);
 	else drawRect(sr, settings.color);
+
+	if(textSettings.borderColor.a != 0) drawRectOutline(br, textSettings.borderColor);
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 	scissorTestScreen(getRectScissor(br, scissor));
@@ -3431,76 +3438,40 @@ void jsonPrint(JSonValue* value) {
 	} 
 }
 
-
-#if 0
-if(mode == Download_Mode_Snippet) {
-	// Use Case:
-	JSon* node = ad->jsonObject;
-
-	// JSonValue* jsonTree = parseJSon(buffer);
-
-	int commentCount = 10;
-	VideoSnippet* snippet = &ad->videoSnippet;
-	YoutubeVideo* vid = ad->videos + ad->selectedVideo;
-
-	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-		snippet->selectedCommentCount = 0;
-		ad->commentScrollValue = 0;
-	}
-
-	// Download thumbnail 
-	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-		curlRequestDataInitAdd(threadQueue, requestData, vid->thumbnail);
-	}
-
-	// Upload texture.
-	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-		if(snippet->thumbnailTexture.id != -1) deleteTexture(&snippet->thumbnailTexture);
-		loadTextureFromMemory(&snippet->thumbnailTexture, requestData->buffer, requestData->size, -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
-
-		curlRequestDataInitAdd(threadQueue, requestData, requestCommentThread(vid->id, commentCount));
-	}
-
-	// Get comments.
-	if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-		TIMER_BLOCK_NAMED("ParseComments");
-
-		ad->downloadMode = 0;
-
-		char* buffer = requestData->buffer;
-
-		int totalResults = strToInt(getJSONInt(buffer, "totalResults"));
-
-		char* commentBuffer = getTString(kiloBytes(1)); strClear(commentBuffer);
-
-		char* content;
-		int advance;
-		for(int i = 0; i < totalResults; i++) {
-			int commentStart = strFindRight(buffer, "\"textOriginal\": \"");
-			if(commentStart == -1) break;
-
-			buffer += commentStart;
-			copyOverTextAndFixTokens(commentBuffer, buffer);
-
-			char* s = getPString(strLen(commentBuffer)+1);
-			strCpy(s, commentBuffer);
-
-			buffer += strLen(commentBuffer);
-
-			snippet->selectedTopComments[snippet->selectedCommentCount] = s;
-
-			content = getJSONInt(buffer, "likeCount", &buffer);
-			snippet->selectedCommentLikeCount[snippet->selectedCommentCount] = strToInt(content);
-
-			content = getJSONInt(buffer, "totalReplyCount", &buffer);
-			snippet->selectedCommentReplyCount[snippet->selectedCommentCount] = strToInt(content);
-
-			snippet->selectedCommentCount++;
+JSonValue* jsonGetMemberSingle(JSonValue* object, char* name) {
+	JSonValue* array = object->array;
+	JSonValue* member = 0;
+	for(int i = 0; i < object->size; i++) {
+		if(strCompare(array[i].string, name)) {
+			member = array[i].value;
+			break;
 		}
 	}
-}
-#endif
 
+	return member;
+}
+
+JSonValue* jsonGetMember(JSonValue* object, char* name, char* name2 = 0, char* name3 = 0) {
+	JSonValue* member = jsonGetMemberSingle(object, name);
+	if(member && name2) member = jsonGetMemberSingle(member, name2);
+	if(member && name3) member = jsonGetMemberSingle(member, name3);
+
+	return member;
+}
+
+int jsonGetInt(JSonValue* object, char* name, char* name2 = 0, char* name3 = 0) {
+	JSonValue* member = jsonGetMember(object, name, name2, name3);
+	if(member) return roundInt(member->number);
+	else return 0; // Bad idea?
+}
+
+char* jsonGetString(JSonValue* object, char* name, char* name2 = 0, char* name3 = 0) {
+	JSonValue* member = jsonGetMember(object, name, name2, name3);
+	if(member) return member->string;
+	else return 0;
+}
+
+#define For_JsonArray(value) for(JSonValue* it = value->array; it != value->array+value->size; it++) 
 
 
 #define Graph_Zoom_Min 24*60*60
@@ -4454,10 +4425,40 @@ extern "C" APPMAINFUNCTION(appMain) {
 			as.heightMod = 1.2f;
 
 
+			// ac.font = vec4(0.9f, 1);
+			// ac.font2 = vec4(0.65f, 1);
+			// ac.fontShadow = vec4(0.1f,1);
+			// ac.commentFont = ac.font;
+			// ac.commentFontShadow = ac.fontShadow;
+
+			// Vec3 hslBackground = vec3(0.65f, 0.5f, 0.3f);
+			// Vec3 hslButton = hslBackground + vec3(0.25f,0,0);
+			// Vec3 hslGraph = hslBackground + vec3(0.1f,0,0);
+
+			// ac.background =            colorHSL(hslBackground);
+			// ac.windowBorder =          colorHSL(hslBackground + vec3(0,-0.05f,+0.05f));
+			// ac.button =                colorHSL(hslBackground + vec3(-0.05f,-0.05f, 0.05f));
+			// ac.uiBackground =          colorHSL(hslBackground + vec3(0,0.05f,-0.05f));
+
+			// ac.graphFont =             ac.font;
+			// ac.graphBackgroundTop =    colorHSL(hslBackground + vec3(0,-0.4f,-0.12f));
+			// ac.graphBackgroundBottom = colorHSL(hslBackground + vec3(0,-0.54f,-0.2f));
+
+			// ac.graphData1 =            colorHSL(hslGraph + vec3(-0.25f, 0.2f,0.1f));
+			// ac.graphData2 =            colorHSL(hslGraph + vec3(0.18f,0.2f,0.1f));
+			// ac.graphData3 =            colorHSL(hslGraph + vec3(0.5,   0.2f,0.1f));
+
+			// ac.graphMark =             vec4(1,0.03f);
+			// ac.graphSubMark =          vec4(1,0.015f);
+
+			// ac.editCursor =            colorHSL(hslBackground + vec3(-0.3f,-0.1,0.3f));
+			// ac.editSelection =         colorHSL(hslGraph + vec3(0.25f,0.0f,0.1f));
+			// ac.edge =                  vec4(0,1);
 
 
 
-			ac.font = vec4(0.9f, 1);
+
+			ac.font = vec4(0.8f, 1);
 			ac.font2 = vec4(0.65f, 1);
 			ac.fontShadow = vec4(0.1f,1);
 			ac.commentFont = ac.font;
@@ -4467,15 +4468,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Vec3 hslButton = hslBackground + vec3(0.25f,0,0);
 			Vec3 hslGraph = hslBackground + vec3(0.1f,0,0);
 
-			ac.background =            colorHSL(hslBackground);
-			ac.windowBorder =          colorHSL(hslBackground + vec3(0,-0.05f,+0.05f));
-			ac.button =                colorHSL(hslBackground + vec3(-0.05f,-0.05f, 0.05f));
-			ac.uiBackground =          colorHSL(hslBackground + vec3(0,0.05f,-0.05f));
+			ac.background =            vec4(0.2f,1);
+			ac.windowBorder =          ac.background + vec4(+0.08f,0);
+			ac.button =                ac.background + vec4(0.05f,0);
+			ac.uiBackground =		   ac.background + vec4(-0.03f,0);
 
-			// ac.graphFont =             colorHSL(hslButton + vec3(0,0.2f,0.3f));
 			ac.graphFont =             ac.font;
-			// ac.graphBackgroundTop =    colorHSL(hslGraph + vec3(0,0,-0.05f));
-			// ac.graphBackgroundBottom = colorHSL(hslGraph + vec3(0,0,-0.15f));
 			ac.graphBackgroundTop =    colorHSL(hslBackground + vec3(0,-0.4f,-0.12f));
 			ac.graphBackgroundBottom = colorHSL(hslBackground + vec3(0,-0.54f,-0.2f));
 
@@ -4489,6 +4487,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ac.editCursor =            colorHSL(hslBackground + vec3(-0.3f,-0.1,0.3f));
 			ac.editSelection =         colorHSL(hslGraph + vec3(0.25f,0.0f,0.1f));
 			ac.edge =                  vec4(0,1);
+
 
 			// 
 
@@ -4854,34 +4853,27 @@ extern "C" APPMAINFUNCTION(appMain) {
 				ad->downloadMode = 0;
 
 				char* buffer = requestData->buffer;
+				writeBufferToFile(buffer, "..\\lastSnippetDownload.json");
 
-				int totalResults = strToInt(getJSONInt(buffer, "totalResults"));
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
+				if(items) {
+					snippet->selectedCommentCount = items->size;
+					int i = 0;
+					For_JsonArray(items) {
+						JSonValue* snip = jsonGetMember(it, "snippet");
+						snippet->selectedCommentReplyCount[i] = jsonGetInt(snip, "totalReplyCount");
 
-				char* commentBuffer = getTString(kiloBytes(1)); strClear(commentBuffer);
+						JSonValue* sn = jsonGetMember(snip, "topLevelComment", "snippet");
 
-				char* content;
-				int advance;
-				for(int i = 0; i < totalResults; i++) {
-					int commentStart = strFindRight(buffer, "\"textOriginal\": \"");
-					if(commentStart == -1) break;
+						char* s = jsonGetString(sn, "textOriginal");
+						snippet->selectedTopComments[i] = getPString(strLen(s) + 1); 
+						strCpy(snippet->selectedTopComments[i], s);
 
-					buffer += commentStart;
-					copyOverTextAndFixTokens(commentBuffer, buffer);
+						snippet->selectedCommentLikeCount[i] = jsonGetInt(sn, "likeCount");
 
-					char* s = getPString(strLen(commentBuffer)+1);
-					strCpy(s, commentBuffer);
-
-					buffer += strLen(commentBuffer);
-
-					snippet->selectedTopComments[snippet->selectedCommentCount] = s;
-
-					content = getJSONInt(buffer, "likeCount", &buffer);
-					snippet->selectedCommentLikeCount[snippet->selectedCommentCount] = strToInt(content);
-
-					content = getJSONInt(buffer, "totalReplyCount", &buffer);
-					snippet->selectedCommentReplyCount[snippet->selectedCommentCount] = strToInt(content);
-
-					snippet->selectedCommentCount++;
+						i++;
+					}
 				}
 			}
 		}
@@ -4896,32 +4888,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				ad->downloadMode = 0;
 
-				// ad->downloadPlaylist.count = strToInt(getJSONInt(requestData->buffer, "totalResults"));
-
 				char* buffer = requestData->buffer;
 				JSonValue* object = jsonParseValue(&buffer);
 
-				JSonValue* array = object->array;
-				JSonValue* pageInfo = 0;
-				for(int i = 0; i < array->size; i++) {
-					if(strCompare(array[i].string, "pageInfo")) {
-						pageInfo = array[i].value;
-						break;
-					}
-				}
-
-				array = pageInfo->array;
-				JSonValue* totalResults = 0;
-				for(int i = 0; i < pageInfo->size; i++) {
-					if(strCompare(array[i].string, "totalResults")) {
-						totalResults = array[i].value;
-						break;
-					}
-				}
-
-				ad->downloadPlaylist.count = roundInt(totalResults->number);
-
-				jsonPrint(object);
+				ad->downloadPlaylist.count = jsonGetInt(object, "pageInfo", "totalResults");
 			}
 		}
 
@@ -4935,7 +4905,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-				ad->playlistDownloadCount = strToInt(getJSONInt(requestData->buffer, "totalResults"));
+				char* buffer = requestData->buffer;
+				JSonValue* object = jsonParseValue(&buffer);
+				ad->playlistDownloadCount = jsonGetInt(object, "pageInfo", "totalResults");
 
 				curlRequestDataInitAdd(threadQueue, requestData, requestChannel("id", ad->channelId, "contentDetails", 1));
 			}
@@ -4943,7 +4915,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				ad->downloadMode = 0;
 
-				bool hasAllUploadsPlaylist = strLen(getJSONString(requestData->buffer, "uploads")) != 0 ? true : false;
+				char* buffer = requestData->buffer;
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
+				char* uploads = jsonGetString(items->array + 0, "contentDetails", "relatedPlaylists", "uploads");
+
+				bool hasAllUploadsPlaylist = strLen(uploads) != 0 ? true : false;
 				if(hasAllUploadsPlaylist) ad->playlistDownloadCount++;
 			}
 		}
@@ -4953,6 +4930,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				ad->searchResultCount = 0;
 			}
 
+			SearchResult* searchResults = ad->searchResults;
 			bool searchForChannels = !ad->lastSearchMode;
 
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
@@ -4979,30 +4957,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 
-				SearchResult* searchResults = ad->searchResults;
 				char* buffer = requestData->buffer;
+				JSonValue* object = jsonParseValue(&buffer);
 
-				int resultCount = strToInt(getJSONInt(buffer, "totalResults"));
-				int count = min(resultCount, 10);
+				JSonValue* items = jsonGetMember(object, "items");
+				for(int i = 0; i < items->size; i++) {
+					JSonValue* it = items->array + i;
 
-				int advance = 0;
-				for(int i = 0; i < count; i++) {
-					if(searchForChannels) {
-						char* s = getJSONString(buffer, "channelId", &buffer);
-						strCpy(searchResults[i].id, s);
-					} else {
-						char* s = getJSONString(buffer, "playlistId", &buffer);
-						strCpy(searchResults[i].id, s);
-					}
+					if(searchForChannels) strCpy(searchResults[i].id, jsonGetString(it, "id", "channelId"));
+					else strCpy(searchResults[i].id, jsonGetString(it, "id", "playlistId"));
 
-					char* s = getJSONString(buffer, "title", &buffer);
-					strCpy(searchResults[i].title, s);
+					strCpy(searchResults[i].title, jsonGetString(it, "snippet", "title"));
 				}
-
-				ad->searchResultCount = count;
+				ad->searchResultCount = items->size;
 
 				// Get count.
-
+				int count = ad->searchResultCount;
 				if(!searchForChannels) {
 					char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
 					for(int index = 0; index < count; index++) {
@@ -5019,20 +4989,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				ad->downloadMode = 0;
 
-				SearchResult* searchResults = ad->searchResults;
 				char* buffer = requestData->buffer;
+				JSonValue* object = jsonParseValue(&buffer);
 
-				int index = 0;
-				int advance = 0;
-				for(;;) {
-					char* s = getJSONIntNewline(buffer, "itemCount", &buffer);
-					if(strLen(s) == 0) break;
-
-					searchResults[index].count = strToInt(s);
-					index++;
+				JSonValue* items = jsonGetMember(object, "items");
+				for(int i = 0; i < items->size; i++) {
+					searchResults[i].count = jsonGetInt(&items->array[i], "contentDetails", "itemCount");
 				}
 			}
 		}
+
+
 
 		if(mode == Download_Mode_ChannelPlaylists) {
 			CURL* curlHandle = requestData->curlHandle;
@@ -5046,7 +5013,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			static bool hasAllUploadsPLaylist;
 			static int i;
 			static char pageToken[page_token_size];
-
 
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				i = 0;
@@ -5067,14 +5033,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 
-				char* s = getJSONString(buffer, "title");
-				if(strLen(s) != 0) strCpy(playlists[0].title, s);
+				JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
+				strCpy(playlists[0].title, jsonGetString(&items->array[0], "snippet", "title"));
 
 				curlRequestDataInitAdd(threadQueue, requestData, requestChannel("id", channelId, "contentDetails", 1));
 
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 
-				char* s = getJSONString(buffer, "uploads");
+				JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
+				char* s = jsonGetString(&items->array[0], "contentDetails", "relatedPlaylists", "uploads");
 				if(strLen(s) != 0) {
 					strCpy(playlists[0].id, s);
 					hasAllUploadsPLaylist = true;
@@ -5088,8 +5055,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 
-				char* s = getJSONIntNewline(buffer, "itemCount", &buffer);
-				if(strLen(s) != 0) playlists[0].count = strToInt(s);
+				JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
+				int itemCount = jsonGetInt(&items->array[0], "contentDetails", "itemCount");
+				playlists[0].count = itemCount;
 
 				if(hasAllUploadsPLaylist) i = 1;
 			}
@@ -5113,26 +5081,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				int dCount = i + maxDownloadCount > count ? count-i : maxDownloadCount;
 
-				int resultCount = strToInt(getJSONInt(buffer, "totalResults"));
-				char* pageTokenStr = getJSONString(buffer, "nextPageToken");
-				strCpy(pageToken, pageTokenStr);
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
+
+				int resultCount = jsonGetInt(object, "pageInfo", "totalResults");
+				char* pageTokenStr = jsonGetString(object, "nextPageToken");
+				if(pageTokenStr) strCpy(pageToken, pageTokenStr);
 
 				if(i == 0) count = min(resultCount, count);
 
 				int index = i;
-				int advance = 0;
-				for(;;) {
-					if(index > count) break;
-
-					char* s = getJSONString(buffer, "id", &buffer);
-					if(strLen(s) == 0) break;
-
-					strCpy(playlists[index].id, s);
-
-					s = getJSONString(buffer, "title", &buffer);
-					strCpy(playlists[index].title, s);
+				For_JsonArray(items) {
+					strCpy(playlists[index].id, jsonGetString(it, "id"));
+					strCpy(playlists[index].title, jsonGetString(it, "snippet", "title"));
 					index++;
 				}
+
 
 				// Get playlist video count.
 				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
@@ -5145,15 +5109,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 
+				JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
 				int index = i;
-				int advance = 0;
-				for(;;) {
-					char* s = getJSONIntNewline(buffer, "itemCount", &buffer);
-					if(strLen(s) == 0) break;
-
-					playlists[index].count = strToInt(s);
+				For_JsonArray(items) {
+					playlists[index].count = jsonGetInt(it, "contentDetails", "itemCount");
 					index++;
 				}
+
 
 				*playlistCount = i;
 
@@ -5249,30 +5211,31 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 
-				// pageToken = getJSONString(buffer, "nextPageToken");
-				strCpy(pageToken, getJSONString(buffer, "nextPageToken"));
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
 
-				totalCount = strToInt(getJSONInt(buffer, "totalResults"));
+				char* pageTokenStr = jsonGetString(object, "nextPageToken");
+				if(pageTokenStr) strCpy(pageToken, pageTokenStr);
+				int totalCount = jsonGetInt(object, "pageInfo", "totalResults");
 
 				int receivedCount;
 
 				// Get Video ids.
 				{
-					// TIMER_BLOCK_NAMED("Video ids");
-
 					int index = i;
-					int advance = 0;
 					int idCount = 0;
-					for(;;) {
+					For_JsonArray(items) {
 						int reverseIndex = count-1 - index;
 
-						char* s = getJSONString(buffer, "videoId", &buffer);
-						if(strLen(s) == 0) break;
+						char* s = jsonGetString(it, "contentDetails", "videoId");
+						if(s) {
+							vids[reverseIndex] = {};
 
-						strCpy(vids[reverseIndex].id, s);
+							strCpy(vids[reverseIndex].id, s);
+							idCount++;
+						}
 
 						index++;
-						idCount++;
 					}
 
 					receivedCount = idCount;
@@ -5285,53 +5248,29 @@ extern "C" APPMAINFUNCTION(appMain) {
 						int reverseIndex = count-1 - videoIndex;
 						strAppend(tempBuffer, fillString("%s,", vids[reverseIndex].id));
 					}
-					// Get rid of last comma.
-					// if(dCount > 0) tempBuffer[strLen(tempBuffer)-1] = '\0';
 
-					{
-						// TIMER_BLOCK_NAMED("Statistics Request");
-						curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "statistics"));
-					}
+					curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "statistics"));
 				}
 
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+				
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
 
 				int index = i;
 				int advance = 0;
-				for(;;) {
+				For_JsonArray(items) {
 					int reverseIndex = count-1 - index;
-					char* s;
 
-					int pos = strFind(buffer, "\"statistics\":");
-					if(pos == -1) break;
-
-					buffer += pos;
-					int endBracketPos = strFind(buffer, '}');
-					if(endBracketPos == 0) break;
-
-					vids[reverseIndex].viewCount = 0;
-					vids[reverseIndex].likeCount = 0;
-					vids[reverseIndex].dislikeCount = 0;
-					vids[reverseIndex].favoriteCount = 0;
-					vids[reverseIndex].commentCount = 0;
-
-					pos = strFind(buffer, "viewCount");
-					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].viewCount = strToInt(getJSONString(buffer, "viewCount"));
-					pos = strFind(buffer, "likeCount");
-					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].likeCount = strToInt(getJSONString(buffer, "likeCount"));
-					pos = strFind(buffer, "dislikeCount");
-					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].dislikeCount = strToInt(getJSONString(buffer, "dislikeCount"));
-					pos = strFind(buffer, "favoriteCount");
-					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].favoriteCount = strToInt(getJSONString(buffer, "favoriteCount"));
-					pos = strFind(buffer, "commentCount");
-					if(pos != -1 && pos < endBracketPos) vids[reverseIndex].commentCount = strToInt(getJSONString(buffer, "commentCount"));
-
-					YoutubeVideo* vid = vids + reverseIndex;
-					if(vid->viewCount < 0 || vid->likeCount < 0 || vid->dislikeCount < 0 || vid->favoriteCount < 0) {
-						myAssert(false);
+					JSonValue* statistics = jsonGetMember(it, "statistics");
+					if(statistics) {
+						vids[reverseIndex].viewCount = strToIntSave(jsonGetString(statistics, "viewCount"));
+						vids[reverseIndex].likeCount = strToIntSave(jsonGetString(statistics, "likeCount"));
+						vids[reverseIndex].dislikeCount = strToIntSave(jsonGetString(statistics, "dislikeCount"));
+						vids[reverseIndex].favoriteCount = strToIntSave(jsonGetString(statistics, "favoriteCount"));
+						vids[reverseIndex].commentCount = strToIntSave(jsonGetString(statistics, "commentCount"));
 					}
 
-					buffer += endBracketPos;
 					index++;
 				}
 
@@ -5350,40 +5289,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
 
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
+
 				int index = i;
 				int advance = 0;
-				for(;;) {
+				For_JsonArray(items) {
 					int reverseIndex = count-1 - index;
+		
+					JSonValue* snippet = jsonGetMember(it, "snippet");
 
-					int start = strFind(buffer, "publishedAt");
-					if(start == -1) break;
-
-					char* s = getJSONString(buffer, "publishedAt", &buffer);
+					char* s = jsonGetString(snippet, "publishedAt");
 					strCpy(vids[reverseIndex].dateString, s);
-					vids[reverseIndex].date = stringToDate(vids[reverseIndex].dateString);
+					vids[reverseIndex].date = stringToDate(s);
 
-					int titleStart = strFindRight(buffer, "\"title\": \"");
-					buffer += titleStart;
-					copyOverTextAndFixTokens(tempBuffer, buffer);
-					buffer += strLen(tempBuffer);
-					if(strLen(tempBuffer) > memberSize(YoutubeVideo, title)) {
-						int maxSize = memberSize(YoutubeVideo, title);
-						int i = 0;
-						while(tempBuffer[maxSize-i-1] > 127) i--;
-						tempBuffer[maxSize-i-1] = '\0';
-					}
-
-					strCpy(vids[reverseIndex].title, tempBuffer);
-
-					// Thumbnail.
-					// default, medium, high, standard, maxres.
-					// int pos = strFind(buffer, "\"medium\":"); buffer += pos;
-					int pos = strFind(buffer, "\"high\":"); buffer += pos;
-					s = getJSONString(buffer, "url", &buffer);
-					strCpy(vids[reverseIndex].thumbnail, s);
-
-					// Skip the second "title" from localization data.
-					buffer += strFindRight(buffer, "title");
+					strCpy(vids[reverseIndex].title, jsonGetString(snippet, "title"));
+					strCpy(vids[reverseIndex].thumbnail, jsonGetString(snippet, "thumbnails", "high", "url"));
 
 					index++;
 				}
@@ -5415,6 +5336,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 	}
+
 
 
 	// Load playlist folder.
@@ -5903,11 +5825,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float padding = newas->padding;
 
 			TextBoxSettings textSettings = textBoxSettings(font, newac->uiBackground, newac->font, newas->fontShadow, newac->fontShadow);
-
 			TextBoxSettings buttonSettings = textBoxSettings(font, newac->button, newac->font, newas->fontShadow, newac->fontShadow, 0);
+			buttonSettings.borderColor = vec4(0.4f,1);
+
 			TextBoxSettings labelSettings = textBoxSettings(font, vec4(0,0), newac->font, newas->fontShadow, newac->fontShadow, 0);
 			TextEditSettings editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, newac->editSelection, newac->editCursor);
+			editSettings.textBoxSettings.borderColor = vec4(0.4f,1);
+
 			SliderSettings sliderSettings = {textSettings, 20, 20, 0, 0, 0, newac->button, newac->font};
+			sliderSettings.textBoxSettings.borderColor = vec4(0.4f,1);
+
 			//
 
 			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:", "0.00", "0.00", "<Filter_Inclusive>", "<Filter_Inclusive>"};
@@ -6009,6 +5936,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			else if(i == 2) camMinH = Cam_Min_Height_2;
 			else if(i == 3) camMinH = Cam_Min_Height_3;
 
+			float zoomMin = ad->sortByDate?Graph_Zoom_Min:Graph_Zoom_MinNoDate;
+
 			{
 				float z = 0;
 				if(newGuiGoButtonAction(ad->gui, rLeftText, z, Gui_Focus_MWheel)) 
@@ -6016,7 +5945,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	    		if(i == 0) {
 					if(newGuiGoButtonAction(ad->gui, rGraphs, z, Gui_Focus_MWheel)) {
-						graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, Graph_Zoom_Speed, Graph_Zoom_Min, 0, 0, 0, input->mousePosNegative);
+						graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, Graph_Zoom_Speed, zoomMin, 0, 0, 0, input->mousePosNegative);
 					}
 	    		}
 			}
@@ -6024,8 +5953,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			cam->x = ad->cams[0].x;
 			cam->w = ad->cams[0].w;
 
-			if(ad->sortByDate) graphCamSizeClamp(cam, Graph_Zoom_Min, camMinH);
-			else graphCamSizeClamp(cam, Graph_Zoom_MinNoDate, camMinH);
+			graphCamSizeClamp(cam, zoomMin, camMinH);
 
 			{
 				NewGui* gui = ad->gui;
@@ -6822,10 +6750,39 @@ extern "C" APPMAINFUNCTION(appMain) {
 				float height = font->height*lineCount;
 				Vec2 p = writePos; 
 				scissorTestScreen(rectTLDim(p, vec2(writeDim.w - 1, height)));
-				drawText("Date:\nTime:\nViews:\nLikes/Dislikes:\nComments:\nFavorites:", font, p, fc, vec2i(-1,1), 0, shadow, shadowColor);
+				// drawText("Date:\nTime:\nViews:\nLikes/Dislikes:\nComments:\nFavorites:", font, p, fc, vec2i(-1,1), 0, shadow, shadowColor);
 
-				p = writePos + vec2(writeDim.w, 0);
-				scissorTestScreen(rectTRDim(p, vec2(writeDim.w/2 - 1, height)));
+				// p = writePos + vec2(writeDim.w, 0);
+				// scissorTestScreen(rectTRDim(p, vec2(writeDim.w/2 - 1, height)));
+				// for(int i = 0; i < lineCount; i++) {
+				// 	char* t;
+				// 	if(i == 0) t = fillString("%s%i..%s%i..%s%i", sv->date.d<10?"0":"", sv->date.d, sv->date.m<10?"0":"", sv->date.m, sv->date.y<10?"200":"20", sv->date.y);
+				// 	if(i == 1) t = fillString("%s%i:%s%i:%s%i.", sv->date.h<10?"0":"", sv->date.h, sv->date.mins<10?"0":"", sv->date.mins, sv->date.secs<10?"0":"", sv->date.secs);
+				// 	if(i == 2) t = fillString("%i.", sv->viewCount);
+				// 	if(i == 3) t = fillString("%i | %i", sv->likeCount, sv->dislikeCount);
+				// 	if(i == 4) t = fillString("%i", sv->commentCount);
+				// 	if(i == 5) t = fillString("%i", sv->favoriteCount);
+				
+				// 	drawText(t, font, p, fc, vec2i(1,1), 0, shadow, shadowColor); 
+				// 	p.y -= font->height;
+				// }
+
+
+
+				float centerMargin = font->height;
+
+				char* text[] = {"Date:", "Time:", "Views:", "Likes/Dislikes:", "Comments:", "Favorites:"};
+				p = writePos + vec2(writeDim.w/2, 0) - vec2(centerMargin/2, 0);
+				// scissorTestScreen(rectTRDim(p, vec2(writeDim.w/2 - 1, height)));
+				for(int i = 0; i < lineCount; i++) {
+					char* t = text[i];
+				
+					drawText(t, font, p, fc, vec2i(1,1), 0, shadow, shadowColor); 
+					p.y -= font->height;
+				}
+
+				p = writePos + vec2(writeDim.w/2, 0) + vec2(centerMargin/2, 0);
+				// scissorTestScreen(rectTRDim(p, vec2(writeDim.w/2 - 1, height)));
 				for(int i = 0; i < lineCount; i++) {
 					char* t;
 					if(i == 0) t = fillString("%s%i..%s%i..%s%i", sv->date.d<10?"0":"", sv->date.d, sv->date.m<10?"0":"", sv->date.m, sv->date.y<10?"200":"20", sv->date.y);
@@ -6835,9 +6792,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(i == 4) t = fillString("%i", sv->commentCount);
 					if(i == 5) t = fillString("%i", sv->favoriteCount);
 				
-					drawText(t, font, p, fc, vec2i(1,1), 0, shadow, shadowColor); 
+					drawText(t, font, p, fc, vec2i(-1,1), 0, shadow, shadowColor); 
 					p.y -= font->height;
 				}
+
 
 				glDisable(GL_SCISSOR_TEST);
 
@@ -6869,8 +6827,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					writePos = scrollValues.pos;
 					writeDim.w = rectW(scrollValues.region);
 
-					if(scrollRegionHasOutline) scissorTestScreen(rectExpand(r, vec2(0,-2)));
-					else scissorTestScreen(r);
+					if(scrollRegionHasOutline) scissorTestScreen(rectExpand(scissor, vec2(0,-2)));
+					else scissorTestScreen(scissor);
 					float wrapWidth = writeDim.w;
 		
 					glEnable(GL_SCISSOR_TEST);
@@ -6885,6 +6843,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 						scrollHeight = scrollValues.pos.y - writePos.y;
 					} else {
+						glDisable(GL_SCISSOR_TEST);
+
 						scrollHeight = 0;
 						drawTriangle(rectCen(r), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
 					}
@@ -7379,14 +7339,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-
+	if(false)
+	{
+		drawRect(getScreenRect(ws), vec4(0.2f,1));
+		drawRectRoundedOutlined(rectCenDim(400,-400,200,200), vec4(0.3f,1), vec4(1.0f,1), 20, 1);
+	}
 
 	if(false)
 	{
 		char* buffer = getTString(kiloBytes(20));
 		readFileToBuffer(buffer, "..\\test.json");
-
-		printf("%s", buffer);
 
 		char* b = buffer;
 		JSonValue* value = jsonParseValue(&b);

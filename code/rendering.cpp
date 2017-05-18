@@ -787,7 +787,10 @@ void drawRectNewColoredH(Rect r, Vec4 c0, Vec4 c1) {
 
 void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	if(steps == 0) steps = 6;
+	if(steps == 1) drawRect(r, color);
+
 	float s = size;
+	s = min(s, min(rectW(r)/2, rectH(r)/2));
 
 	float z = globalGraphicsState->zOrder;
 
@@ -797,11 +800,11 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 	glBindTexture(GL_TEXTURE_2D, 0);
 	Vec4 c = COLOR_SRGB(color);
 	glColor4f(c.r, c.g, c.b, c.a);
-	glBegin(GL_TRIANGLE_FAN);
 
 	Rect rc = rectExpand(r, -vec2(s,s)*2);
 	Vec2 corners[] = {rc.max, vec2(rc.max.x, rc.min.y), rc.min, vec2(rc.min.x, rc.max.y)};
 	for(int cornerIndex = 0; cornerIndex < 4; cornerIndex++) {
+		glBegin(GL_TRIANGLE_FAN);
 
 		Vec2 corner = corners[cornerIndex];
 		float round = s;
@@ -816,8 +819,48 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 
 			glVertex3f(vv.x, vv.y, z);
 		}
+		glEnd();
 	}
+};
+
+void drawRectRoundedOutline(Rect r, Vec4 color, float size, float steps = 0, float offset = -1) {
+	if(steps == 0) steps = 6;
+	if(steps == 1) drawRectOutline(r, color, offset);
+
+	float s = size;
+	s = min(s, min(rectW(r)/2, rectH(r)/2));
+	float z = globalGraphicsState->zOrder;
+
+	Vec4 c = COLOR_SRGB(color);
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glBegin(GL_LINE_STRIP);
+
+	float off = offset*0.5f;
+	Rect rc = rectExpand(r, -vec2(s-off,s-off)*2);
+	Vec2 corners[] = {rc.max, rectBR(rc), rc.min, rectTL(rc)};
+	for(int cornerIndex = 0; cornerIndex < 4; cornerIndex++) {
+
+		Vec2 corner = corners[cornerIndex];
+		float round = s;
+		float start = M_PI_2*cornerIndex;
+
+		for(int i = 0; i < steps; i++) {
+			float angle = start + i*(M_PI_2/(steps-1));
+			Vec2 v = vec2(sin(angle), cos(angle));
+			Vec2 vv = corner + v*round;
+
+			glVertex3f(vv.x, vv.y, z);
+		}
+	}
+	glVertex3f(rc.max.x, rc.max.y + s, z);
+
 	glEnd();
+};
+
+void drawRectRoundedOutlined(Rect r, Vec4 color, Vec4 color2, float size, float steps = 0, float offset = -1) {
+	drawRectRounded(r, color, size, steps);
+	drawRectRoundedOutline(r, color2, size, steps, offset);
 };
 
 void drawRectHollow(Rect r, float size, Vec4 c) {

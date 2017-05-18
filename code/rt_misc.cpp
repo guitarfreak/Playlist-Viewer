@@ -197,6 +197,11 @@ inline int strToInt(char* string) {
 	return result;
 }
 
+inline int strToIntSave(char* string) {
+	if(!string) return 0;
+	else return strToInt(string);
+}
+
 inline int strHexToInt(char* string) {
 	int result = (int)strtol(string, 0, 16);
 	return result;
