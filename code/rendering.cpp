@@ -426,7 +426,6 @@ Font* fontInit(Font* fontSlot, char* file, char* filePath, int height, int id) {
 
 	font.id = id;
 	font.height = height;
-	font.baseOffset = 0.8f;
 
 	font.glyphRangeCount = 0;
 	font.glyphRanges[0].x = (int)0x20-1;
@@ -474,6 +473,9 @@ Font* fontInit(Font* fontSlot, char* file, char* filePath, int height, int id) {
 	stbtt_PackEnd(&context);
 
 	font.pixelScale = stbtt_ScaleForPixelHeight(&font.info, font.height);
+	int ascent = 0;
+	stbtt_GetFontVMetrics(&font.info, &ascent,0,0);
+	font.baseOffset = (ascent*font.pixelScale);
 
 	for(int i = 0; i < size.w*size.h; i++) {
 		fontBitmap[i*4] = 255;
@@ -785,9 +787,17 @@ void drawRectNewColoredH(Rect r, Vec4 c0, Vec4 c1) {
 	drawRectNewColored(r, c0, c1, c1, c0);
 }
 
-void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
-	if(steps == 0) steps = 6;
-	if(steps == 1) drawRect(r, color);
+#define Rounding_Mod 1/2
+
+void drawRectRounded(Rect r, Vec4 color, float size) {
+	if(size == 0) {
+		drawRect(r, color);
+		return;
+	}
+
+	int steps = roundInt(M_PI_2 * size * Rounding_Mod);
+
+	// glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	float s = size;
 	s = min(s, min(rectW(r)/2, rectH(r)/2));
@@ -821,11 +831,17 @@ void drawRectRounded(Rect r, Vec4 color, float size, float steps = 0) {
 		}
 		glEnd();
 	}
+
+	// glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 };
 
-void drawRectRoundedOutline(Rect r, Vec4 color, float size, float steps = 0, float offset = -1) {
-	if(steps == 0) steps = 6;
-	if(steps == 1) drawRectOutline(r, color, offset);
+void drawRectRoundedOutline(Rect r, Vec4 color, float size, float offset = -1) {
+	if(size == 0) {
+		drawRectOutline(r, color);
+		return;
+	}
+
+	int steps = roundInt(M_PI_2 * size * Rounding_Mod);
 
 	float s = size;
 	s = min(s, min(rectW(r)/2, rectH(r)/2));
@@ -858,9 +874,9 @@ void drawRectRoundedOutline(Rect r, Vec4 color, float size, float steps = 0, flo
 	glEnd();
 };
 
-void drawRectRoundedOutlined(Rect r, Vec4 color, Vec4 color2, float size, float steps = 0, float offset = -1) {
-	drawRectRounded(r, color, size, steps);
-	drawRectRoundedOutline(r, color2, size, steps, offset);
+void drawRectRoundedOutlined(Rect r, Vec4 color, Vec4 color2, float size, float offset = -1) {
+	drawRectRounded(r, color, size);
+	drawRectRoundedOutline(r, color2, size, offset);
 };
 
 void drawRectHollow(Rect r, float size, Vec4 c) {
@@ -878,6 +894,16 @@ void drawRectProgress(Rect r, float p, Vec4 c0, Vec4 c1, bool outlined, Vec4 oc)
 		drawRect(rectSetR(r, r.left + rectW(r)*p), c0);
 		drawRect(rectSetL(r, r.right - rectW(r)*(1-p)), c1);
 	}
+}
+
+void drawRectProgressHollow(Rect r, float p, Vec4 c0, Vec4 oc) {	
+	Rect leftR = rectSetR(r, r.left + rectW(r)*p);
+	drawRect(leftR, c0);
+
+	drawLine(rectBR(leftR), rectTR(leftR), oc);
+
+	glLineWidth(0.5f);
+	drawRectOutline(r, oc);
 }
 
 void drawTriangle(Vec2 p, float size, Vec2 dir, Vec4 color) {
@@ -1016,9 +1042,7 @@ void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	int unicodeOffset = getUnicodeRangeOffset(c, font);
 	stbtt_GetPackedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, unicodeOffset, pos.x, pos.y, &q, false);
 
-	float baseLine = 0.8f;
-	// float baseLine = 0.0f;
-	float off = baseLine * font->height;
+	float off = font->baseOffset;
 	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
 	*uv = rect(q.s0, q.t0, q.s1, q.t1);
 }

@@ -454,7 +454,7 @@ struct Gui {
 		scissorPush(background);
 
 		// drawRect(background, colors.panelColor, false);
-		drawRectRounded(background, colors.panelColor, 7, 0);
+		drawRectRounded(background, colors.panelColor, 7);
 		// drawRect(resizeRegion, colors.resizeButtonColor, false);
 
 		startPos = cornerPos + settings.border;

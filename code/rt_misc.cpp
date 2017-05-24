@@ -6,8 +6,11 @@
 #define arrayCount(array) (sizeof(array) / sizeof((array)[0]))
 #define addPointer(ptr, int) ptr = (char*)ptr + int
 #define memberSize(type, member) sizeof(((type *)0)->member)
-#define mallocArray(type, count) (type*)malloc(sizeof(type)*count);
-#define mallocStruct(type) (type*)malloc(sizeof(type));
+#define mallocArray(type, count) (type*)malloc(sizeof(type)*count)
+#define mallocStruct(type) (type*)malloc(sizeof(type))
+#define mallocString(count) (char*)malloc(sizeof(char) * count)
+
+#define zeroStruct(s, structType) zeroMemory(s, sizeof(structType));
 
 #define PVEC2(v) v.x, v.y
 #define PVEC3(v) v.x, v.y, v.z
@@ -431,6 +434,15 @@ void strRemoveWhitespace(char* str, int size = 0) {
 			i++;
 		}
 	}
+}
+
+void reallocString(char** str, char* newStr) {
+	// if(*str == 0) (*str) = mallocString(strLen(newStr) + 1);
+	// else realloc((*str), sizeof(char)*(strLen(newStr) + 1));
+	if(*str != 0) free(*str);
+	(*str) = mallocString(strLen(newStr) + 1);
+
+	strCpy((*str), newStr);
 }
 
 
