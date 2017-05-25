@@ -48,7 +48,7 @@
 	- We souldn't need a "Update folder" button, just add a wait object for the folder and reload on every change.
 
 	Done Today: 
-
+	- Rewrote the video download to save to file after every step.
 
 	Bugs:
 	- Crash when server takes too long to respond.
@@ -212,6 +212,7 @@ struct CurlRequestData {
 	
 	char* buffer;
 	int size;
+	int maxSize;
 
 	i64 bytesDownloaded;
 	i64 bytesTotal;
@@ -248,6 +249,7 @@ int curlProgress(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t
 size_t curlWriteThreaded(void *buffer, size_t size, size_t nmemb, void *userp) {
 	CurlRequestData* cd = (CurlRequestData*)userp;
 
+	myAssert(cd->size + nmemb < cd->maxSize);
 	memCpy(cd->buffer + cd->size, buffer, nmemb);
 	cd->size += nmemb;
 	cd->buffer[cd->size] = '\0';
@@ -477,7 +479,7 @@ i64 monthsToInt(float months) {
 
 // Date String Format: 2017-02-01T12:03:23.000Z
 
-// #pragma pack(push,1)
+#pragma pack(push,1)
 struct YoutubeVideo {
 	char id[12];
 	char title[151];
@@ -491,7 +493,7 @@ struct YoutubeVideo {
 	int favoriteCount;
 	int commentCount;
 };
-// #pragma pack(pop)
+#pragma pack(pop)
 
 struct YoutubePlaylist {
 	char id[40];
@@ -516,7 +518,8 @@ char* youtubeApiChannel = "https://www.googleapis.com/youtube/v3/channels";
 char* youtubeApiSearch = "https://www.googleapis.com/youtube/v3/search";
 
 // int maxDownloadCount = 40;
-#define Max_Download_Count 1
+#define Max_Download_Count 40
+// #define Max_Download_Count 1
 #define Page_Token_Size 10
 
 char* rocketBeansId = "UCQvTDmHza8erxZqDkjQ4bQQ";
@@ -2843,7 +2846,6 @@ struct DownloadVideosData {
 	int i;
 	int count;
 	int dCount;
-	bool writeMaxCount;
 };
 
 union AppColors {
@@ -4377,7 +4379,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->sortStat = -1;
 
 		ad->requestData.curlHandle = ad->curlHandle;
-		ad->requestData.buffer = (char*)getPMemory(megaBytes(5));
+		ad->requestData.maxSize = megaBytes(1);
+		ad->requestData.buffer = (char*)getPMemory(ad->requestData.maxSize);
 
 		TIMER_BLOCK_END(initRest);
 
@@ -5250,28 +5253,24 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-
-
-		/*
-		file: 
-		title, id, count, maxCount, pageToken
-		videos
-
-		loop:
-		i, count, dCount, maxCount, lastCount,
-
-		download, continueDownload, update
-
-		download:
-		file? create
-
-		continuedDownload:
-		*/
-
 		if(mode == Download_Mode_Videos) {
 			DownloadVideosData* data = &ad->videosModeData;
 
+			char* buffer = requestData->buffer;
+
+			downloadStepNext(&ad->downloadStep, &modeIndex, requestData);
+
+			// Get maxCount first.
 			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(ad->downloadPlaylist.id, 1));
+			}
+
+			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+				JSonValue* object = jsonParseValue(&buffer);
+				zeroStruct(data, DownloadVideosData);
+				data->maxCount = jsonGetInt(object, "pageInfo", "totalResults");
+
+
 
 				YoutubePlaylist* downloadPlaylist = &ad->downloadPlaylist;
 
@@ -5284,7 +5283,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					PlaylistFileHeader fileHeader = {};
 					strCpy(fileHeader.title, downloadPlaylist->title);
 					strCpy(fileHeader.id, downloadPlaylist->id);
-					fileHeader.maxCount = -1;
+					fileHeader.maxCount = data->maxCount;
 
 					fwrite(&fileHeader, sizeof(PlaylistFileHeader), 1, file);
 					fclose(file);
@@ -5292,24 +5291,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				PlaylistFileHeader fileHeader = loadPlaylistHeaderFromFileX(downloadPlaylist->id);
 
-				zeroStruct(data, DownloadVideosData);
 				strCpy(data->pageToken, fileHeader.pageToken);
 				data->count = downloadPlaylist->count;
 				data->lastCount = fileHeader.count;
-				data->maxCount = fileHeader.maxCount;
+				// data->maxCount = fileHeader.maxCount;
 
 				bool skip = false;
-				// if(fileHeader.maxCount == fileHeader.count) skip = true;
-				// if(data->maxCount != -1) {
-				// 	if(data->count + data->lastCount > data->maxCount) {
-				// 		data->count = data->maxCount - data->lastCount;
-				// 		ad->downloadPlaylist.count = data->count;
-				// 	}
-				// }
-				// if(ad->update) {
-				// 	data->count = clampIntMax(data->count, fileHeader.count);
-				// }
-				// if(data->count == 0) skip = true;
+				if(ad->update) {
+					// data->count = clampIntMax(data->count, fileHeader.count);
+					data->count = clampIntMax(data->count, data->maxCount);
+				} else {
+					if(data->maxCount == fileHeader.count) skip = true;
+					if(data->count + data->lastCount > data->maxCount) {
+						data->count = data->maxCount - data->lastCount;
+						ad->downloadPlaylist.count = data->count;
+					}
+				}
+				if(data->count == 0) skip = true;
 
 				if(skip) ad->downloadMode = 0;
 				else {
@@ -5323,7 +5321,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 
-			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
+			if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData, false)) {
 				if(data->i >= data->count) {
 					ad->downloadStep += 3;
 				}
@@ -5343,15 +5341,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 
-				JSonValue* object = jsonParseValue(&requestData->buffer);
+				JSonValue* object = jsonParseValue(&buffer);
 				JSonValue* items = jsonGetMember(object, "items");
 
 				char* pageTokenStr = jsonGetString(object, "nextPageToken");
 				if(pageTokenStr) strCpy(data->pageToken, pageTokenStr);
-				if(data->maxCount == -1) {
-					data->maxCount = jsonGetInt(object, "pageInfo", "totalResults");
-					data->writeMaxCount = true;
-				}
 
 				int receivedCount;
 
@@ -5389,7 +5383,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				
-				JSonValue* object = jsonParseValue(&requestData->buffer);
+				JSonValue* object = jsonParseValue(&buffer);
 				JSonValue* items = jsonGetMember(object, "items");
 
 				int index = 0;
@@ -5424,7 +5418,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
 				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
 
-				JSonValue* object = jsonParseValue(&requestData->buffer);
+				JSonValue* object = jsonParseValue(&buffer);
 				JSonValue* items = jsonGetMember(object, "items");
 
 				int index = 0;
@@ -5451,30 +5445,25 @@ extern "C" APPMAINFUNCTION(appMain) {
 						fseek(file, 0, SEEK_SET);
 						fseek(file, memberSize(PlaylistFileHeader, title), SEEK_CUR);
 						fseek(file, memberSize(PlaylistFileHeader, id), SEEK_CUR);
-
-						int currentCount = data->i + data->dCount + data->lastCount;
-						fwrite(&currentCount, memberSize(PlaylistFileHeader, count), 1, file);
-
-						if(data->writeMaxCount) {
-							data->writeMaxCount = false;
+						if(!ad->update) {
+							int currentCount = data->i + data->dCount + data->lastCount;
+							fwrite(&currentCount, memberSize(PlaylistFileHeader, count), 1, file);
 							fwrite(&data->maxCount, memberSize(PlaylistFileHeader, maxCount), 1, file);
+							fwrite(data->pageToken, memberSize(PlaylistFileHeader, pageToken), 1, file);
 						} else {
+							fseek(file, memberSize(PlaylistFileHeader, count), SEEK_CUR);
 							fseek(file, memberSize(PlaylistFileHeader, maxCount), SEEK_CUR);
+							fseek(file, memberSize(PlaylistFileHeader, pageToken), SEEK_CUR);
 						}
-						fwrite(data->pageToken, memberSize(PlaylistFileHeader, pageToken), 1, file);
 
 						int videoCount = data->count;
 						YoutubeVideo* videos = data->vids;
 
 						int fileVideoStart = (data->maxCount-data->i-data->dCount-data->lastCount);
 						fseek(file, fileVideoStart*sizeof(YoutubeVideo), SEEK_CUR);
-						
-						int pos = ftell(file);
-
 						fwrite(videos, data->dCount*sizeof(YoutubeVideo), 1, file);
 					}
 
-					ad->startLoadFile = true;
 					memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
 				}
 
@@ -5491,232 +5480,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 			}
 		}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	// 	if(mode == Download_Mode_Videos) {
-	// 		// TIMER_BLOCK_NAMED("Total download");
-
-	// 		static int i;
-	// 		static int count;
-	// 		static char pageToken[Page_Token_Size];
-	// 		static int totalCount;
-	// 		static YoutubeVideo* vids = 0;
-	// 		static bool continuedDownload;
-	// 		static int lastVideoCount;
-	// 		static int maxVideoCount;
-
-	// 		char* buffer = requestData->buffer;
-
-	// 		if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-	// 			bool skip = false;
-
-	// 			count = ad->downloadPlaylist.count;
-
-	// 			strClear(pageToken);
-
-	// 			YoutubePlaylist tempPlaylist;
-	// 			char* fileName = fillString("%s.playlist", ad->downloadPlaylist.id);
-	// 			maxVideoCount = 0;
-	// 			char* pt = getTString(Page_Token_Size);
-	// 			continuedDownload = loadPlaylistHeaderFromFile(&tempPlaylist, fileName, &maxVideoCount, pt);
-	// 			lastVideoCount = 0;
-
-	// 			if(!ad->update && continuedDownload) {
-	// 				// pageToken = pt;
-	// 				strCpy(pageToken,  pt);
-
-	// 				lastVideoCount = tempPlaylist.count;
-
-	// 				if(tempPlaylist.count == 0) skip = true;
-
-	// 				if(maxVideoCount == tempPlaylist.count) skip = true;
-	// 				if(count + lastVideoCount > maxVideoCount) {
-	// 					count = maxVideoCount - lastVideoCount;
-	// 					ad->downloadPlaylist.count = count;
-	// 				}
-	// 			}
-
-	// 			if(ad->update && continuedDownload) {
-	// 				count = clampIntMax(count, tempPlaylist.count);
-	// 			}
-
-	// 			// No videos to update
-	// 			if(ad->update && !continuedDownload) skip = true;
-
-	// 			if(skip || count == 0) ad->downloadMode = 0;
-
-	// 			if(vids != 0) free(vids);
-	// 			vids = mallocArray(YoutubeVideo, count);
-	// 			zeroMemory(vids, sizeof(YoutubeVideo)*count);
-
-	// 			totalCount = 0;
-	// 			i = 0;
-
-	// 			ad->downloadProgress = 0;
-	// 			ad->downloadMax = count;
-	// 		}
-
-	// 		static int dCount;
-
-	// 		if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-	// 			if(i >= count) {
-	// 				ad->downloadStep += 3;
-	// 			}
-
-	// 			ad->downloadProgress = min(i,count);
-	// 			ad->downloadMax = count;
-
-	// 			dCount = maxDownloadCount;
-	// 			if(i + dCount > count) {
-	// 				dCount = count - i;
-	// 			}
-
-	// 			{
-	// 				char* playlistId = ad->downloadPlaylist.id;
-
-	// 				// TIMER_BLOCK_NAMED("Request");
-	// 				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(playlistId, dCount, pageToken));
-	// 			}
-
-	// 		} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-
-	// 			JSonValue* object = jsonParseValue(&buffer);
-	// 			JSonValue* items = jsonGetMember(object, "items");
-
-	// 			char* pageTokenStr = jsonGetString(object, "nextPageToken");
-	// 			if(pageTokenStr) strCpy(pageToken, pageTokenStr);
-	// 			int totalCount = jsonGetInt(object, "pageInfo", "totalResults");
-
-	// 			int receivedCount;
-
-	// 			// Get Video ids.
-	// 			{
-	// 				int index = i;
-	// 				int idCount = 0;
-	// 				For_JsonArray(items) {
-	// 					int reverseIndex = count-1 - index;
-
-	// 					char* s = jsonGetString(it, "contentDetails", "videoId");
-	// 					if(s) {
-	// 						vids[reverseIndex] = {};
-
-	// 						strCpy(vids[reverseIndex].id, s);
-	// 						idCount++;
-	// 					}
-
-	// 					index++;
-	// 				}
-
-	// 				receivedCount = idCount;
-	// 			}
-				
-	// 			// Get Statistics.
-	// 			{
-	// 				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-	// 				for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
-	// 					int reverseIndex = count-1 - videoIndex;
-	// 					strAppend(tempBuffer, fillString("%s,", vids[reverseIndex].id));
-	// 				}
-
-	// 				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "statistics"));
-	// 			}
-
-	// 		} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-				
-	// 			JSonValue* object = jsonParseValue(&buffer);
-	// 			JSonValue* items = jsonGetMember(object, "items");
-
-	// 			int index = i;
-	// 			int advance = 0;
-	// 			For_JsonArray(items) {
-	// 				int reverseIndex = count-1 - index;
-
-	// 				JSonValue* statistics = jsonGetMember(it, "statistics");
-	// 				if(statistics) {
-	// 					vids[reverseIndex].viewCount = strToIntSave(jsonGetString(statistics, "viewCount"));
-	// 					vids[reverseIndex].likeCount = strToIntSave(jsonGetString(statistics, "likeCount"));
-	// 					vids[reverseIndex].dislikeCount = strToIntSave(jsonGetString(statistics, "dislikeCount"));
-	// 					vids[reverseIndex].favoriteCount = strToIntSave(jsonGetString(statistics, "favoriteCount"));
-	// 					vids[reverseIndex].commentCount = strToIntSave(jsonGetString(statistics, "commentCount"));
-	// 				}
-
-	// 				index++;
-	// 			}
-
-	// 			// Get title and thumbnail.
-	// 			char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-	// 			for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
-	// 				int reverseIndex = count-1 - videoIndex;
-	// 				strAppend(tempBuffer, fillString("%s,", vids[reverseIndex].id));
-	// 			}
-
-	// 			{
-	// 				// TIMER_BLOCK_NAMED("Title Request");
-	// 				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "snippet"));
-	// 			}
-
-	// 		} if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-	// 			char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-
-	// 			JSonValue* object = jsonParseValue(&buffer);
-	// 			JSonValue* items = jsonGetMember(object, "items");
-
-	// 			int index = i;
-	// 			int advance = 0;
-	// 			For_JsonArray(items) {
-	// 				int reverseIndex = count-1 - index;
-		
-	// 				JSonValue* snippet = jsonGetMember(it, "snippet");
-
-	// 				char* s = jsonGetString(snippet, "publishedAt");
-	// 				strCpy(vids[reverseIndex].dateString, s);
-	// 				vids[reverseIndex].date = stringToDate(s);
-
-	// 				strCpy(vids[reverseIndex].title, jsonGetString(snippet, "title"));
-	// 				strCpy(vids[reverseIndex].thumbnail, jsonGetString(snippet, "thumbnails", "high", "url"));
-
-	// 				index++;
-	// 			}
-
-	// 			i += maxDownloadCount;
-	// 			ad->downloadStep -= 4;
-	// 		}
-
-	// 		if(downloadStepNext(&ad->downloadStep, &modeIndex, requestData)) {
-	// 			ad->downloadMode = 0;
-	// 			ad->startLoadFile = true;
-
-	// 			memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
-
-	// 			if(!ad->update && continuedDownload) {
-	// 				if(ad->downloadPlaylist.count + lastVideoCount > maxVideoCount) {
-	// 					ad->playlist.count = (ad->downloadPlaylist.count + lastVideoCount) - maxVideoCount;
-	// 				}
-
-	// 				savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, lastVideoCount, pageToken);
-	// 			} else if(!ad->update && !continuedDownload) {
-	// 				savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, 0, pageToken);
-	// 			} else if(ad->update) {
-	// 				savePlaylistToFile(&ad->playlist, vids, ad->playlist.count, totalCount, -1, pageToken);
-	// 			}
-
-	// 			loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-	// 		}
-	// 	}
 
 	}
 
@@ -7543,17 +7306,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 				r = rectTLDim(writePos, rowDim); writePos.y -= rowHeight + rowOffset;
 				drawQuickTextBox(r, "Download playlist videos", scissor, labelSettings); 
 
-				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0,0); writePos.y -= rowHeight + rowOffset;
+				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), 0, 0.1f, 0); writePos.y -= rowHeight + rowOffset;
 				drawQuickTextBox(layoutInc(&l), ad->downloadPlaylist.title, scissor, labelSettings); 
-				drawQuickTextBox(layoutInc(&l), ad->downloadPlaylist.id, scissor, labelSettings); 
-
-				l = layoutQuickRow(&lay, rectTLDim(writePos, rowDim), getTextDim("Count:", font).w + font->height*textMargin,0.2f,0); writePos.y -= rowHeight + rowOffset;
-				drawQuickTextBox(layoutInc(&l), "Count:", vec2i(-1,0), scissor, labelSettings); 
-				newGuiQuickTextEdit(gui, layoutInc(&l), &ad->downloadPlaylist.count, z, scissor, editSettings);
+				drawQuickTextBox(layoutInc(&l), fillString("%i", ad->downloadPlaylist.count), scissor, labelSettings); 
 				ad->downloadPlaylist.count = clampIntMin(ad->downloadPlaylist.count, 1);
-				if(newGuiQuickButton(gui, layoutInc(&l), z, "Get video count", scissor, buttonSettings)) {
-					downloadModeSet(Download_Mode_VideoCount, &ad->downloadMode, &ad->downloadStep, &ad->appIsBusy);
-				}
+				drawQuickTextBox(layoutInc(&l), ad->downloadPlaylist.id, scissor, labelSettings); 
 
 				Rect progressRect;
 				bool activeDownload = ad->downloadMode == Download_Mode_Videos;
