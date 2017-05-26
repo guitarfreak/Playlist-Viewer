@@ -1026,13 +1026,13 @@ int parseNumber(char* s) {
 	if(charIsSign(s[i])) i++;
 
 	if(!charIsDigit(s[i++])) return 0;
-	while(charIsDigit(s[i++]));
+	while(charIsDigit(s[i])) i++;
 
 	if(s[i] == '.') i++;
 
-	while(charIsDigit(s[i++]));
+	while(charIsDigit(s[i])) i++;
 
-	return i-1;
+	return i;
 }
 
 int parseString(char* s) {

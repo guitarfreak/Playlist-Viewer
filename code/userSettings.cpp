@@ -75,3 +75,10 @@ enum FrameBufferType {
 
 	FRAMEBUFFER_SIZE,
 };
+
+enum WatchFolder {
+	WATCH_FOLDER_APP = 0,
+	WATCH_FOLDER_PLAYLISTS,
+	
+	WATCH_FOLDER_SIZE,
+};

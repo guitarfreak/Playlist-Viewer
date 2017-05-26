@@ -205,7 +205,8 @@ struct SystemData {
 	HDC deviceContext;
 	HWND windowHandle;
 	
-	HANDLE folderHandle; 
+	HANDLE folderHandles[10];
+	int folderHandleCount;
 };
 
 void systemDataInit(SystemData* sd, HINSTANCE instance) {
