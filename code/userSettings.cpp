@@ -15,14 +15,6 @@
 
 //
 
-// const char* watchFolders[] = {
-	// "..\\data\\Textures\\Misc\\", 
-	// "..\\data\\Textures\\Skyboxes\\", 
-	// "..\\data\\Textures\\Minecraft\\"
-// };
-
-//
-
 enum TextureId {
 	TEXTURE_WHITE = 0,
 	// TEXTURE_RECT,
@@ -33,26 +25,6 @@ enum TextureId {
 
 char* texturePaths[] = {
 	"..\\data\\Textures\\Misc\\white.png",
-};
-
-//
-
-enum FontId {
-	FONT_LIBERATION_MONO = 0,
-	FONT_SOURCESANS_PRO,
-	FONT_CONSOLAS,
-	FONT_ARIAL,
-	FONT_CALIBRI,
-	FONT_SIZE,
-};
-
-char* fontPaths[] = {
-	// "..\\data\\Fonts\\LiberationMono-Bold.ttf",
-	"..\\data\\Fonts\\LiberationMono-Regular.ttf",
-	"..\\data\\Fonts\\SourceSansPro-Regular.ttf",
-	"..\\data\\Fonts\\consola.ttf",
-	"..\\data\\Fonts\\arial.ttf",
-	"..\\data\\Fonts\\calibri.ttf",
 };
 
 //

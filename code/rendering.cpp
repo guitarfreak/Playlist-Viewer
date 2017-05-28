@@ -215,7 +215,7 @@ void deleteTexture(Texture* t) {
 //
 
 struct Font {
-	char* name;
+	char* file;
 	int id;
 
 	stbtt_fontinfo info;
@@ -228,6 +228,9 @@ struct Font {
 	stbtt_packedchar* cData;
 	int height;
 	float baseOffset;
+
+	Font* boldFont;
+	Font* italicFont;
 };
 
 //
@@ -365,7 +368,11 @@ struct GraphicsState {
 	int textureCount;
 	Texture textures3d[2];
 	GLuint samplers[SAMPLER_SIZE];
-	Font fonts[FONT_SIZE + APP_FONT_COUNT][20];
+
+	Font fonts[10][20];
+	int fontsCount;
+	char* fontFolders[10];
+	int fontFolderCount;
 
 	GLuint textureUnits[16];
 	GLuint samplerUnits[16];
@@ -404,27 +411,34 @@ FrameBuffer* getFrameBuffer(int id) {
 
 #define Font_Error_Glyph (int)0x20-1
 
-Font* fontInit(Font* fontSlot, char* file, char* filePath, int height, int id) {
+Font* fontInit(Font* fontSlot, char* file, int height) {
 	TIMER_BLOCK();
 
-	Font font;
-	char* path = fillString("%s%s", filePath, file);
+	char* fontFolder = 0;
+	for(int i = 0; i < globalGraphicsState->fontFolderCount; i++) {
+		if(fileExists(fillString("%s%s", globalGraphicsState->fontFolders[i], file))) {
+			fontFolder = globalGraphicsState->fontFolders[i];
+			break;
+		}
+	}
 
+	myAssert(fontFolder);
+
+
+	char* path = fillString("%s%s", fontFolder, file);
 	char* fileBuffer = (char*)getPMemory(fileSize(path) + 1);
-	// char* fileBuffer = getTArray(char, fileSize(path) + 1);
-
-	if(!fileExists(path)) return 0;
-
 	readFileToBuffer(fileBuffer, path);
+
 	// Vec2i size = vec2i(512,512);
 	Vec2i size = vec2i(800,800);
-	unsigned char* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
-	unsigned char* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
-	
-	font.name = getPString(strLen(file)+1);
-	strCpy(font.name, file);
+	uchar* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
+	uchar* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
 
-	font.id = id;
+	Font font;
+	font.file = getPString(strLen(file)+1);
+	strCpy(font.file, file);
+
+	// font.id = id;
 	font.height = height;
 
 	font.glyphRangeCount = 0;
@@ -485,7 +499,6 @@ Font* fontInit(Font* fontSlot, char* file, char* filePath, int height, int id) {
 	}
 
 	Texture tex;
-	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
 	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
 
 	font.tex = tex;
@@ -496,106 +509,40 @@ Font* fontInit(Font* fontSlot, char* file, char* filePath, int height, int id) {
 	return fontSlot;
 }
 
-Font* getFont(int fontId, int height) {
+Font* getFont(char* fontFile, int height, char* boldFontFile = 0, char* italicFontFile = 0) {
 
-	// Search if Font in this size exists, if not create it.
-
-	int fontSlots = arrayCount(globalGraphicsState->fonts[0]);
-	Font* fontArray = globalGraphicsState->fonts[fontId];
+	int fontCount = arrayCount(globalGraphicsState->fonts);
+	int fontSlotCount = arrayCount(globalGraphicsState->fonts[0]);
 	Font* fontSlot = 0;
-	for(int i = 0; i < fontSlots; i++) {
-		int fontHeight = fontArray[i].height;
-		if(fontHeight == height || fontHeight == 0) {
-			fontSlot = fontArray + i;
+	for(int i = 0; i < fontCount; i++) {
+		if(globalGraphicsState->fonts[i][0].height == 0) {
+			fontSlot = &globalGraphicsState->fonts[i][0];
 			break;
+		} else {
+			if(strCompare(fontFile, globalGraphicsState->fonts[i][0].file)) {
+				for(int j = 0; j < fontSlotCount; j++) {
+					int h = globalGraphicsState->fonts[i][j].height;
+					if(h == 0 || h == height) {
+						fontSlot = &globalGraphicsState->fonts[i][j];
+						break;
+					}
+				}
+			}
 		}
 	}
 
 	// We are going to assume for now that a font size of 0 means it is uninitialized.
-
 	if(fontSlot->height == 0) {
-		TIMER_BLOCK();
-
-		Font font;
-		char* path = fontPaths[fontId];
-
-		char* fileBuffer = (char*)getPMemory(fileSize(path) + 1);
-		// char* fileBuffer = getTArray(char, fileSize(path) + 1);
-
-		readFileToBuffer(fileBuffer, path);
-		// Vec2i size = vec2i(512,512);
-		Vec2i size = vec2i(800,800);
-		unsigned char* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
-		unsigned char* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
-		
-		font.id = fontId;
-		font.height = height;
-		font.baseOffset = 0.8f;
-
-		font.glyphRangeCount = 0;
-		font.glyphRanges[0].x = (int)0x20-1;
-		font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
-		font.glyphRangeCount++;
-		font.glyphRanges[1].x = 0xA0;
-		font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
-		font.glyphRangeCount++;
-		
-		int totalGlyphCount = 0;
-		for(int i = 0; i < font.glyphRangeCount; i++) totalGlyphCount += font.glyphRanges[i].y;
-
-		font.cData = getPArray(stbtt_packedchar, totalGlyphCount);
-
-
-		int fontFileOffset = stbtt_GetFontOffsetForIndex((uchar*)fileBuffer, 0);
-		stbtt_InitFont(&font.info, (uchar*)fileBuffer, fontFileOffset);
-
-
-		stbtt_pack_context context;
-		int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, 1, 0);
-
-		int sampling = 2;
-		if(font.height < 25) sampling = 4;
-		stbtt_PackSetOversampling(&context, sampling, sampling);
-		
-		stbtt_pack_range range[4];
-		int cDataOffset = 0;
-		for(int i = 0; i < font.glyphRangeCount; i++) {
-			range[i].first_unicode_codepoint_in_range = font.glyphRanges[i].x;
-			range[i].array_of_unicode_codepoints = NULL;
-			range[i].num_chars                   = font.glyphRanges[i].y;
-			range[i].chardata_for_range          = font.cData + cDataOffset;
-			range[i].font_size                   = font.height;
-
-			cDataOffset += font.glyphRanges[i].y;
+		fontInit(fontSlot, fontFile, height);
+		if(boldFontFile) {
+			fontSlot->boldFont = getPStruct(Font);
+			fontInit(fontSlot->boldFont, boldFontFile, height);
 		}
-
-		// We assume glyphRanges in the front have more importance.
-		for(int i = 0; i < font.glyphRangeCount; i++) {
-			stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range + i, 1);
+		if(italicFontFile) {
+			fontSlot->italicFont = getPStruct(Font);
+			fontInit(fontSlot->italicFont, italicFontFile, height);
 		}
-		// stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range, font.glyphRangeCount);
-
-		stbtt_PackEnd(&context);
-
-		font.pixelScale = stbtt_ScaleForPixelHeight(&font.info, font.height);
-
-		for(int i = 0; i < size.w*size.h; i++) {
-			fontBitmap[i*4] = fontBitmapBuffer[i];
-			fontBitmap[i*4+1] = fontBitmapBuffer[i];
-			fontBitmap[i*4+2] = fontBitmapBuffer[i];
-			fontBitmap[i*4+3] = fontBitmapBuffer[i];
-		}
-
-		Texture tex;
-		loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
-		font.tex = tex;
-
-		addTexture(tex);
-
-		*fontSlot = font;
 	}
-
-
 
 	return fontSlot;
 }
@@ -675,6 +622,13 @@ inline void pushVec(Vec2 p0, float z) {
 
 inline void pushColor(Vec4 c) {
 	glColor4f(c.r, c.g, c.b, c.a);
+}
+
+inline void pushRect(Rect r, Rect uv, float z) {
+	glTexCoord2f(uv.left,  uv.top);    glVertex3f(r.left, r.bottom, z);
+	glTexCoord2f(uv.left,  uv.bottom); glVertex3f(r.left, r.top, z);
+	glTexCoord2f(uv.right, uv.bottom); glVertex3f(r.right, r.top, z);
+	glTexCoord2f(uv.right, uv.top);    glVertex3f(r.right, r.bottom, z);
 }
 
 void drawPoint(Vec2 p, Vec4 color) {
@@ -1082,6 +1036,9 @@ struct TextSimInfo {
 
 	bool lineBreak;
 	Vec2 breakPos;
+
+	bool bold;
+	bool italic;
 };
 
 TextSimInfo initTextSimInfo(Vec2 startPos) {
@@ -1093,6 +1050,11 @@ TextSimInfo initTextSimInfo(Vec2 startPos) {
 	tsi.breakPos = vec2(0,0);
 	return tsi;
 }
+
+#define Bold_Mark "<b>"
+#define Bold_Mark_Size 3
+#define Italic_Mark "<i>"
+#define Italic_Mark_Size 3
 
 int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPos = vec2(0,0), int wrapWidth = 0) {
 	ti->lineBreak = false;
@@ -1237,6 +1199,100 @@ void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = v
 		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, z);
 		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, z);
 		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, z);
+	}
+	
+	glEnd();
+}
+
+
+
+struct TextSettings {
+	Font* font;
+	Vec4 color;
+	int wrapWidth;
+
+	int shadowMode; // 0 = noShadow, 1 = shadow, 2 = outline;
+	Vec2 shadowDir;
+	float shadowSize;
+	Vec4 shadowColor;
+};
+
+void textParseMarkers(char* text, Font* font, TextSimInfo* tsi) {
+	if(text[tsi->index] == Bold_Mark[0]) {
+		if(strStartsWith(&text[tsi->index], Bold_Mark, Bold_Mark_Size)) {
+			tsi->index += Bold_Mark_Size;
+			
+			if(!tsi->bold) {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->boldFont->tex.id);
+				glBegin(GL_QUADS);
+			} else {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->tex.id);
+				glBegin(GL_QUADS);
+			}
+			tsi->bold = !tsi->bold;
+		} else if(strStartsWith(&text[tsi->index], Italic_Mark, Italic_Mark_Size)) {
+			tsi->index += Italic_Mark_Size;
+			
+			if(!tsi->italic) {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->italicFont->tex.id);
+				glBegin(GL_QUADS);
+			} else {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->tex.id);
+				glBegin(GL_QUADS);
+			}
+			tsi->italic = !tsi->italic;
+		}
+	}
+}
+
+void drawText(char* text, Vec2 startPos, TextSettings settings, Vec2i align = vec2i(-1,1)) {
+	float z = globalGraphicsState->zOrder;
+	Font* font = settings.font;
+	int wrapWidth = settings.wrapWidth;
+
+	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
+
+	Vec4 c = COLOR_SRGB(settings.color);
+	Vec4 sc = COLOR_SRGB(settings.shadowColor);
+
+	glColor4f(c.r, c.g, c.b, c.a);
+	glBindTexture(GL_TEXTURE_2D, font->tex.id);
+	glBegin(GL_QUADS);
+
+	TextSimInfo tsi = initTextSimInfo(startPos);
+	while(true) {
+		
+		Font* f = font;
+		textParseMarkers(text, font, &tsi);
+		if(tsi.bold) f = font->boldFont;
+		if(tsi.italic) f = font->italicFont;
+
+		TextInfo ti;
+		if(!textSim(text, f, &tsi, &ti, startPos, wrapWidth)) break;
+		if(text[ti.index] == '\n') continue;
+
+		if(settings.shadowMode) {
+			pushColor(sc);
+
+			if(settings.shadowMode == 1) {
+				Rect r = rectTrans(ti.r, normVec2(settings.shadowDir) * settings.shadowSize);
+				pushRect(r, ti.uv, z);
+			} else {
+				for(int i = 0; i < 8; i++) {
+					Vec2 dir = rotateVec2(vec2(1,0), (M_2PI/8)*i);
+					Rect r = rectTrans(ti.r, dir*settings.shadowSize);
+					pushRect(r, ti.uv, z);
+				}
+			}
+
+			pushColor(c);
+		}
+
+		pushRect(ti.r, ti.uv, z);
 	}
 	
 	glEnd();

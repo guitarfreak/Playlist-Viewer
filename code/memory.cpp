@@ -61,6 +61,18 @@ void popTMemoryStack(MemoryBlock* memory = 0) {
 	globalMemory->tempStackSize--;
 }
 
+inline char* getPStringCpy(char* str) {
+	char* newStr = getPString(strLen(str) + 1);
+	strCpy(newStr, str);
+	return newStr;
+}
+
+inline char* getTStringCpy(char* str) {
+	char* newStr = getTString(strLen(str) + 1);
+	strCpy(newStr, str);
+	return newStr;
+}
+
 #define getPStructDebug(type) 		(type*)(getPMemoryDebug(sizeof(type)))
 #define getPArrayDebug(type, count) 	(type*)(getPMemoryDebug(sizeof(type) * count))
 #define getPStringDebug(count) (char*)(getPMemoryDebug(count))

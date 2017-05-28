@@ -1,25 +1,5 @@
 /*
-	Things to add to main app/library after this project is done:
-	- Cam.
-	- Mouse Delta.
-	- Updated rect.
-	- Updated math functions like mapRange.
-	- move ScissorRect to screen to render from gui.
-	- math log base
-	- math round up 
-	- round mod down
-    - Just make sure to copy over math.cpp.
-	- Vec4 (float color, float alpha)
-	- Draw text functions use uchar now.
-	- On WM_KILLFOCUS release all the keys.
-	- Gui textbox clipboard.
-	- Fixed getClipboard, added closeClipboard.
-	- Gui textbox returns true only on new value when hitting enter.
-	- Fixed bug in debugNotifications.
-	- Massive changes in rect functions.
-	- Font system.
-
-===========================================================================
+====================================================================
 
 	ToDo:
 	- Filter -> percentage of views.
@@ -38,11 +18,11 @@
 	- Put in server timeout.
 	- Runs poorly when aero is enabled.
 	- Get settings file working again.
-	- UI polish. (Colors, outlines and so on.)
 	- Total cleanup of the code.
+	- Text box settings add align left right text padding/offset.
 
 	Done Today: 
-
+	- Text edit offset. Text edit cursor hover. Started putting in settings sub menu. Code deletion. Bold and italic fonts. 
 
 	Bugs:
 	- Crash when server takes too long to respond.
@@ -143,15 +123,15 @@ float globalScreenHeight;
 #define Cubic_Curve_Segment_Mod 20
 #define Cubic_Curve_Segment_Min 4
 
-#define appFontPath "..\\data\\Fonts\\"
-#define windowsFontPath "C:\\Windows\\Fonts\\"
+#define App_Font_Folder "..\\data\\Fonts\\"
+#define Windows_Font_Folder "C:\\Windows\\Fonts\\"
 #define Default_Font "calibri.ttf"
 #define Playlist_Folder "..\\playlists\\"
 
-#define appFolder "..\\app\\"
-#define appSettingsFilePath "..\\app\\appSettings.txt"
-#define appSaveFilePath "..\\app\\appSave.txt"
-#define screenshotFilePath "..\\app\\screenshot.png"
+#define App_Folder "..\\app\\"
+#define App_Settings_File "..\\app\\appSettings.txt"
+#define App_Save_File "..\\app\\appSave.txt"
+#define Screenshot_File "..\\app\\screenshot.png"
 
 #define Panel_Min_X 300
 #define Panel_Min_Y 300
@@ -159,6 +139,7 @@ float globalScreenHeight;
 #define Screenshot_Min_X 500
 #define Screenshot_Min_Y 500
 
+#define Line_Graph_Count 4
 
 
 
@@ -170,34 +151,6 @@ void loadCurlFunctions(HMODULE dll) {
 	curl_easy_performX = (curl_easy_performFunction*)GetProcAddress(dll, "curl_easy_perform");
 	curl_easy_cleanupX = (curl_easy_cleanupFunction*)GetProcAddress(dll, "curl_easy_cleanup");
 }
-
-struct CurlData {
-	char* buffer;
-	int size;
-};
-
-size_t curlWrite(void *buffer, size_t size, size_t nmemb, void *userp) {
-	CurlData* cd = (CurlData*)userp;
-	memCpy(cd->buffer + cd->size, buffer, nmemb);
-	cd->size += nmemb;
-	cd->buffer[cd->size] = '\0';
-
-	return nmemb;
-}
-
-int curlRequest(CURL* curlHandle, char* request, char* buffer) {
-	CurlData cd = {buffer, 0};
-	curl_easy_setoptX(curlHandle, CURLOPT_WRITEDATA, &cd);
-	curl_easy_setoptX(curlHandle, CURLOPT_URL, request);
-	curl_easy_setoptX(curlHandle, CURLOPT_WRITEFUNCTION, curlWrite);
-
-	int success = curl_easy_performX(curlHandle);
-	myAssert(success == 0);
-
-	return cd.size;
-}
-
-
 
 struct CurlRequestData {
 	CURL* curlHandle;
@@ -214,10 +167,6 @@ struct CurlRequestData {
 	bool active;
 	bool finished;
 };
-
-CurlRequestData curlRequestData(CURL* curlHandle, char* buffer, char* request) {
-	return {curlHandle, request, buffer, 0, false};
-}
 
 void curlRequestDataInit(CurlRequestData* requestData, char* request) {
 	requestData->request = request;
@@ -284,45 +233,6 @@ void curlRequestDataInitAdd(ThreadQueue* threadQueue, CurlRequestData* requestDa
 
 
 
-char* stringGetBetween(char* buffer, char* leftToken, char* rightToken, char** bufferIncrement = 0) {
-	char* string;
-
-	int leftPos = strFindRight(buffer, leftToken);
-	if(leftPos != -1) {
-		int rightPos = strFind(buffer + leftPos, rightToken);
-		int size = rightPos;
-		string = getTString(size+1); 
-		strClear(string);
-		strCpy(string, buffer + leftPos, rightPos);
-		if(bufferIncrement) {
-			(*bufferIncrement) += leftPos + rightPos + 1; 
-		}
-	} else {
-		string = getTString(1); strClear(string);
-	}
-
-	return string;
-}
-
-char* getJSONString(char* buffer, char* name, char** bufferIncrement = 0) {
-	return stringGetBetween(buffer, fillString("\"%s\": \"", name), "\"", bufferIncrement);
-}
-
-char* getJSONInt(char* buffer, char* name, char** bufferIncrement = 0) {
-	return stringGetBetween(buffer, fillString("\"%s\": ", name), ",", bufferIncrement);
-}
-
-char* getJSONIntNewline(char* buffer, char* name, char** bufferIncrement = 0) {
-	return stringGetBetween(buffer, fillString("\"%s\": ", name), "\n", bufferIncrement);
-}
-
-
-char* getString(char** string, int size) {
-	char* stringBase = *string;
-	*string = (*string) + size;
-	return stringBase;
-}
-
 bool isLeapYear(int year, bool addFrontDigits = true) {
 	if(addFrontDigits) year += 2000;
 
@@ -332,13 +242,13 @@ bool isLeapYear(int year, bool addFrontDigits = true) {
 	else return true;
 }
 
-const int monthDayCount[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-
 int getYearDayCount(int year) {
 	return isLeapYear(year)?366:365;
 }
 
 int getMonthDayCount(int month, int year) {
+	static int monthDayCount[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
 	int result = monthDayCount[month-1];
 	if(isLeapYear(year) && month == 2) result++;
 
@@ -415,6 +325,8 @@ Date dateDecode(i64 n) {
 }
 
 Date stringToDate(char* s) {
+	// Example: 2017-02-01T12:03:23.000Z
+
 	Date date;
 	char* buffer = s;
 	char* d = getTString(10); 
@@ -431,8 +343,9 @@ Date stringToDate(char* s) {
 	return date;
 }
 
-// P1DT1S | PT1H32M5S
 Date stringDurationToDate(char* s) {
+	// Example: P1DT1S or PT1H32M5S
+	
 	Date date = {};
 	char* buffer = s;
 	char* d = getTString(10); 
@@ -495,14 +408,12 @@ i64 monthsToInt(float months) {
 
 
 
-// Date String Format: 2017-02-01T12:03:23.000Z
-
 #pragma pack(push,1)
 struct YoutubeVideo {
 	char id[12];
 	char title[151];
 	char thumbnail[51];
-	char dateString[25];
+	char dateString[25]; // 2017-02-01T12:03:23.000Z
 	Date date;
 	Date duration;
 
@@ -528,97 +439,6 @@ struct SearchResult {
 	char allPlaylistId[40];
 };
 
-char* curlPath = "C:\\Standalone\\curl\\curl.exe";
-char* apiKey = "AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw";
-char* youtubeApiPlaylistItems = "https://www.googleapis.com/youtube/v3/playlistItems";
-char* youtubeApiPlaylist = "https://www.googleapis.com/youtube/v3/playlists";
-char* youtubeApiVideos = "https://www.googleapis.com/youtube/v3/videos";
-char* youtubeApiCommentThread = "https://www.googleapis.com/youtube/v3/commentThreads";
-char* youtubeApiChannel = "https://www.googleapis.com/youtube/v3/channels";
-char* youtubeApiSearch = "https://www.googleapis.com/youtube/v3/search";
-
-// int maxDownloadCount = 40;
-#define Max_Download_Count 40
-#define Max_Playlist_Download_Count 10
-// #define Max_Download_Count 1
-#define Search_Result_Count 10
-#define Page_Token_Size 10
-
-char* rocketBeansId = "UCQvTDmHza8erxZqDkjQ4bQQ";
-
-
-
-int requestPlaylistItems(CURL* curlHandle, char* buffer, char* playlistId, int maxResults, char* pageToken = 0) {
-	char* request = fillString("%s?key=%s&maxResults=%i&playlistId=%s&part=contentDetails%s", 
-					  youtubeApiPlaylistItems, apiKey, maxResults, playlistId, pageToken?fillString("&pageToken=%s",pageToken):"");
-	return curlRequest(curlHandle, request, buffer);
-}
-
-int requestCommentThread(CURL* curlHandle, char* buffer, char* videoId, int maxResults) {
-	char* request = fillString("%s?key=%s&maxResults=%i&videoId=%s&part=snippet&order=relevance&=textFormat=plainText", 
-								youtubeApiCommentThread, apiKey, maxResults, videoId);
-	return curlRequest(curlHandle, request, buffer);
-}
-
-int requestPlaylist(CURL* curlHandle, char* buffer, char* idType, char* id, char* part, int maxResults, char* pageToken = 0) {
-	char* request = fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s%s", 
-								youtubeApiPlaylist, apiKey, maxResults, idType, id, part, pageToken?fillString("&pageToken=%s",pageToken):"");
-	return curlRequest(curlHandle, request, buffer);
-}
-
-int requestChannel(CURL* curlHandle, char* buffer, char* idType, char* id, char* part, int maxResults) {
-	char* request = fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s", 
-								youtubeApiChannel, apiKey, maxResults, idType, id, part);
-	return curlRequest(curlHandle, request, buffer);
-}
-
-int requestVideos(CURL* curlHandle, char* buffer, char* id, char* part) {
-	char* request = fillString("%s?key=%s&id=%s&part=%s", 
-								youtubeApiVideos, apiKey, id, part);
-	return curlRequest(curlHandle, request, buffer);
-}
-
-int requestSearch(CURL* curlHandle, char* buffer, char* type, char* searchString, int maxResults) {
-	char* request = fillString("%s?key=%s&maxResults=%i&part=snippet&type=%s&q=%s", 
-								youtubeApiSearch, apiKey, maxResults, type, searchString);
-	return curlRequest(curlHandle, request, buffer);
-}
-
-
-
-char* requestPlaylistItems(char* playlistId, int maxResults, char* pageToken = 0) {
-	return fillString("%s?key=%s&maxResults=%i&playlistId=%s&part=contentDetails%s", 
-					  youtubeApiPlaylistItems, apiKey, maxResults, playlistId, pageToken?fillString("&pageToken=%s",pageToken):"");
-}
-char* requestCommentThread(char* videoId, int maxResults) {
-	return fillString("%s?key=%s&maxResults=%i&videoId=%s&part=snippet&order=relevance&=textFormat=plainText", 
-						youtubeApiCommentThread, apiKey, maxResults, videoId);
-}
-char* requestPlaylist(char* idType, char* id, char* part, int maxResults, char* pageToken = 0) {
-	return fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s%s", 
-								youtubeApiPlaylist, apiKey, maxResults, idType, id, part, pageToken?fillString("&pageToken=%s",pageToken):"");
-}
-char* requestChannel(char* idType, char* id, char* part, int maxResults) {
-	return fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s", 
-								youtubeApiChannel, apiKey, maxResults, idType, id, part);
-}
-char* requestVideos(char* id, char* part) {
-	return fillString("%s?key=%s&id=%s&part=%s", 
-								youtubeApiVideos, apiKey, id, part);
-}
-char* requestSearch(char* type, char* searchString, int maxResults) {
-	return fillString("%s?key=%s&maxResults=%i&part=snippet&type=%s&q=%s", 
-								youtubeApiSearch, apiKey, maxResults, type, searchString);
-}
-
-
-
-// #define Thumbnail_Size_X 320
-// #define Thumbnail_Size_Y 180
-
-#define Thumbnail_Size_X 480
-#define Thumbnail_Size_Y 360
-
 struct VideoSnippet {
 	bool selectedLoaded;
 	char* selectedTopComments[10];
@@ -628,221 +448,52 @@ struct VideoSnippet {
 	Texture thumbnailTexture;
 };
 
-void copyOverTextAndFixTokens(char* buffer, char* text) {
-	int index = 0;
-	for(;;) {
-		char c = text[0];
-		if(c == '\"') break;
+#define Thumbnail_Size_X 480
+#define Thumbnail_Size_Y 360
 
-		if(c == '\\') {
-			if(text[1] == 'n') buffer[index++] = '\n';
-			else if(text[1] == '\\') buffer[index++] = '\\';
-			else if(text[1] == '\"') buffer[index++] = '\"';
-			else if(text[1] == '\'') buffer[index++] = '\'';
+#define Max_Download_Count 40
+#define Max_Playlist_Download_Count 10
+#define Search_Result_Count 10
+#define Page_Token_Size 10
 
-			text += 2;
-		} else {
-			buffer[index++] = text[0];
-			text++;
-		}
-	}
-	buffer[index] = '\0';
+inline double videoGetLikesDiff(YoutubeVideo* vid) {
+	return divZero(vid->dislikeCount, (vid->likeCount + vid->dislikeCount));
 }
 
-void downloadVideoSnippet(CURL* curlHandle, VideoSnippet* snippet, YoutubeVideo* vid) {
-	char* buffer = (char*)getTMemory(megaBytes(1)); 
+#define Youtube_Api_Key "AIzaSyD-qRen5fSH7M3ePBey1RY0vRTyW0PKyLw"
+#define Youtube_Api_Playlist_Items "https://www.googleapis.com/youtube/v3/playlistItems"
+#define Youtube_Api_Playlist "https://www.googleapis.com/youtube/v3/playlists"
+#define Youtube_Api_Videos "https://www.googleapis.com/youtube/v3/videos"
+#define Youtube_Api_Comment_Thread "https://www.googleapis.com/youtube/v3/commentThreads"
+#define Youtube_Api_Channel "https://www.googleapis.com/youtube/v3/channels"
+#define Youtube_Api_Search "https://www.googleapis.com/youtube/v3/search"
 
-	// Download thumbnail and upload texture.
-	{
-		int size = curlRequest(curlHandle, vid->thumbnail, buffer);
-		if(snippet->thumbnailTexture.id != -1) deleteTexture(&snippet->thumbnailTexture);
-		loadTextureFromMemory(&snippet->thumbnailTexture, buffer, size, -1, INTERNAL_TEXTURE_FORMAT, GL_RGB, GL_UNSIGNED_BYTE);
-		// glBindTexture(GL_TEXTURE_2D, snippet->thumbnailTexture.id);
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-		// glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-	// Get comments.
-	{
-		int commentCount = 10;
-		snippet->selectedCommentCount = 0;
-		requestCommentThread(curlHandle, buffer, vid->id, commentCount);
-
-		int totalResults = strToInt(getJSONInt(buffer, "totalResults"));
-
-		char* commentBuffer = getTString(kiloBytes(1)); strClear(commentBuffer);
-
-		char* content;
-		int advance;
-		for(int i = 0; i < totalResults; i++) {
-			int commentStart = strFindRight(buffer, "\"textOriginal\": \"");
-			if(commentStart == -1) break;
-
-			buffer += commentStart;
-			copyOverTextAndFixTokens(commentBuffer, buffer);
-
-			char* s = getPString(strLen(commentBuffer)+1);
-			strCpy(s, commentBuffer);
-
-			buffer += strLen(commentBuffer);
-
-			snippet->selectedTopComments[snippet->selectedCommentCount] = s;
-
-			content = getJSONInt(buffer, "likeCount", &buffer);
-			snippet->selectedCommentLikeCount[snippet->selectedCommentCount] = strToInt(content);
-
-			content = getJSONInt(buffer, "totalReplyCount", &buffer);
-			snippet->selectedCommentReplyCount[snippet->selectedCommentCount] = strToInt(content);
-
-			snippet->selectedCommentCount++;
-		}
-	}
+char* requestPlaylistItems(char* playlistId, int maxResults, char* pageToken = 0) {
+	return fillString("%s?key=%s&maxResults=%i&playlistId=%s&part=contentDetails%s", 
+					  Youtube_Api_Playlist_Items, Youtube_Api_Key, maxResults, playlistId, pageToken?fillString("&pageToken=%s",pageToken):"");
+}
+char* requestCommentThread(char* videoId, int maxResults) {
+	return fillString("%s?key=%s&maxResults=%i&videoId=%s&part=snippet&order=relevance&=textFormat=plainText", 
+						Youtube_Api_Comment_Thread, Youtube_Api_Key, maxResults, videoId);
+}
+char* requestPlaylist(char* idType, char* id, char* part, int maxResults, char* pageToken = 0) {
+	return fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s%s", 
+								Youtube_Api_Playlist, Youtube_Api_Key, maxResults, idType, id, part, pageToken?fillString("&pageToken=%s",pageToken):"");
+}
+char* requestChannel(char* idType, char* id, char* part, int maxResults) {
+	return fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s", 
+								Youtube_Api_Channel, Youtube_Api_Key, maxResults, idType, id, part);
+}
+char* requestVideos(char* id, char* part) {
+	return fillString("%s?key=%s&id=%s&part=%s", 
+								Youtube_Api_Videos, Youtube_Api_Key, id, part);
+}
+char* requestSearch(char* type, char* searchString, int maxResults) {
+	return fillString("%s?key=%s&maxResults=%i&part=snippet&type=%s&q=%s", 
+								Youtube_Api_Search, Youtube_Api_Key, maxResults, type, searchString);
 }
 
-int downloadChannelPlaylistCount(CURL* curlHandle, char* channelId) {
-	char* buffer = (char*)getTMemory(kiloBytes(2));
-	requestPlaylist(curlHandle, buffer, "channelId", channelId, "id", 1);
-	int count = strToInt(getJSONInt(buffer, "totalResults"));
 
-	requestChannel(curlHandle, buffer, "id", channelId, "contentDetails", 1);
-
-	bool hasAllUploadsPlaylist = strLen(getJSONString(buffer, "uploads")) != 0 ? true : false;
-	if(hasAllUploadsPlaylist) count++;
-
-	return count;
-}
-
-void downloadChannelPlaylists(CURL* curlHandle, YoutubePlaylist* playlists, int* playlistCount, char* channelId, int count) {
-	char* buffer = (char*)getTMemory(megaBytes(3));
-	char* idCollection = getTString(kiloBytes(20));
-	char* tempBuffer = getTString(kiloBytes(3));
-
-	bool hasAllUploadsPLaylist = false;
-
-	// Get all uploads playlist.
-	{
-		// Get Channel name.
-		requestChannel(curlHandle, tempBuffer, "id", channelId, "snippet", 1);
-		char* s = getJSONString(tempBuffer, "title");
-		if(strLen(s) != 0) strCpy(playlists[0].title, s);
-
-		requestChannel(curlHandle, tempBuffer, "id", channelId, "contentDetails", 1);
-		s = getJSONString(tempBuffer, "uploads");
-		if(strLen(s) != 0) {
-			strCpy(playlists[0].id, s);
-			hasAllUploadsPLaylist = true;
-		}
-
-		// Get playlist video count.
-		if(hasAllUploadsPLaylist) {
-			requestPlaylist(curlHandle, buffer, "id", playlists[0].id, "contentDetails", 1);
-			char* s = getJSONIntNewline(buffer, "itemCount", &buffer);
-			if(strLen(s) != 0) playlists[0].count = strToInt(s);
-		}
-	}
-
-	int startIndex = hasAllUploadsPLaylist?1:0;
-
-	char* pageToken = 0;
-	for(int i = startIndex; i < count; i += Max_Download_Count) {
-		int dCount = i + Max_Download_Count > count ? count-i : Max_Download_Count;
-
-		requestPlaylist(curlHandle, buffer, "channelId", channelId, "snippet", dCount, pageToken);
-		int resultCount = strToInt(getJSONInt(buffer, "totalResults"));
-		pageToken = getJSONString(buffer, "nextPageToken");
-
-		if(i == 0) count = min(resultCount, count);
-
-		int index = i;
-		int advance = 0;
-		for(;;) {
-			if(index > count) break;
-
-			char* s = getJSONString(buffer, "id", &buffer);
-			if(strLen(s) == 0) break;
-
-			strCpy(playlists[index].id, s);
-
-			s = getJSONString(buffer, "title", &buffer);
-			strCpy(playlists[index].title, s);
-			index++;
-		}
-
-		// Get playlist video count.
-		{
-			strClear(idCollection);
-			int maxCount = dCount;
-			for(int index = 0; index < maxCount; index++) {
-				strAppend(idCollection, fillString("%s,", playlists[i+index].id));
-			}
-
-			requestPlaylist(curlHandle, buffer, "id", idCollection, "contentDetails", maxCount);
-
-			int index = i;
-			int advance = 0;
-			for(;;) {
-				char* s = getJSONIntNewline(buffer, "itemCount", &buffer);
-				if(strLen(s) == 0) break;
-
-				playlists[index].count = strToInt(s);
-				index++;
-			}
-		}
-	}
-
-	*playlistCount = count;
-}
-
-char* downloadChannelIdFromUserName(CURL* curlHandle, char* userName) {
-	char* buffer = (char*)getTMemory(kiloBytes(1));
-	requestChannel(curlHandle, buffer, "forUsername", userName, "id", 1);
-	char* channelId = getJSONString(buffer, "id");
-
-	return channelId;
-}
-
-void quickSearch(CURL* curlHandle, SearchResult* searchResults, int* channelCount, char* searchString, bool searchForChannels = true) {
-	char* buffer = (char*)getTMemory(kiloBytes(50));
-	char* search = getTString(strLen(searchString)+1); strClear(search);
-	for(;;) {
-		searchString = eatSpaces(searchString);
-		int pos = strFind(searchString, ' ');
-		if(pos != 0) {
-			strAppend(search, searchString, pos-1);
-			strAppend(search, ",");
-			searchString += pos-1;
-			continue;
-		}
-
-		pos = strLen(searchString);
-		strAppend(search, searchString, pos);
-		break;
-	}
-
-	requestSearch(curlHandle, buffer, searchForChannels?"channel":"playlist", search, 10);
-
-	int resultCount = strToInt(getJSONInt(buffer, "totalResults"));
-	int count = min(resultCount, 10);
-
-	int advance = 0;
-	for(int i = 0; i < count; i++) {
-		if(searchForChannels) {
-			char* s = getJSONString(buffer, "channelId", &buffer);
-			strCpy(searchResults[i].id, s);
-		} else {
-			char* s = getJSONString(buffer, "playlistId", &buffer);
-			strCpy(searchResults[i].id, s);
-		}
-
-		char* s = getJSONString(buffer, "title", &buffer);
-		strCpy(searchResults[i].title, s);
-	}
-
-	*channelCount = count;
-}
 
 char* getPlaylistFilePath(char* playlistId) {
 	return fillString("%s%s.playlist", Playlist_Folder, playlistId);
@@ -988,16 +639,7 @@ void removePlaylistFile(YoutubePlaylist* playlist) {
 	remove(filePath);
 }
 
-inline double divZero(double a, double b) {
-	if(a == 0 || b == 0) return 0;
-	else return a/b;
-}
 
-inline double videoGetLikesDiff(YoutubeVideo* vid) {
-	return divZero(vid->dislikeCount, (vid->likeCount + vid->dislikeCount));
-}
-
-#define Line_Graph_Count 4
 
 struct LineGraph {
 	double* points[Line_Graph_Count];
@@ -1039,7 +681,7 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 
 				updateStatistic(&stats[0][si], vid->viewCount);
 				updateStatistic(&stats[1][si], vid->likeCount + vid->dislikeCount);
-				updateStatistic(&stats[2][si], divZero(vid->dislikeCount, (vid->likeCount + vid->dislikeCount)));
+				updateStatistic(&stats[2][si], videoGetLikesDiff(vid));
 				updateStatistic(&stats[3][si], vid->commentCount);
 			}
 		}
@@ -1054,330 +696,6 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 		}
 	}
 }
-
-// void downloadVideos(CURL* curlHandle, char* buffer, char* tempBuffer, YoutubeVideo* vids, char* playlistId, int* totalCount, int count, char** pageToken = 0) {
-
-// 	pushTMemoryStack();
-// 	for(int i = 0; i < count; i += maxDownloadCount) {
-
-// 		int dCount = maxDownloadCount;
-// 		if(i + dCount > count) {
-// 			dCount = count - i;
-// 		}
-
-// 		{
-// 			TIMER_BLOCK_NAMED("Request");
-// 			requestPlaylistItems(curlHandle, buffer, playlistId, dCount, *pageToken);
-// 		}
-
-// 		*pageToken = getJSONString(buffer, "nextPageToken");
-
-// 		*totalCount = strToInt(getJSONInt(buffer, "totalResults"));
-
-// 		int receivedCount;
-
-// 		// Get Video ids.
-// 		{
-// 			TIMER_BLOCK_NAMED("Video ids");
-
-// 			int index = i;
-// 			int advance = 0;
-// 			int idCount = 0;
-// 			for(;;) {
-// 				int reverseIndex = count-1 - index;
-
-// 				char* s = getJSONString(buffer, "videoId", &buffer);
-// 				if(strLen(s) == 0) break;
-
-// 				strCpy(vids[reverseIndex].id, s);
-
-// 				index++;
-// 				idCount++;
-// 			}
-
-// 			receivedCount = idCount;
-// 		}
-		
-// 		// Get Statistics.
-// 		{
-
-// 			strClear(tempBuffer);
-// 			for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
-// 				int reverseIndex = count-1 - videoIndex;
-// 				strAppend(tempBuffer, fillString("%s,", vids[reverseIndex].id));
-// 			}
-// 			// Get rid of last comma.
-// 			// if(dCount > 0) tempBuffer[strLen(tempBuffer)-1] = '\0';
-
-// 			{
-// 				TIMER_BLOCK_NAMED("Statistics Request");
-// 				requestVideos(curlHandle, buffer, tempBuffer, "statistics");
-// 			}
-
-// 			TIMER_BLOCK_NAMED("Statistics");
-
-// 			int index = i;
-// 			int advance = 0;
-// 			for(;;) {
-// 				int reverseIndex = count-1 - index;
-// 				char* s;
-
-// 				int pos = strFind(buffer, "\"statistics\":");
-// 				if(pos == -1) break;
-
-// 				buffer += pos;
-// 				int endBracketPos = strFind(buffer, '}');
-// 				if(endBracketPos == 0) break;
-
-// 				vids[reverseIndex].viewCount = 0;
-// 				vids[reverseIndex].likeCount = 0;
-// 				vids[reverseIndex].dislikeCount = 0;
-// 				vids[reverseIndex].favoriteCount = 0;
-// 				vids[reverseIndex].commentCount = 0;
-
-// 				pos = strFind(buffer, "viewCount");
-// 				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].viewCount = strToInt(getJSONString(buffer, "viewCount"));
-// 				pos = strFind(buffer, "likeCount");
-// 				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].likeCount = strToInt(getJSONString(buffer, "likeCount"));
-// 				pos = strFind(buffer, "dislikeCount");
-// 				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].dislikeCount = strToInt(getJSONString(buffer, "dislikeCount"));
-// 				pos = strFind(buffer, "favoriteCount");
-// 				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].favoriteCount = strToInt(getJSONString(buffer, "favoriteCount"));
-// 				pos = strFind(buffer, "commentCount");
-// 				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].commentCount = strToInt(getJSONString(buffer, "commentCount"));
-
-// 				YoutubeVideo* vid = vids + reverseIndex;
-// 				if(vid->viewCount < 0 || vid->likeCount < 0 || vid->dislikeCount < 0 || vid->favoriteCount < 0) {
-// 					myAssert(false);
-// 				}
-
-// 				buffer += endBracketPos;
-// 				index++;
-// 			}
-// 		}
-
-// 		// Get title and thumbnail.
-// 		{
-// 			strClear(tempBuffer);
-// 			for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
-// 				int reverseIndex = count-1 - videoIndex;
-// 				strAppend(tempBuffer, fillString("%s,", vids[reverseIndex].id));
-// 			}
-
-// 			{
-// 				TIMER_BLOCK_NAMED("Title Request");
-// 				requestVideos(curlHandle, buffer, tempBuffer, "snippet");
-// 			}
-
-// 			TIMER_BLOCK_NAMED("Title");
-
-// 			int index = i;
-// 			int advance = 0;
-// 			for(;;) {
-// 				int reverseIndex = count-1 - index;
-
-// 				int start = strFind(buffer, "publishedAt");
-// 				if(start == -1) break;
-
-// 				char* s = getJSONString(buffer, "publishedAt", &buffer);
-// 				strCpy(vids[reverseIndex].dateString, s);
-// 				vids[reverseIndex].date = stringToDate(vids[reverseIndex].dateString);
-
-// 				int titleStart = strFindRight(buffer, "\"title\": \"");
-// 				buffer += titleStart;
-// 				copyOverTextAndFixTokens(tempBuffer, buffer);
-// 				buffer += strLen(tempBuffer);
-// 				if(strLen(tempBuffer) > memberSize(YoutubeVideo, title)) {
-// 					int maxSize = memberSize(YoutubeVideo, title);
-// 					int i = 0;
-// 					while(tempBuffer[maxSize-i-1] > 127) i--;
-// 					tempBuffer[maxSize-i-1] = '\0';
-// 				}
-
-// 				strCpy(vids[reverseIndex].title, tempBuffer);
-
-// 				// Thumbnail.
-// 				// default, medium, high, standard, maxres.
-// 				int pos = strFind(buffer, "\"medium\":"); buffer += pos;
-// 				s = getJSONString(buffer, "url", &buffer);
-// 				strCpy(vids[reverseIndex].thumbnail, s);
-
-// 				// Skip the second "title" from localization data.
-// 				buffer += strFindRight(buffer, "title");
-
-// 				index++;
-// 			}
-
-// 		}
-		
-// 		clearTMemoryToStackIndex();
-// 	}
-
-// 	popTMemoryStack();
-// }
-
-
-
-
-char* fillString(char** stringBuffer, char* text, ...) {
-	va_list vl;
-	va_start(vl, text);
-
-	int length = strLen(text);
-	char* buffer = getString(stringBuffer, length+1);
-
-	char valueBuffer[20] = {};
-
-	int ti = 0;
-	int bi = 0;
-	while(true) {
-		char t = text[ti];
-
-		if(text[ti] == '%' && text[ti+1] == '.') {
-			float v = va_arg(vl, double);
-			floatToStr(valueBuffer, v, charToInt(text[ti+2]));
-			int sLen = strLen(valueBuffer);
-			memCpy(buffer + bi, valueBuffer, sLen);
-
-			ti += 4;
-			bi += sLen;
-			getString(stringBuffer, sLen);
-		} else if(text[ti] == '%' && text[ti+1] == 'f') {
-			float v = va_arg(vl, double);
-			floatToStr(valueBuffer, v, 2);
-			int sLen = strLen(valueBuffer);
-			memCpy(buffer + bi, valueBuffer, sLen);
-
-			ti += 2;
-			bi += sLen;
-			getString(stringBuffer, sLen);
-		} else if(text[ti] == '%' && text[ti+1] == 'i') {
-			if(text[ti+2] == '6') {
-				// 64 bit signed integer.
-
-				myAssert(text[ti+3] == '4');
-
-				i64 v = va_arg(vl, i64);
-				intToStr(valueBuffer, v);
-				int sLen = strLen(valueBuffer);
-
-				if(text[ti+4] == '.') {
-					ti += 1;
-
-					int digitCount = intDigits(v);
-					int commaCount = digitCount/3;
-					if(digitCount%3 == 0) commaCount--;
-					for(int i = 0; i < commaCount; i++) {
-						strInsert(valueBuffer, sLen - (i+1)*3 - i, ',');
-						sLen++;
-					}
-				}
-
-				memCpy(buffer + bi, valueBuffer, sLen);
-				ti += 4;
-				bi += sLen;
-				getString(stringBuffer, sLen);
-			} else {
-				// 32 bit signed integer.
-				int v = va_arg(vl, int);
-				intToStr(valueBuffer, v);
-				int sLen = strLen(valueBuffer);
-
-				if(text[ti+2] == '.') {
-					ti += 1;
-
-					int digitCount = intDigits(v);
-					int commaCount = digitCount/3;
-					if(digitCount%3 == 0) commaCount--;
-					for(int i = 0; i < commaCount; i++) {
-						strInsert(valueBuffer, sLen - (i+1)*3 - i, ',');
-						sLen++;
-					}
-				}
-
-				memCpy(buffer + bi, valueBuffer, sLen);
-
-				ti += 2;
-				bi += sLen;
-				getString(stringBuffer, sLen);
-			}
-		} else if(text[ti] == '%' && text[ti+1] == 's') {
-			char* str = va_arg(vl, char*);
-			int sLen = strLen(str);
-			memCpy(buffer + bi, str, sLen);
-
-			ti += 2;
-			bi += sLen;
-			getString(stringBuffer, sLen);
-		} else if(text[ti] == '%' && text[ti+1] == 'b') {
-			bool str = va_arg(vl, bool);
-			char* s = str == 1 ? "true" : "false";
-			int sLen = strLen(s);
-			memCpy(buffer + bi, s, sLen);
-
-			ti += 2;
-			bi += sLen;
-			getString(stringBuffer, sLen);
-		} else if(text[ti] == '%' && text[ti+1] == '%') {
-			buffer[bi++] = '%';
-			ti += 2;
-			getString(stringBuffer, 1);
-		} else {
-			buffer[bi++] = text[ti++];
-			getString(stringBuffer, 1);
-
-			if(buffer[bi-1] == '\0') break;
-		}
-	}
-
-	return buffer;
-}
-
-char* stringGetBetween(char** stringBuffer, char* buffer, char* leftToken, char* rightToken, char** bufferIncrement = 0) {
-	char* string;
-
-	int leftPos = strFindRight(buffer, leftToken);
-	if(leftPos != -1) {
-		int rightPos = strFind(buffer + leftPos, rightToken);
-		int size = rightPos;
-		string = getString(stringBuffer, size+1); 
-		strClear(string);
-		strCpy(string, buffer + leftPos, rightPos);
-		if(bufferIncrement) {
-			(*bufferIncrement) += leftPos + rightPos + 1; 
-		}
-	} else {
-		string = getString(stringBuffer, 1); strClear(string);
-	}
-
-	return string;
-}
-
-char* getJSONString(char** stringBuffer, char* buffer, char* name, char** bufferIncrement = 0) {
-	return stringGetBetween(buffer, fillString(stringBuffer, "\"%s\": \"", name), "\"", bufferIncrement);
-}
-
-char* getJSONInt(char** stringBuffer, char* buffer, char* name, char** bufferIncrement = 0) {
-	return stringGetBetween(buffer, fillString(stringBuffer, "\"%s\": ", name), ",", bufferIncrement);
-}
-
-char* getJSONIntNewline(char** stringBuffer, char* buffer, char* name, char** bufferIncrement = 0) {
-	return stringGetBetween(buffer, fillString(stringBuffer, "\"%s\": ", name), "\n", bufferIncrement);
-}
-
-
-int requestPlaylistItems(CURL* curlHandle, char** stringBuffer, char* buffer, char* playlistId, int maxResults, char* pageToken = 0) {
-	char* request = fillString(stringBuffer, "%s?key=%s&maxResults=%i&playlistId=%s&part=contentDetails%s", 
-								youtubeApiPlaylistItems, apiKey, maxResults, playlistId, pageToken?fillString("&pageToken=%s",pageToken):"");
-	return curlRequest(curlHandle, request, buffer);
-}
-
-int requestVideos(CURL* curlHandle, char** stringBuffer, char* buffer, char* id, char* part) {
-	char* request = fillString(stringBuffer, "%s?key=%s&id=%s&part=%s", 
-								youtubeApiVideos, apiKey, id, part);
-	return curlRequest(curlHandle, request, buffer);
-}
-
 
 struct DownloadInfo {
 	CURL* curlHandle;
@@ -1399,181 +717,6 @@ struct DownloadInfo {
 	int progressIndex;
 	bool finishedDownload;
 };
-
-void downloadVideos(void* data) {
-
-	DownloadInfo* dInfo = (DownloadInfo*)data;
-
-	CURL* curlHandle = dInfo->curlHandle;
-	char* buffer = dInfo->buffer;
-	char* tempBuffer = dInfo->tempBuffer;
-	int count = dInfo->count;
-	YoutubeVideo* vids = dInfo->vids;
-
-	char* stringBuffer = dInfo->stringBuffer;
-
-	for(int i = 0; i < count; i += Max_Download_Count) {
-
-		dInfo->progressIndex = i;
-
-		int dCount = Max_Download_Count;
-		if(i + dCount > count) {
-			dCount = count - i;
-		}
-
-		{
-			TIMER_BLOCK_NAMED("Request");
-			requestPlaylistItems(curlHandle, &stringBuffer, buffer, dInfo->playlistId, dCount, dInfo->pageToken);
-		}
-
-		// dInfo->pageToken = getJSONString(&stringBuffer, buffer, "nextPageToken");
-		char* newPageToken = getJSONString(&stringBuffer, buffer, "nextPageToken");
-		strCpy(dInfo->pageToken, newPageToken, Page_Token_Size);
-
-		dInfo->totalCount = strToInt(getJSONInt(&stringBuffer, buffer, "totalResults"));
-
-		int receivedCount;
-
-		// Get Video ids.
-		{
-			TIMER_BLOCK_NAMED("Video ids");
-
-			int index = i;
-			int advance = 0;
-			int idCount = 0;
-			for(;;) {
-				int reverseIndex = count-1 - index;
-
-				char* s = getJSONString(&stringBuffer, buffer, "videoId", &buffer);
-				if(strLen(s) == 0) break;
-
-				strCpy(vids[reverseIndex].id, s);
-
-				index++;
-				idCount++;
-			}
-
-			receivedCount = idCount;
-		}
-		
-		// Get Statistics.
-		{
-
-			strClear(tempBuffer);
-			for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
-				int reverseIndex = count-1 - videoIndex;
-				char* ss = fillString(&stringBuffer, "%s,", vids[reverseIndex].id);
-				strAppend(tempBuffer, ss);
-			}
-			// Get rid of last comma.
-			// if(dCount > 0) tempBuffer[strLen(tempBuffer)-1] = '\0';
-
-			{
-				TIMER_BLOCK_NAMED("Statistics Request");
-				requestVideos(curlHandle, &stringBuffer, buffer, tempBuffer, "statistics");
-			}
-
-			TIMER_BLOCK_NAMED("Statistics");
-
-			int index = i;
-			int advance = 0;
-			for(;;) {
-				int reverseIndex = count-1 - index;
-				char* s;
-
-				int pos = strFind(buffer, "\"statistics\":");
-				if(pos == -1) break;
-
-				buffer += pos;
-				int endBracketPos = strFind(buffer, '}');
-				if(endBracketPos == 0) break;
-
-				vids[reverseIndex].viewCount = 0;
-				vids[reverseIndex].likeCount = 0;
-				vids[reverseIndex].dislikeCount = 0;
-				vids[reverseIndex].favoriteCount = 0;
-				vids[reverseIndex].commentCount = 0;
-
-				pos = strFind(buffer, "viewCount");
-				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].viewCount = strToInt(getJSONString(&stringBuffer, buffer, "viewCount"));
-				pos = strFind(buffer, "likeCount");
-				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].likeCount = strToInt(getJSONString(&stringBuffer, buffer, "likeCount"));
-				pos = strFind(buffer, "dislikeCount");
-				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].dislikeCount = strToInt(getJSONString(&stringBuffer, buffer, "dislikeCount"));
-				pos = strFind(buffer, "favoriteCount");
-				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].favoriteCount = strToInt(getJSONString(&stringBuffer, buffer, "favoriteCount"));
-				pos = strFind(buffer, "commentCount");
-				if(pos != -1 && pos < endBracketPos) vids[reverseIndex].commentCount = strToInt(getJSONString(&stringBuffer, buffer, "commentCount"));
-
-				YoutubeVideo* vid = vids + reverseIndex;
-				if(vid->viewCount < 0 || vid->likeCount < 0 || vid->dislikeCount < 0 || vid->favoriteCount < 0) {
-					myAssert(false);
-				}
-
-				buffer += endBracketPos;
-				index++;
-			}
-		}
-
-		// Get title and thumbnail.
-		{
-			strClear(tempBuffer);
-			for(int videoIndex = i; videoIndex < i+dCount; videoIndex++) {
-				int reverseIndex = count-1 - videoIndex;
-				strAppend(tempBuffer, fillString(&stringBuffer, "%s,", vids[reverseIndex].id));
-			}
-
-			{
-				TIMER_BLOCK_NAMED("Title Request");
-				requestVideos(curlHandle, &stringBuffer, buffer, tempBuffer, "snippet");
-			}
-
-			TIMER_BLOCK_NAMED("Title");
-
-			int index = i;
-			int advance = 0;
-			for(;;) {
-				int reverseIndex = count-1 - index;
-
-				int start = strFind(buffer, "publishedAt");
-				if(start == -1) break;
-
-				char* s = getJSONString(&stringBuffer, buffer, "publishedAt", &buffer);
-				strCpy(vids[reverseIndex].dateString, s);
-				vids[reverseIndex].date = stringToDate(vids[reverseIndex].dateString);
-
-				int titleStart = strFindRight(buffer, "\"title\": \"");
-				buffer += titleStart;
-				copyOverTextAndFixTokens(tempBuffer, buffer);
-				buffer += strLen(tempBuffer);
-				if(strLen(tempBuffer) > memberSize(YoutubeVideo, title)) {
-					int maxSize = memberSize(YoutubeVideo, title);
-					int i = 0;
-					while(tempBuffer[maxSize-i-1] > 127) i--;
-					tempBuffer[maxSize-i-1] = '\0';
-				}
-
-				strCpy(vids[reverseIndex].title, tempBuffer);
-
-				// Thumbnail.
-				// default, medium, high, standard, maxres.
-				int pos = strFind(buffer, "\"medium\":"); buffer += pos;
-				s = getJSONString(&stringBuffer, buffer, "url", &buffer);
-				strCpy(vids[reverseIndex].thumbnail, s);
-
-				// Skip the second "title" from localization data.
-				buffer += strFindRight(buffer, "title");
-
-				index++;
-			}
-
-		}
-
-	}
-
-	dInfo->finishedDownload = true;
-}
-
 
 
 
@@ -1620,6 +763,8 @@ struct TextEditSettings {
 
 	Vec4 colorSelection;
 	Vec4 colorCursor;
+
+	float textOffset;
 };
 
 struct ScrollRegionSettings {
@@ -1697,9 +842,8 @@ struct NewGui {
 
 	int zLevel;
 
-	TextBoxSettings buttonSettings;
 	TextBoxSettings textBoxSettings;
-	// TextBoxSettings labelSettings;
+	TextBoxSettings buttonSettings;
 	TextEditSettings editSettings;
 	SliderSettings sliderSettings;
 	ScrollRegionSettings scrollSettings;
@@ -1710,7 +854,7 @@ struct NewGui {
 
 	LayoutData* ld;
 	LayoutData layoutStack[10];
-	int layoutStackIndex = 0;
+	int layoutStackIndex;
 };
 
 void newGuiBegin(NewGui* gui, Input* input = 0) {
@@ -1843,6 +987,10 @@ int newGuiInputFromFocus(Input* input, int focus, bool press = true) {
 		case Gui_Focus_MWheel: return input->mouseWheel != 0;
 		default: return -1;
 	}
+}
+
+void newGuiSetCursor(NewGui* gui, LPCSTR cursorType) {
+	setCursor(gui->windowSettings, cursorType);
 }
 
 
@@ -2140,7 +1288,7 @@ void drawTextBox(Rect r, char* text, TextBoxSettings settings) {
 void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
 	TextBoxSettings textSettings = editSettings.textBoxSettings;
 
-	Vec2 startPos = rectL(textRect) + vec2(2,0);
+	Vec2 startPos = rectL(textRect) + vec2(editSettings.textOffset,0);
 	if(active) startPos += editVars.scrollOffset;
 
 	scissorTestScreen(scissor);
@@ -2307,6 +1455,8 @@ bool newGuiQuickTextEditAllVars(NewGui* gui, Rect r, void* data, int varType, in
 	else if(varType == 1) drawTextEditBox(*intData, r, event > 0, gui->scissor, gui->editVars, set);
 	else drawTextEditBox(*floatData, r, event > 0, gui->scissor, gui->editVars, set);
 
+	if(newGuiIsWasHotOrActive(gui)) newGuiSetCursor(gui, IDC_IBEAM);
+
 	if(event == 3) return true;
 
 	return false;
@@ -2420,15 +1570,16 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-3)));
 }
 
-TextEditSettings textEditSettings(TextBoxSettings textSettings, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, Vec4 colorSelection, Vec4 colorCursor) {
-	return {textSettings, textBuffer, wrapping, singleLine, cursorWidth, "", colorSelection, colorCursor};
+TextEditSettings textEditSettings(TextBoxSettings textSettings, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, Vec4 colorSelection, Vec4 colorCursor, float textOffset) {
+	return {textSettings, textBuffer, wrapping, singleLine, cursorWidth, "", colorSelection, colorCursor, textOffset};
 }
 
 void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev) {
 
 	if(tes.singleLine) tes.wrapping = false;
 
-	Vec2 startPos = rectTL(textRect) + tev->scrollOffset;
+	// Vec2 startPos = rectTL(textRect) + tev->scrollOffset;
+	Vec2 startPos = rectTL(textRect) + tev->scrollOffset + vec2(tes.textOffset,0);
 	int wrapWidth = tes.wrapping ? rectDim(textRect).w : 0;
 
 	int cursorIndex = tev->cursorIndex;
@@ -2630,12 +1781,14 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 	{
 		Vec2 cursorPos = textIndexToPos(text, font, startPos, cursorIndex, align, wrapWidth);
 
-		float ch = font->height;
-		if(		cursorPos.x 	   < textRect.min.x) tev->scrollOffset.x += textRect.min.x - (cursorPos.x);
-		else if(cursorPos.x 	   > textRect.max.x) tev->scrollOffset.x += textRect.max.x - (cursorPos.x);
+		float leftEnd = textRect.left + tes.textOffset;
+		float rightEnd = textRect.right - tes.textOffset;
+		if(		cursorPos.x < leftEnd) tev->scrollOffset.x += leftEnd - cursorPos.x;
+		else if(cursorPos.x > rightEnd) tev->scrollOffset.x += rightEnd - cursorPos.x;
 
 		clampMax(&tev->scrollOffset.x, 0);
 		
+		float ch = font->height;
 		if(!tes.singleLine) {
 			if(		cursorPos.y - ch/2 < textRect.min.y) tev->scrollOffset.y += textRect.min.y - (cursorPos.y - ch/2);
 			else if(cursorPos.y + ch/2 > textRect.max.y) tev->scrollOffset.y += textRect.max.y - (cursorPos.y + ch/2);
@@ -2653,10 +1806,6 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 	// // Cursor.
 	// // tev->cursorTime += tes.dt * tes.cursorSpeed;
 	// // Vec4 cmod = vec4(0,cos(tev->cursorTime)*tes.cursorColorMod - tes.cursorColorMod,0,0);
-}
-
-void newGuiSetCursor(NewGui* gui, LPCSTR cursorType) {
-	setCursor(gui->windowSettings, cursorType);
 }
 
 struct GuiWindowSettings {
@@ -2835,7 +1984,6 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
     return false;
 }
 
-
 // @GuiAutomation
 
 LayoutData layoutData(Rect region, Vec2 pos, float defaultHeight, float yPadding, float yPaddingExtra) {
@@ -2891,10 +2039,6 @@ void newGuiScissorPop(NewGui* gui) {
 
 	scissorTestScreen(gui->scissor);
 }
-
-
-
-
 
 
 
@@ -2969,6 +2113,7 @@ inline void downloadModeProgress(DownloadModeData* modeData, int progress, int m
 
 inline void downloadModeFinish(DownloadModeData* modeData) { modeData->downloadMode = 0; }
 inline bool downloadModeActive(DownloadModeData* modeData) { return modeData->downloadMode > 0; }
+
 
 
 union AppColors {
@@ -3065,31 +2210,6 @@ union AppSettings {
 		int e[17];
 	};
 };
-
-/*
-	char* font;
-	Vec4 fontColor;
-	float fontShadow;
-	Vec4 fontShadowColor;
-
-	char* commentFont;
-	Vec4 commentFontColor;
-	float commentFontShadow;
-	Vec4 commentFontShadowColor;
-
-	int windowBorder;
-	int windowTitleHeight;
-
-	float padding;
-
-
-	Vec4 graphBackgroundBotTomColor;
-	Vec4 graphBackgroundTopColor;
-	
-	Vec4 windowBorder;
-	Vec4 background;
-	Vec4 button;
-*/
 
 char* appSettingsStrings[] = {
 	"font",
@@ -3699,209 +2819,6 @@ char* jsonGetString(JSonValue* object, char* name, char* name2 = 0, char* name3 
 
 
 
-
-
-
-
-
-union NewAppColors {
-	struct {
-		Vec4 font;
-		Vec4 font2;
-		Vec4 commentFont;
-		Vec4 graphFont;
-		Vec4 fontShadow;
-		Vec4 commentFontShadow;
-
-		Vec4 windowBorder;
-		Vec4 background;
-		Vec4 button;
-		Vec4 uiBackground;
-		Vec4 edge;
-		Vec4 editCursor;
-		Vec4 editSelection;
-
-		Vec4 graphData1;
-		Vec4 graphData2;
-		Vec4 graphData3;
-		Vec4 graphBackgroundBottom;
-		Vec4 graphBackgroundTop;
-		Vec4 graphMark;
-		Vec4 graphSubMark;
-	};
-
-	Vec4 e[20];
-};
-
-struct NewAppSettings {
-	char* font;
-	char* commentFont;
-
-	int fontHeight;
-	int fontShadow;
-	int commentFontHeight;
-	int commentFontShadow;
-	int graphTitleFontHeight;
-	int graphFontShadow;
-
-	float windowHeightMod;
-	float heightMod;
-	int textPaddingMod;
-
-	float rounding;
-
-	int windowBorder;
-	int border;
-	int padding;
-};
-
-struct AppData {
-	// General.
-
-	SystemData systemData;
-	Input input;
-	WindowSettings wSettings;
-	GraphicsState graphicsState;
-
-	f64 dt;
-	f64 time;
-	int frameCount;
-	i64 swapTime;
-
-	bool updateFrameBuffers;
-
-	int msaaSamples;
-
-	// Window.
-
-	Rect clientRect;
-	Vec2i frameBufferSize;
-	bool screenShotMode;
-
-	// App.
-
-	bool reloadSettings;
-	FILETIME settingsFileLastWriteTime;
-
-	AppColors appColors;
-	AppSettings appSettings;
-
-	NewAppColors newAppColors;
-	NewAppSettings newAppSettings;
-
-	bool appIsBusy;
-
-	Font* font;
-	Font* fontComment;
-	Font* fontTitle;
-
-	CURL* curlHandle;
-	HMODULE curlDll;
-
-	GraphCam cams[10];
-	int camCount;
-
-	int heightMoveMode;
-	bool widthMove;
-
-	float leftTextWidth;
-
-	float graphOffsets[Line_Graph_Count+1];
-	float sidePanelWidth;
-	float sidePanelMax;
-
-	//
-
-	DownloadInfo dInfo;
-	CurlRequestData requestData;
-	DownloadModeData modeData;
-
-	//
-
-	NewGui newGui;
-	NewGui* gui;
-
-	Rect panelRect;
-	bool panelActive;
-
-	Rect testPanelRect;
-	bool testPanelActive;
-
-	TextBoxSettings labelSettings;
-	TextBoxSettings buttonSettings;
-	TextBoxSettings uiButtonSettings;
-	TextBoxSettings scrollButtonSettings;
-	TextEditSettings editSettings;
-	SliderSettings sliderSettings;
-	ScrollRegionSettings scrollSettings;
-	ScrollRegionSettings commentScrollSettings;
-
-	//
-
-	int playlistFolderIndex;
-	YoutubePlaylist playlist;
-	YoutubeVideo* videos;
-	int maxVideoCount;
-
-	VideoSnippet videoSnippet;
-	Vec2 hoveredPoint;
-	int hoveredVideo;
-	float hoveredVideoStat;
-	float commentScrollValue;
-
-	Vec2 selectedPoint;
-	int selectedVideo;
-
-	YoutubePlaylist downloadPlaylist;
-
-	bool startScreenShot;
-	char screenShotFilePath[50];
-	Vec2i screenShotDim;
-
-	char* searchString;
-	char* searchStringPlaylists;
-	char* searchStringChannels;
-
-	bool startDownload;
-	bool update;
-	bool startLoadFile;
-
-	char* userName;
-	char* channelId;
-	int playlistDownloadCount;
-
-	YoutubePlaylist* playlists;
-	int playlistCount;
-
-	SearchResult* searchResults;
-	int searchResultCount;
-	int searchResultMaxCount;
-
-	int lastSearchMode;
-
-	YoutubePlaylist playlistFolder[50];
-	int playlistFolderCount;
-
-	float statTimeSpan;
-	float statWidth;
-
-	Statistic stats[Line_Graph_Count];
-	LineGraph averagesLineGraph;
-	LineGraph releaseCountLineGraph;
-
-	char exclusiveFilter[50];
-	char inclusiveFilter[50];
-
-	int graphDrawMode;
-
-	bool sortByDate;
-	int sortStat;
-
-	Vec2 clampFilter[Line_Graph_Count];
-};
-
-
-
 #define For_Layout(layout) \
 	for(Layout* l = layout->list; l != 0; l = l->next)
 
@@ -4142,6 +3059,216 @@ Layout* layoutQuickRow(Layout* node, Rect region, float s1, float s2 = -1, float
 
 
 
+union NewAppColors {
+	struct {
+		Vec4 font;
+		Vec4 font2;
+		Vec4 graphFont;
+		Vec4 fontShadow;
+
+		Vec4 windowBorder;
+		Vec4 background;
+		Vec4 button;
+		Vec4 uiBackground;
+		Vec4 edge;
+		Vec4 editCursor;
+		Vec4 editSelection;
+
+		Vec4 graphData1;
+		Vec4 graphData2;
+		Vec4 graphData3;
+		Vec4 graphBackgroundBottom;
+		Vec4 graphBackgroundTop;
+		Vec4 graphMark;
+		Vec4 graphSubMark;
+	};
+
+	Vec4 e[20];
+};
+
+char* newAppColorsStrings[] = {
+	"font",
+	"font2",
+	"graphFont",
+	"fontShadow",
+	"windowBorder",
+	"background",
+	"button",
+	"uiBackground",
+	"edge",
+	"editCursor",
+	"editSelection",
+	"graphData1",
+	"graphData2",
+	"graphData3",
+	"graphBackgroundBottom",
+	"graphBackgroundTop",
+	"graphMark",
+	"graphSubMark",
+};
+
+struct NewAppSettings {
+	char* font;
+	char* fontBold;
+	char* fontItalic;
+
+	int fontHeight;
+	float fontShadow;
+	int graphTitleFontHeight;
+	float graphFontShadow;
+
+	float windowHeightMod;
+	float heightMod;
+	float textPaddingMod;
+
+	float rounding;
+
+	int windowBorder;
+	int border;
+	int padding;
+};
+
+struct AppData {
+	// General.
+
+	SystemData systemData;
+	Input input;
+	WindowSettings wSettings;
+	GraphicsState graphicsState;
+
+	f64 dt;
+	f64 time;
+	int frameCount;
+	i64 swapTime;
+
+	bool updateFrameBuffers;
+
+	int msaaSamples;
+
+	// Window.
+
+	Rect clientRect;
+	Vec2i frameBufferSize;
+	bool screenShotMode;
+
+	// App.
+
+	bool reloadSettings;
+	FILETIME settingsFileLastWriteTime;
+
+	AppColors appColors;
+	AppSettings appSettings;
+
+	NewAppColors newAppColors;
+	NewAppSettings newAppSettings;
+
+	bool appIsBusy;
+
+	Font* font;
+	Font* fontTitle;
+
+	CURL* curlHandle;
+	HMODULE curlDll;
+
+	GraphCam cams[10];
+	int camCount;
+
+	int heightMoveMode;
+	bool widthMove;
+
+	float leftTextWidth;
+
+	float graphOffsets[Line_Graph_Count+1];
+	float sidePanelWidth;
+	float sidePanelMax;
+
+	//
+
+	DownloadInfo dInfo;
+	CurlRequestData requestData;
+	DownloadModeData modeData;
+
+	//
+
+	NewGui newGui;
+	NewGui* gui;
+
+	Rect panelRect;
+	bool panelActive;
+
+	TextBoxSettings labelSettings;
+	TextBoxSettings buttonSettings;
+	TextBoxSettings uiButtonSettings;
+	TextBoxSettings scrollButtonSettings;
+	TextEditSettings editSettings;
+	SliderSettings sliderSettings;
+	ScrollRegionSettings scrollSettings;
+	ScrollRegionSettings commentScrollSettings;
+
+	//
+
+	int playlistFolderIndex;
+	YoutubePlaylist playlist;
+	YoutubeVideo* videos;
+	int maxVideoCount;
+
+	VideoSnippet videoSnippet;
+	Vec2 hoveredPoint;
+	int hoveredVideo;
+	float hoveredVideoStat;
+	float commentScrollValue;
+
+	Vec2 selectedPoint;
+	int selectedVideo;
+
+	YoutubePlaylist downloadPlaylist;
+
+	bool startScreenShot;
+	char screenShotFilePath[50];
+	Vec2i screenShotDim;
+
+	char* searchString;
+	char* searchStringPlaylists;
+	char* searchStringChannels;
+
+	bool startDownload;
+	bool update;
+	bool startLoadFile;
+
+	char* userName;
+	char* channelId;
+	int playlistDownloadCount;
+
+	YoutubePlaylist* playlists;
+	int playlistCount;
+
+	SearchResult* searchResults;
+	int searchResultCount;
+	int searchResultMaxCount;
+
+	int lastSearchMode;
+
+	YoutubePlaylist playlistFolder[50];
+	int playlistFolderCount;
+
+	float statTimeSpan;
+	float statWidth;
+
+	Statistic stats[Line_Graph_Count];
+	LineGraph averagesLineGraph;
+	LineGraph releaseCountLineGraph;
+
+	char exclusiveFilter[50];
+	char inclusiveFilter[50];
+
+	int graphDrawMode;
+
+	bool sortByDate;
+	int sortStat;
+
+	Vec2 clampFilter[Line_Graph_Count];
+};
+
 
 
 void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
@@ -4181,7 +3308,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
 		initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
-
 	}
 
 	// Setup memory and globals.
@@ -4398,10 +3524,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
 
 
-		HANDLE fileChangeHandle  = FindFirstChangeNotification(appFolder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
+		HANDLE fileChangeHandle  = FindFirstChangeNotification(App_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
 		if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
 		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
-		ad->settingsFileLastWriteTime = getLastWriteTime(appSettingsFilePath);
+		ad->settingsFileLastWriteTime = getLastWriteTime(App_Settings_File);
 
 		// fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
 		fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
@@ -4409,28 +3535,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
 
 
+		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(App_Font_Folder);
+		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(Windows_Font_Folder);
 
 
-
+		ad->curlHandle = curl_easy_initX();
 
 		int maxVideoCount = 5000;
 		ad->maxVideoCount = maxVideoCount;
-
 		ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*maxVideoCount);
-		// zeroMemory(ad->videos, maxVideoCount * sizeof(YoutubeVideo));
-
-		ad->curlHandle = curl_easy_initX();
-		curl_easy_setoptX(ad->curlHandle, CURLOPT_WRITEFUNCTION, curlWrite);
-		// curl_easy_setoptX(ad->curlHandle, CURLOPT_WRITEFUNCTION, curlWriteThreaded);
-		// curl_easy_setoptX(ad->curlHandle, CURLOPT_NOPROGRESS, 0);
-		// curl_easy_setoptX(ad->curlHandle, CURLOPT_XFERINFOFUNCTION, curlProgress);
-		// curl_easy_setoptX(ad->curlHandle, CURLOPT_TCP_FASTOPEN, 1);
-		// curl_easy_setoptX(ad->curlHandle, CURLOPT_TCP_KEEPALIVE, 1);
-
-
-
 		ad->videoSnippet.thumbnailTexture.id = -1;
-
 		ad->selectedVideo = -1;
 
 		ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
@@ -4443,7 +3557,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->statWidth = 1.0f;
 
 		strClear(ad->screenShotFilePath);
-		strCpy(ad->screenShotFilePath, screenshotFilePath);
+		strCpy(ad->screenShotFilePath, Screenshot_File);
 		ad->screenShotDim = vec2i(5000, 1000);
 
 		ad->leftTextWidth = 0;
@@ -4457,7 +3571,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->sidePanelWidth = ws->currentRes.w*0.25f;
 		ad->sidePanelMax = 0.5f;
-
 
 		// Make test file.
 		if(false) 
@@ -4510,7 +3623,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		ad->panelActive = false;
 
-
 		ad->searchResultMaxCount = 300;
 		ad->searchResults = getPArray(SearchResult, ad->searchResultMaxCount);
 
@@ -4528,9 +3640,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// char* filePath = fillString("%s\\%s.playlist", Playlist_Folder, ad->downloadPlaylist.id);
 		// remove(filePath);
-
-		ad->testPanelRect = rectTLDim(200,-200,400,600);
-		ad->testPanelActive = true;
 	}
 
 
@@ -4546,7 +3655,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		globalScreenHeight = ws->currentRes.h;
 
 		loadCurlFunctions(ad->curlDll);
-		curl_easy_setoptX(ad->curlHandle, CURLOPT_WRITEFUNCTION, curlWrite);
 	}
 
 	TIMER_BLOCK_END(reload);
@@ -4581,7 +3689,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(message == WAIT_OBJECT_0 + WATCH_FOLDER_APP) {
 			FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_APP]);
 
-			FILETIME newWriteTime = getLastWriteTime(appSettingsFilePath);
+			FILETIME newWriteTime = getLastWriteTime(App_Settings_File);
 
 			if(CompareFileTime(&newWriteTime, &ad->settingsFileLastWriteTime) != 0) {
 				ad->reloadSettings = true;
@@ -4623,21 +3731,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 		ws->customCursor = false;
 
-
+		if(init || reload)
 		{
 			NewAppSettings as;
 			NewAppColors ac;
 
-			// as.font = "OpenSans-Bold.ttf";
-			as.font = "OpenSans-Bold.ttf";
+			as.font = "OpenSans-Regular.ttf";
+			as.fontBold = "OpenSans-Bold.ttf";
+			as.fontItalic = "OpenSans-Italic.ttf";
 			as.fontHeight = 20;
+			// as.fontHeight = 19;
 			as.fontShadow = 2;
 			// as.commentFont = "SourceSansPro-Regular.ttf";
-			as.commentFont = "OpenSans-Regular.ttf";
+			// as.commentFont = "OpenSans-Regular.ttf";
 			// as.commentFont = "arial.ttf";
-			// as.commentFontHeight = 22;
-			as.commentFontHeight = 20;
-			as.commentFontShadow = 2;
+			// as.commentFontHeight = 20;
+			// as.commentFontHeight = 19;
+			// as.commentFontShadow = 2;
 
 			as.graphTitleFontHeight = 30;
 			as.graphFontShadow = 1;
@@ -4652,43 +3762,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			as.rounding = 5;
 
-			// ac.font = vec4(0.9f, 1);
-			// ac.font2 = vec4(0.65f, 1);
-			// ac.fontShadow = vec4(0.1f,1);
-			// ac.commentFont = ac.font;
-			// ac.commentFontShadow = ac.fontShadow;
-
-			// Vec3 hslBackground = vec3(0.65f, 0.5f, 0.3f);
-			// Vec3 hslButton = hslBackground + vec3(0.25f,0,0);
-			// Vec3 hslGraph = hslBackground + vec3(0.1f,0,0);
-
-			// ac.background =            colorHSL(hslBackground);
-			// ac.windowBorder =          colorHSL(hslBackground + vec3(0,-0.05f,+0.05f));
-			// ac.button =                colorHSL(hslBackground + vec3(-0.05f,-0.05f, 0.05f));
-			// ac.uiBackground =          colorHSL(hslBackground + vec3(0,0.05f,-0.05f));
-
-			// ac.graphFont =             ac.font;
-			// ac.graphBackgroundTop =    colorHSL(hslBackground + vec3(0,-0.4f,-0.12f));
-			// ac.graphBackgroundBottom = colorHSL(hslBackground + vec3(0,-0.54f,-0.2f));
-
-			// ac.graphData1 =            colorHSL(hslGraph + vec3(-0.25f, 0.2f,0.1f));
-			// ac.graphData2 =            colorHSL(hslGraph + vec3(0.18f,0.2f,0.1f));
-			// ac.graphData3 =            colorHSL(hslGraph + vec3(0.5,   0.2f,0.1f));
-
-			// ac.graphMark =             vec4(1,0.03f);
-			// ac.graphSubMark =          vec4(1,0.015f);
-
-			// ac.editCursor =            colorHSL(hslBackground + vec3(-0.3f,-0.1,0.3f));
-			// ac.editSelection =         colorHSL(hslGraph + vec3(0.25f,0.0f,0.1f));
-			// ac.edge =                  vec4(0,1);
 
 
-			// ac.font = vec4(0.8f, 1);
-			ac.font = vec4(0.7f, 1);
+			ac.font = vec4(0.8f, 1);
+			// ac.font = vec4(0.7f, 1);
 			ac.font2 = vec4(0.6f, 1);
 			ac.fontShadow = vec4(0.1f,1);
-			ac.commentFont = ac.font;
-			ac.commentFontShadow = ac.fontShadow;
+			// ac.commentFont = ac.font;
+			// ac.commentFontShadow = ac.fontShadow;
 
 			Vec3 hslBackground = vec3(0.65f, 0.5f, 0.3f);
 			Vec3 hslButton = hslBackground + vec3(0.25f,0,0);
@@ -4700,18 +3781,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ac.uiBackground =		   ac.background + vec4(-0.03f,0);
 
 			ac.graphFont =             ac.font;
-			ac.graphBackgroundTop =    colorHSL(hslBackground + vec3(0,-0.4f,-0.12f));
-			ac.graphBackgroundBottom = colorHSL(hslBackground + vec3(0,-0.54f,-0.2f));
+			ac.graphBackgroundTop =    hslToRgbFloatAlpha(hslBackground + vec3(0,-0.4f,-0.12f));
+			ac.graphBackgroundBottom = hslToRgbFloatAlpha(hslBackground + vec3(0,-0.54f,-0.2f));
 
-			ac.graphData1 =            colorHSL(hslGraph + vec3(-0.25f, 0.2f,0.1f));
-			ac.graphData2 =            colorHSL(hslGraph + vec3(0.18f,0.2f,0.1f));
-			ac.graphData3 =            colorHSL(hslGraph + vec3(0.5,   0.2f,0.1f));
+			ac.graphData1 =            hslToRgbFloatAlpha(hslGraph + vec3(-0.25f, 0.2f,0.1f));
+			ac.graphData2 =            hslToRgbFloatAlpha(hslGraph + vec3(0.18f,0.2f,0.1f));
+			ac.graphData3 =            hslToRgbFloatAlpha(hslGraph + vec3(0.5,   0.2f,0.1f));
 
 			ac.graphMark =             vec4(1,0.05f);
 			ac.graphSubMark =          vec4(1,0.025f);
 
-			ac.editCursor =            colorHSL(hslBackground + vec3(-0.3f,-0.1,0.3f));
-			ac.editSelection =         colorHSL(hslGraph + vec3(0.25f,0.0f,0.1f));
+			ac.editCursor =            hslToRgbFloatAlpha(hslBackground + vec3(-0.3f,-0.1,0.3f));
+			ac.editSelection =         hslToRgbFloatAlpha(hslGraph + vec3(0.25f,0.0f,0.1f));
 			ac.edge =                  ac.background + vec4(0.2f,0);
 
 			// 
@@ -4725,96 +3806,65 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(init || ad->reloadSettings || reload) {
 			ad->reloadSettings = false;
 
-			if(!fileExists(appSettingsFilePath)) {
+			if(!fileExists(App_Settings_File)) {
 				AppSettings as;
 				AppColors ac;
 				appSettingsDefault(&as, &ac);
 
-				appWriteSettings(appSettingsFilePath, &as, &ac);
+				appWriteSettings(App_Settings_File, &as, &ac);
 			}
 
-			appReadSettings(appSettingsFilePath, &ad->appSettings, &ad->appColors);
-
-			AppSettings* as = &ad->appSettings;
-
-			// // Check folders for fonts.
-			// for(int i = 0; i < APP_FONT_COUNT; i++) {
-			// 	char* fileName;
-			// 	int fontSize;
-			// 	if(i == 0) {
-			// 		fileName = as->font;
-			// 		fontSize = as->fontSize;
-			// 	} else if(i == 1) {
-			// 		fileName = as->fontComment;
-			// 		fontSize = as->fontCommentSize;
-			// 	} else if(i == 2) {
-			// 		fileName = as->fontTitle;
-			// 		fontSize = as->fontTitleSize;
-			// 	} else {
-			// 		fileName = as->fontPanel;
-			// 		fontSize = as->fontPanelSize;
-			// 	}
-
-			// 	char* filePath = appFontPath;
-
-			// 	if(!fileExists(fillString("%s%s", filePath, fileName))) {
-			// 		if(fileExists(fillString("%s%s", windowsFontPath, fileName))) filePath = windowsFontPath;
-			// 		else fileName = Default_Font;
-			// 	}
-
-			// 	Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
-			// 	if(i == 0) ad->font = font;
-			// 	else if(i == 1) ad->fontComment = font;
-			// 	else if(i == 2) ad->fontTitle = font;
-			// 	else ad->fontPanel = font;
-			// }
+			appReadSettings(App_Settings_File, &ad->appSettings, &ad->appColors);
 
 
 			{
 				NewAppSettings* as = &ad->newAppSettings;
-				NewAppColors* ac = &ad->newAppColors;
 
-				// Check folders for fonts.
-				for(int i = 0; i < 3; i++) {
-					char* fileName;
-					int fontSize;
-					if(i == 0) {
-						fileName = as->font;
-						fontSize = as->fontHeight;
-					} else if(i == 1) {
-						fileName = as->font;
-						fontSize = as->graphTitleFontHeight;
-					} else if(i == 2) {
-						fileName = as->commentFont;
-						fontSize = as->commentFontHeight;
-					} 
-					char* filePath = appFontPath;
+				ad->font = getFont(as->font, as->fontHeight, as->fontBold, as->fontItalic);
+				ad->fontTitle = getFont(as->font, as->graphTitleFontHeight, as->fontBold, as->fontItalic);
 
-					if(!fileExists(fillString("%s%s", filePath, fileName))) {
-						if(fileExists(fillString("%s%s", windowsFontPath, fileName))) filePath = windowsFontPath;
-						else fileName = Default_Font;
-					}
+			// 	NewAppSettings* as = &ad->newAppSettings;
+			// 	NewAppColors* ac = &ad->newAppColors;
 
-					Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
-					if(i == 0) ad->font = font;
-					else if(i == 1) ad->fontTitle = font;
-					else ad->fontComment = font;
-				}
+			// 	// Check folders for fonts.
+			// 	int fontCount = 2;
+			// 	for(int i = 0; i < fontCount; i++) {
+			// 		char* fileName;
+			// 		int fontSize;
+			// 		if(i == 0) {
+			// 			fileName = as->font;
+			// 			fontSize = as->fontHeight;
+			// 		} else if(i == 1) {
+			// 			fileName = as->font;
+			// 			fontSize = as->graphTitleFontHeight;
+			// 		} 
+			// 		char* filePath = App_Font_Folder;
+
+			// 		if(!fileExists(fillString("%s%s", filePath, fileName))) {
+			// 			if(fileExists(fillString("%s%s", Windows_Font_Folder, fileName))) filePath = Windows_Font_Folder;
+			// 			else fileName = Default_Font;
+			// 		}
+
+			// 		Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
+			// 		if(i == 0) ad->font = font;
+			// 		else if(i == 1) ad->fontBold = font;
+			// 		else if(i == 2) ad->fontTitle = font;
+			// 		else ad->fontComment = font;
+			// 	}
 			}
-
 		}
 
 		if(init) {
-			if(!fileExists(appSaveFilePath)) {
+			if(!fileExists(App_Save_File)) {
 				AppTempSettings at = {};
 				appTempDefault(&at, ws->monitors[0].workRect);
 
-				appWriteTempSettings(appSaveFilePath, &at);
+				appWriteTempSettings(App_Save_File, &at);
 			}
 
 			AppTempSettings at = {};
 			{
-				appReadTempSettings(appSaveFilePath, &at);
+				appReadTempSettings(App_Save_File, &at);
 
 				Rect r = at.windowRect;
 		    	MoveWindow(windowHandle, r.left, r.top, r.right-r.left, r.bottom-r.top, true);
@@ -4834,11 +3884,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 			NewAppColors* newac = &ad->newAppColors;
 
 			Font* font = ad->font;
+			// Font* font = ad->fontSlim;
+			float textPadding = font->height * newas->textPaddingMod;
 
 			TextBoxSettings textSettings = textBoxSettings(font, newac->uiBackground, newac->font, newas->fontShadow, newac->fontShadow, newas->rounding, newac->edge);
 
 			ad->labelSettings = textBoxSettings(font, vec4(0,0), newac->font, newas->fontShadow, newac->fontShadow, 0, vec4(0,0));
-			ad->buttonSettings = textBoxSettings(ad->font, newac->button, newac->font, newas->fontShadow, newac->fontShadow, newas->rounding, newac->edge);
+			ad->buttonSettings = textBoxSettings(font, newac->button, newac->font, newas->fontShadow, newac->fontShadow, newas->rounding, newac->edge);
 			ad->uiButtonSettings = ad->buttonSettings;
 			ad->uiButtonSettings.roundedCorner = 0;
 
@@ -4846,10 +3898,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->scrollButtonSettings.roundedCorner = 0;
 			ad->scrollButtonSettings.borderColor = vec4(0,0);
 
-			ad->editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, newac->editSelection, newac->editCursor);
+			ad->editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, newac->editSelection, newac->editCursor, font->height * newas->textPaddingMod);
 			ad->sliderSettings = {textSettings, 20, 20, 0, 0, 0, newac->button, newac->font};
 			ad->scrollSettings = {vec2(newas->padding,0), 20, vec2(4,4), 6, 0, 40, font->height+1, true, true, true, false, newac->button, vec4(0,0), newac->uiBackground, newac->edge};
-			ad->commentScrollSettings = {vec2(newas->padding,0), 20, vec2(4,4), 6, 0, 40, font->height+1, true, true, true, true, newac->button, vec4(0,0), newac->uiBackground, newac->edge};
+			ad->commentScrollSettings = {vec2(textPadding,0), 20, vec2(4,4), 6, 0, 40, font->height+1, true, true, true, true, newac->button, vec4(0,0), newac->uiBackground, newac->edge};
 
 		}
 
@@ -4857,12 +3909,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			NewGui* gui = ad->gui;
 			gui->buttonSettings = ad->buttonSettings;
 			gui->textBoxSettings = ad->labelSettings;
-			// gui->labelSettings = ad->labelSettings;
 			gui->editSettings = ad->editSettings;
 			gui->sliderSettings = ad->sliderSettings;
 			gui->scrollSettings = ad->scrollSettings;
 
-			gui->zLevel = 5;
+			gui->zLevel = 2;
 
 			gui->scissor = rectCenDim(0,0,10000000,10000000);
 			gui->scissorStack[0] = gui->scissor;
@@ -5974,7 +5025,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 						updateStatistic(&statViews, video->viewCount);
 						updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
-						updateStatistic(&statLikesDiff, divZero(video->dislikeCount, (video->likeCount + video->dislikeCount)));
+						updateStatistic(&statLikesDiff, videoGetLikesDiff(video));
 						updateStatistic(&statComments, video->commentCount);
 						updateStatistic(&statDates, video->date.n);
 					}
@@ -6146,7 +5197,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			scissorState();
 			Rect rTitle = layoutGetRect(lay);
 			rTitle.right = lTitle->r.right;
-			drawTextBox(rTitle, text, vec2i(-1,0), ad->labelSettings);
+			drawTextBox(rTitle, text, vec2i(-1,0), ad->gui->textBoxSettings);
 			scissorState(false);
 
 			float iconSize = font->height*iconMargin;
@@ -6172,33 +5223,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 		{
 			TIMER_BLOCK_NAMED("Filters Gui");
 
-			// Options.
-			float textMarginMod = 1.0f;
-			float borderSize = newas->border;
-			float padding = newas->padding;
-
-			//
-
-			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:", "0.00", "0.00", "<Filter_Inclusive>", "<Filter_Inclusive>"};
+			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:", "0.000", "0.000", "<Filter_Inclusive>", "<Filter_Inclusive>"};
 			int li = 0;
-			float bp = font->height * textMarginMod;
+			float bp = font->height * newas->textPaddingMod * 2;
 			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x+bp, 80, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp};
+			li = 0;
 
-
-			Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(padding,0), vec2(borderSize)));
+			Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(newas->padding,0), vec2(newas->border)));
 			for(int i = 0; i < arrayCount(widths); i++) layoutAdd(lay, layout(vec2(widths[i], 0)));
 			layoutCalc(lay);
 			Layout* l = lay->list;
 
 
-
-			Rect scissor = rFilters;
-			float z = 0;
-			li = 0;
-
-			scissorState();
-
 			NewGui* gui = ad->gui;
+			scissorState();
 
 			if(newGuiQuickButton(gui, layoutInc(&l), labels[li++])) ad->panelActive = !ad->panelActive;
 			if(newGuiQuickButton(gui, layoutInc(&l), labels[li++])) {
@@ -6207,38 +5245,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 				ad->startLoadFile = true;
 			}
 			if(newGuiQuickButton(gui, layoutInc(&l), labels[li++])) {
-				shellExecuteNoWindow(fillString("explorer.exe %s", appSettingsFilePath));
+				shellExecuteNoWindow(fillString("explorer.exe %s", App_Settings_File));
 			}
 
 			layoutInc(&l);
 
-			
-			// ad->labelSettings
 			newGuiQuickTextBox(gui, layoutInc(&l), labels[li++]);
 			newGuiQuickSlider(gui, layoutInc(&l), &ad->graphDrawMode, 0, 2);
 
 			newGuiQuickTextBox(gui, layoutInc(&l), labels[li++]);
 
 			bool updateStats = false;
-
 			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->statTimeSpan)) updateStats = true;
-			if(newGuiIsWasHotOrActive(gui)) setCursor(ws, IDC_IBEAM);
 			clamp(&ad->statTimeSpan, 0.01f, 12*10);
-
 			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->statWidth)) updateStats = true;
-			if(newGuiIsWasHotOrActive(gui)) setCursor(ws, IDC_IBEAM);
 			clamp(&ad->statWidth, 0.01f, 12*10);
 
 			gui->editSettings.defaultText = "<Filter_Inclusive>";
-			if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->inclusiveFilter, arrayCount(ad->inclusiveFilter))) 
-				ad->startLoadFile = true;
-			if(newGuiIsWasHotOrActive(gui)) setCursor(ws, IDC_IBEAM);
-
+			if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->inclusiveFilter, arrayCount(ad->inclusiveFilter))) ad->startLoadFile = true;
 			gui->editSettings.defaultText = "<Filter_Exclusive>";
-			if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->exclusiveFilter, arrayCount(ad->exclusiveFilter))) 
-				ad->startLoadFile = true;
-			if(newGuiIsWasHotOrActive(gui)) setCursor(ws, IDC_IBEAM);
-
+			if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->exclusiveFilter, arrayCount(ad->exclusiveFilter))) ad->startLoadFile = true;
 			gui->editSettings.defaultText = "";
 
 			if(updateStats) calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
@@ -6639,7 +5665,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			char* graphTitles[Line_Graph_Count] = {"Views", "Likes", "Likes/Dislikes", "Comments"};
 			char* sortButtonText = "Sort";
 			Vec2 sortButtonOffset = vec2(font->height*0.5f, 0);
-			float sortButtonMargin = font->height*0.5f;
+			float textPadding = font->height * newas->textPaddingMod;
 
 
 			float selectionWidth = 1;
@@ -6708,7 +5734,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					     if(graphIndex == 0) value = vids[i].viewCount;
 					else if(graphIndex == 1) value = vids[i].likeCount + vids[i].dislikeCount;
 					else if(graphIndex == 2) value = vids[i].dislikeCount;
-					else if(graphIndex == 3) value = divZero(vids[i].dislikeCount, (vids[i].likeCount + vids[i].dislikeCount));
+					else if(graphIndex == 3) value = videoGetLikesDiff(&vids[i]);
 					else if(graphIndex == 4) value = vids[i].commentCount;
 
 					Vec2 point = graphCamMap(cam, xValue, value);
@@ -6873,7 +5899,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				// Sort buttons.
 				{
 					char* text = sortButtonText;
-					Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(getTextDim(text, font).w + sortButtonMargin, font->height));
+					Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(getTextDim(text, font).w + textPadding*2, font->height));
 
 					ad->gui->zLevel++;
 					if(newGuiQuickButton(ad->gui, r, text)) {
@@ -6914,12 +5940,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float border = newas->border;
 			Rect rPanel = rectExpand(rSidePanel, vec2(-border*2));
 			Font* font = ad->font;
-			Font* font2 = ad->fontComment;
 			float xMid = rectCen(rPanel).x;
 			float width = rectW(rPanel);
 			Vec4 fc = newac->font;
 			Vec4 fc2 = newac->font2;
-			Vec4 fcComment = newac->commentFont;
+			Vec4 fcComment = newac->font;
 
 			float heightMod = newas->heightMod;
 			float rowHeight = font->height * heightMod;
@@ -6929,8 +5954,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float shadow = newas->fontShadow;
 			Vec4 shadowColor = newac->fontShadow;
 
-			float commentShadow = newas->commentFontShadow;
-			Vec4 commentShadowColor = newac->commentFontShadow;
+			float commentShadow = newas->fontShadow;
+			Vec4 commentShadowColor = newac->fontShadow;
 
 			NewGui* gui = ad->gui;
 
@@ -7027,7 +6052,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				rectSetDim(&r, vec2(ld->dim.w, rectH(r)*0.7f));
 
 				glLineWidth(1);
-				float dislikePercent = divZero(sv->dislikeCount,(float)(sv->likeCount+sv->dislikeCount));
+				float dislikePercent = videoGetLikesDiff(sv);
 				drawRectProgressHollow(r, 1-dislikePercent, newac->windowBorder, newac->edge);
 				drawText(fillString("%f%%", dislikePercent*100), font, rectCen(r), fc, vec2i(0,0), 0, shadow, shadowColor);
 			}
@@ -7076,7 +6101,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				Rect r = rectTLDim(ld->pos, vec2(ld->dim.w, ld->pos.y - ld->region.bottom));
 
 				ScrollRegionValues scrollValues = {};
-				newGuiQuickScroll(gui, r, scrollHeight, &ad->commentScrollValue, &scrollValues);
+				newGuiQuickScroll(gui, r, scrollHeight, &ad->commentScrollValue, &scrollValues, &ad->commentScrollSettings);
 
 				ld = newGuiLayoutPush(gui, scrollValues.region);
 				ld->pos = scrollValues.pos;
@@ -7085,11 +6110,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 					float wrapWidth = ld->dim.w;
 					if(!(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 4)) {
 						for(int i = 0; i < sn->selectedCommentCount; i++) {
-							drawText(sn->selectedTopComments[i], font2, ld->pos, fcComment, vec2i(-1,1), wrapWidth, commentShadow, commentShadowColor);
-							ld->pos.y -= getTextHeight(sn->selectedTopComments[i], font2, vec2(xMid, ld->pos.y), wrapWidth);
+							drawText(sn->selectedTopComments[i], font, ld->pos, fcComment, vec2i(-1,1), wrapWidth, commentShadow, commentShadowColor);
+							ld->pos.y -= getTextHeight(sn->selectedTopComments[i], font, vec2(xMid, ld->pos.y), wrapWidth);
 							
-							drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font2, ld->pos + vec2(ld->dim.w,0), fc2, vec2i(1,1), wrapWidth, commentShadow, commentShadowColor);
-							ld->pos.y -= font2->height;
+							drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font, ld->pos + vec2(ld->dim.w,0), fc2, vec2i(1,1), wrapWidth, commentShadow, commentShadowColor);
+							ld->pos.y -= font->height;
 						}
 						scrollHeight = scrollValues.pos.y - ld->pos.y + 4; // @Hack.
 					} else {
@@ -7127,225 +6152,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 	TIMER_BLOCK_END(appMain);
 
 	endOfMainLabel:
-
-
-	// Test Panel.
-	#if 0
-	if(true) {
-		NewAppSettings newas = ad->newAppSettings;
-		NewAppColors newac = ad->newAppColors;
-
-		bool clampToWindow = true;
-		bool resizable = true;
-		bool resizableX = true;
-		bool resizableY = false;
-		// bool resizableY = true;
-		bool movable = true;
-
-		Font* font = ad->font;
-
-		float panelBorder = newas.windowBorder;
-		float windowCornerGraphSize = panelBorder*4;
-		float roundedCorners = newas.rounding;
-		float titleHeightMod = newas.windowHeightMod;
-		char* titleText = "TEST PANEL";
-		float windowControlsPadding = 0.6f;
-		float windowControlsSize = 1.5f;
-
-		Vec2 clientBorder = vec2(newas.border);
-		float heightMod = newas.heightMod;
-		float rowHeight = font->height*heightMod;
-		float padding = newas.padding;
-		float rowOffset = padding;
-
-
-		float sectionOffset = 20;
-		float listOffset = 1;
-
-		Vec4 fontColor = newac.font;
-		Vec4 fontShadowColor = newac.fontShadow;
-		Vec4 borderColor = newac.windowBorder;
-		Vec4 backgroundColor = newac.background;
-		Vec4 buttonColor = newac.button;
-
-		Vec4 editBackgroundColor = newac.uiBackground;
-		Vec4 editSelectionColor = newac.editSelection;
-		Vec4 editCursorColor = newac.editCursor;
-
-		Vec4 scrollRegionColor = newac.uiBackground;
-		Vec4 scrollSliderColor = buttonColor;
-
-		Vec4 windowControlsColor = buttonColor;
-
-		Vec4 progressLeft = newac.windowBorder;
-
-		Vec4 edgeColor = newac.edge;
-
-		float textMargin = 0.5f;
-
-		float zOrder = 2;
-
-		TextBoxSettings buttonSettings = ad->buttonSettings;
-		TextBoxSettings uiButtonSettings = ad->uiButtonSettings;
-		TextBoxSettings scrollButtonSettings = ad->scrollButtonSettings;
-		TextBoxSettings labelSettings = ad->labelSettings;
-		TextEditSettings editSettings = ad->editSettings;
-		ScrollRegionSettings scrollSettings = ad->scrollSettings;
-
-		GuiWindowSettings windowSettings = {panelBorder, windowCornerGraphSize, vec2(Panel_Min_X, Panel_Min_Y), vec2(0,0), ad->clientRect, movable, resizableX, resizableY, false};
-
-		static float lastPanelHeight = 0;
-
-		NewGui* gui = ad->gui;
-		float z = zOrder;
-
-		ad->testPanelRect.bottom = ad->testPanelRect.top - lastPanelHeight;
-
-		newGuiSetHotAllMouseOver(ad->gui, ad->testPanelRect, z);
-		newGuiWindowUpdate(gui, &ad->testPanelRect, z, windowSettings);
-
-		drawRectRounded(ad->testPanelRect, borderColor, roundedCorners);
-	
-		{
-			scissorState();
-
-			Rect insideRect = rectExpand(ad->testPanelRect, -panelBorder*2);
-			float titleHeight = font->height*titleHeightMod;
-
-			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight);
-			drawTextBox(titleRect, titleText, labelSettings);
-
-			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
-
-			if(newGuiQuickButton(gui, rClose, z, "", uiButtonSettings)) ad->panelActive = false;
-			drawCross(rectCen(rClose), rectW(rClose)/2 * windowControlsPadding, windowControlsSize, vec2(1,0), fontColor);
-
-			Rect scissor = titleRect;
-			scissorTestScreen(scissor);
-
-			if(downloadModeActive(&ad->modeData)) {
-				drawTriangle(rectL(titleRect) + vec2(rectH(titleRect)/2,0), rectH(titleRect)/3, rotateVec2(vec2(1,0), ad->time*2), fontColor);
-			}
-
-			insideRect.top -= titleHeight+panelBorder;
-
-
-
-
-			if(true)
-			{
-				// Setup.
-				{
-					gui->buttonSettings = ad->buttonSettings;
-					gui->uiButtonSettings = ad->uiButtonSettings;
-					gui->scrollButtonSettings = ad->scrollButtonSettings;
-					gui->labelSettings = ad->labelSettings;
-					gui->editSettings = ad->editSettings;
-					gui->sliderSettings = ad->sliderSettings;
-					gui->scrollSettings = ad->scrollSettings;
-
-					gui->zLevel = 5;
-
-					gui->scissor = rectCenDim(0,0,10000000,10000000);
-					gui->scissorStack[0] = gui->scissor;
-					gui->scissorStackIndex = 0;
-
-					// gui->layoutStack[0] = {insideRect, rectTL(insideRect), rowHeight, rowOffset};
-					gui->layoutStackIndex = 0;
-				}
-
-				newGuiScissorPush(gui, insideRect);
-
-				drawRectOutlined(insideRect, backgroundColor, edgeColor);
-				insideRect = rectExpand(insideRect, -clientBorder*2);
-
-				Vec2 writePos = rectTL(insideRect);
-				float yOffset = 0.5f;
-				Vec2 rowDim = vec2(rectW(insideRect), rowHeight);
-
-
-				newGuiLayoutPush(gui, layoutData(insideRect, rectTL(insideRect), rowHeight, rowOffset, 0));
-
-				Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
-				Layout* l;
-
-
-
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0,0);
-				newGuiTextBox(gui, layoutInc(&l), "Left", vec2i(-1,0));
-				newGuiTextBox(gui, layoutInc(&l), "Middle", vec2i(0,0));
-				newGuiTextBox(gui, layoutInc(&l), "Right", vec2i(1,0));
-
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0); 
-				if(newGuiButton(gui, layoutInc(&l), "Open app folder")) shellExecuteNoWindow(fillString("explorer.exe %s", appFolder));
-				if(newGuiButton(gui, layoutInc(&l), "Open app folder")) shellExecuteNoWindow(fillString("explorer.exe %s", appFolder));
-
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0,0); 
-				newGuiTextEdit(gui, layoutInc(&l), ad->screenShotFilePath, 49);
-				static int editInt = 4;
-				newGuiTextEdit(gui, layoutInc(&l), &editInt);
-				static float editFloat = 123.456f;
-				newGuiTextEdit(gui, layoutInc(&l), &editFloat);
-
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
-				newGuiSlider(gui, layoutInc(&l), &editFloat, -100, 200);
-				newGuiSlider(gui, layoutInc(&l), &editInt, -1,7);
-
-
-
-				Rect scrollRect = rectTDim(vec2(rectCenX(gui->ld->region),gui->ld->pos.y - 30), vec2(300,200));
-
-				// newGuiLayoutPush(gui, scrollRect);
-				// newGuiScissorPush(gui, gui->ld->region);
-
-				static float scrollValue = 0;
-				static float scrollY = 0;
-				ScrollRegionValues scrollValues = {};
-				newGuiQuickScroll(gui, scrollRect, z, scrollY, &scrollValue, gui->scissor, scrollSettings, &scrollValues);
-
-				{
-					newGuiLayoutPush(gui, scrollValues.region);
-					gui->ld->pos = scrollValues.pos;
-					newGuiScissorPush(gui, scrollValues.scissor);
-
-					for(int i = 0; i < 20; i++) {
-						l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
-						newGuiButton(gui, layoutInc(&l), "Hello, Saylor!");
-						newGuiButton(gui, layoutInc(&l), "Oh No!");
-					}
-
-
-					// scrollY = gui->ld->region.top - gui->ld->pos.y + 400;
-					scrollY = (gui->ld->defaultHeight + gui->ld->yPadding) * 20 - gui->ld->yPadding;
-
-					newGuiLayoutPop(gui);
-					newGuiScissorPop(gui);
-				}
-				// newGuiScissorPop(gui);
-				// newGuiLayoutPop(gui);
-				gui->ld->pos.y = rectB((gui->ld+1)->region).y - gui->ld->yPadding;
-
-
-				newGuiTextBox(gui, newGuiLRectAdv(gui), "======== The End of The Line ========", vec2i(0,0));
-
-
-
-				writePos.y -= font->height*yOffset;
-
-				newGuiScissorPop(gui);
-			}
-
-
-
-
-			// lastPanelHeight = (insideRect.top - writePos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset;
-			// lastPanelHeight = (insideRect.top - writePos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset + clientBorder.y;
-			lastPanelHeight = 500;
-
-			scissorState(false);
-		}
-	}
-	#endif
 
 
 
@@ -7401,41 +6207,36 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		Vec4 edgeColor = newac.edge;
 
-		float textMargin = 0.5f;
+		float textMargin = newas.textPaddingMod;
+		float textPadding = font->height * newas.textPaddingMod;
 
-		float zOrder = 2;
-
-		TextBoxSettings buttonSettings = ad->buttonSettings;
-		TextBoxSettings uiButtonSettings = ad->uiButtonSettings;
-		TextBoxSettings scrollButtonSettings = ad->scrollButtonSettings;
-		TextBoxSettings labelSettings = ad->labelSettings;
-		TextEditSettings editSettings = ad->editSettings;
-		ScrollRegionSettings scrollSettings = ad->scrollSettings;
+		NewGui* gui = ad->gui;
+		float zLevel = 2;
+		gui->zLevel = zLevel;
 
 		GuiWindowSettings windowSettings = {panelBorder, windowCornerGraphSize, vec2(Panel_Min_X, Panel_Min_Y), vec2(0,0), ad->clientRect, movable, resizableX, resizableY, false};
 
 		static float lastPanelHeight = 0;
 
-		NewGui* gui = ad->gui;
-		float z = zOrder;
+		static int panelMode = 0;
 
 		ad->panelRect.bottom = ad->panelRect.top - lastPanelHeight;
 
-		newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, z);
-		newGuiWindowUpdate(gui, &ad->panelRect, z, windowSettings);
+		newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, zLevel);
+		newGuiWindowUpdate(gui, &ad->panelRect, zLevel, windowSettings);
 
 		drawRectRounded(ad->panelRect, borderColor, roundedCorners);
-	
+
 		{
 			Rect insideRect = rectExpand(ad->panelRect, -panelBorder*2);
 			float titleHeight = font->height*titleHeightMod;
 
 			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight);
-			drawTextBox(titleRect, titleText, labelSettings);
+			drawTextBox(titleRect, titleText, ad->labelSettings);
 
 			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
 
-			if(newGuiQuickButton(gui, rClose, "")) ad->panelActive = false;
+			if(newGuiQuickButton(gui, rClose, "", vec2i(0,0), &ad->uiButtonSettings)) ad->panelActive = false;
 			drawCross(rectCen(rClose), rectW(rClose)/2 * windowControlsPadding, windowControlsSize, vec2(1,0), fontColor);
 
 			scissorTestScreen(titleRect);
@@ -7445,6 +6246,46 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			insideRect.top -= titleHeight+panelBorder;
 
+
+			Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
+			Layout layTemp = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(0,0));
+			Layout* l;
+
+			Rect modeRect = rectSetB(insideRect, insideRect.top - font->height);
+
+			// Panel mode switches.
+			{
+				insideRect.top -= font->height;
+
+				char* labels[] = {"Main", "Settings"};
+				int li = 0;
+				float widths[] = {getTextDim(labels[li++], font).w+textPadding*2, getTextDim(labels[li++], font).w+textPadding*2};
+				li = 0;
+
+				scissorState();
+				newGuiScissorPush(gui, modeRect);
+
+				Vec4 bgColor = ad->uiButtonSettings.backgroundColor;
+				gui->buttonSettings = ad->uiButtonSettings;
+				Vec2 p = rectTL(modeRect);
+				
+				for(int i = 0; i < arrayCount(labels); i++) {
+					Rect r = rectTLDim(p, vec2(widths[li++], rectH(modeRect))); 
+
+					gui->buttonSettings.backgroundColor = panelMode == i ? newac.windowBorder : bgColor;
+					gui->buttonSettings.borderColor.a = panelMode == i ? 0 : 1;
+
+
+					if(newGuiQuickButton(gui, r, labels[i])) panelMode = i;
+
+					p += vec2(rectW(r), 0);
+				}
+
+				gui->buttonSettings = ad->buttonSettings;
+
+				newGuiScissorPop(gui);
+				scissorState(false);
+			}
 
 
 			drawRectOutlined(insideRect, backgroundColor, edgeColor);
@@ -7458,240 +6299,263 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Rect r;
 
 
-			Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
-			Layout layTemp = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(0,0));
-			Layout* l;
+			// panelMode = 1;
+			if(panelMode == 1) {
 
-
-			l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
-			if(newGuiQuickButton(gui, layoutInc(&l), "Open app folder")) shellExecuteNoWindow(fillString("explorer.exe %s", appFolder));
-			if(newGuiQuickButton(gui, layoutInc(&l), "Delete app save")) remove(appSaveFilePath);
-
-			newGuiLAdv(gui, yOffsetExtra);
-
-			l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
-			if(newGuiQuickButton(gui, layoutInc(&l), "Make screenshot")) {
-				ad->startScreenShot = true;
-				ds->showMenu = false;
-			}
-			newGuiQuickTextEdit(gui, layoutInc(&l), ad->screenShotFilePath, 49);
-
-
-			char* labelText = "Dimension:";
-
-			l = layoutQuickRow(&lay, newGuiLRectAdv(gui), getTextDim(labelText, font).w + font->height*textMargin,0,0);
-			newGuiQuickTextBox(gui, layoutInc(&l), labelText, vec2i(-1,0));
-			int maxTextureSize;
-			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.w)) 
-				clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
-			ad->screenShotDim.w = clampMin(ad->screenShotDim.w, Screenshot_Min_X);
-			if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.h)) 
-				clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
-			ad->screenShotDim.h = clampMin(ad->screenShotDim.h, Screenshot_Min_Y);
-
-			newGuiLAdv(gui, yOffsetExtra);
-
-			newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s")); 
-
-			l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0);
-			if(newGuiQuickButton(gui, layoutInc(&l), "Open folder")) shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));			
-
-			{
-				static float scrollValue = 0;
-				Rect r = rectTDim(ld->pos + vec2(ld->dim.w/2, 0), vec2(ld->dim.w - sectionOffset*2, 10 * (rowHeight+listOffset))); 
-
-				ScrollRegionValues scrollValues = {};
-				newGuiQuickScroll(gui, r, ad->playlistFolderCount * (rowHeight+listOffset), &scrollValue, &scrollValues);
-
-
-				ld = newGuiLayoutPush(gui, scrollValues.region);
-				ld->pos = scrollValues.pos;
-				newGuiScissorPush(gui, scrollValues.scissor);
-				ld->yPadding = listOffset;
-
-					char* buttonText = "Del";
-					float buttonTextWidth = getTextDim(buttonText, font).w + font->height*textMargin;
-
-					for(int i = 0; i < ad->playlistFolderCount; i++) {
-						YoutubePlaylist* playlist = ad->playlistFolder + i;
-
-						l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0, buttonTextWidth); 
-						char* maxCountText = playlist->count != playlist->maxCount ? fillString("|%i", playlist->maxCount) : "";
-						char* mainButtonText = fillString("%s - (%i%s)", playlist->title, playlist->count, maxCountText);
-
-						if(newGuiQuickButton(gui, layoutInc(&l), mainButtonText, vec2i(-1,0), &scrollButtonSettings)) {
-							if(ad->modeData.downloadMode != Download_Mode_Videos) {
-								memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
-								ad->playlist.count = playlist->count;
-								ad->startLoadFile = true;
-
-								strCpy(ad->downloadPlaylist.title, ad->playlist.title);
-								strCpy(ad->downloadPlaylist.id, ad->playlist.id);
-
-								ad->playlistFolderIndex = i;
-							}
-						}
-
-						if(newGuiQuickButton(gui, layoutInc(&l), buttonText, vec2i(0,0), &scrollButtonSettings)) {
-							removePlaylistFile(playlist);
-						}
-					}
-
-				ld = newGuiLayoutPop(gui);
-				newGuiScissorPop(gui);
-				ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
-			}
-
-			newGuiLAdv(gui, yOffsetExtra);
-
-			{
-				newGuiQuickTextBox(gui, newGuiLRectAdv(gui), "Quicksearch"); 
-
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0); 
-
-				gui->editSettings.defaultText = "<Playlist_Name>";
-				if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->searchStringPlaylists, 50)) {
-					if(strLen(ad->searchStringPlaylists) > 0) {
-						ad->lastSearchMode = 1;
-						strCpy(ad->searchString, ad->searchStringPlaylists);
-						downloadModeSet(&ad->modeData, Download_Mode_Search, &ad->appIsBusy);
-						ad->searchResultCount = 0;
-					}
+				float maxTextWidth = 0;
+				char** colorStrings = newAppColorsStrings;
+				float colorCount = arrayCount(newAppColorsStrings);
+				for(int i = 0; i < colorCount; i++) {
+					maxTextWidth = max(maxTextWidth, getTextDim(colorStrings[i], font).w);
 				}
-				gui->editSettings.defaultText = "<Channel_Name>";
-				if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->searchStringChannels, 50)) {
-					if(strLen(ad->searchStringChannels) > 0) {
-						ad->lastSearchMode = 0;
-						strCpy(ad->searchString, ad->searchStringChannels);
-						downloadModeSet(&ad->modeData, Download_Mode_Search, &ad->appIsBusy);
-						ad->searchResultCount = 0;
-					}
-				}
-				gui->editSettings.defaultText = "";
+				maxTextWidth += 2;
 
+				NewAppColors* cs = &ad->newAppColors;
+				for(int i = 0; i < colorCount; i++) {
+					l = layoutQuickRow(&lay, newGuiLRectAdv(gui), maxTextWidth,0,0,0);
+					newGuiQuickTextBox(gui, layoutInc(&l), colorStrings[i], vec2i(1,0));
 
+					Vec3 hslColor = rgbToHslFloat(cs->e[i].rgb);
+					newGuiQuickSlider(gui, layoutInc(&l), &hslColor.x, 0, 1);
+					newGuiQuickSlider(gui, layoutInc(&l), &hslColor.y, 0, 1);
+					newGuiQuickSlider(gui, layoutInc(&l), &hslColor.z, 0, 1);
 
-				if(ad->modeData.downloadMode == Download_Mode_ChannelPlaylists) {
-					// Show progress.
-					Layout* lTemp = layoutQuickRow(&layTemp, newGuiLRectAdv(gui), 0, rowHeight); 
-
-					Rect r = layoutInc(&lTemp);
-					scissorTestIntersect(gui->scissor, r);
-					// drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
-					drawRectProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
-					newGuiQuickTextBox(gui, r, fillString("%i/%i", ad->modeData.downloadProgress, ad->modeData.downloadMax));
-
-					r = scissorTestIntersect(gui->scissor, layoutInc(&lTemp));
-					if(newGuiQuickButton(gui, r, "")) downloadModeAbort(&ad->modeData, &ad->appIsBusy);
-					drawCross(rectCen(r), rectH(r)/2 *0.5f, 2, vec2(1,0), fontColor);
+					cs->e[i] = vec4(hslToRgbFloat(hslColor), cs->e[i].a);
 				}
 
-				if(ad->searchResultCount > 0) {
-					// writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
+			} else if(panelMode == 0) {
 
+				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
+				if(newGuiQuickButton(gui, layoutInc(&l), "Open app folder")) shellExecuteNoWindow(fillString("explorer.exe %s", App_Folder));
+				if(newGuiQuickButton(gui, layoutInc(&l), "Delete app save")) remove(App_Save_File);
+
+				newGuiLAdv(gui, yOffsetExtra);
+
+				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
+				if(newGuiQuickButton(gui, layoutInc(&l), "Make screenshot")) {
+					ad->startScreenShot = true;
+					ds->showMenu = false;
+				}
+				newGuiQuickTextEdit(gui, layoutInc(&l), ad->screenShotFilePath, 49);
+
+
+				char* labelText = "Dimension:";
+
+				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), getTextDim(labelText, font).w + font->height*textMargin*2,0,0);
+				newGuiQuickTextBox(gui, layoutInc(&l), labelText, vec2i(-1,0));
+				int maxTextureSize;
+				glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+				if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.w)) 
+					clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
+				ad->screenShotDim.w = clampMin(ad->screenShotDim.w, Screenshot_Min_X);
+				if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.h)) 
+					clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
+				ad->screenShotDim.h = clampMin(ad->screenShotDim.h, Screenshot_Min_Y);
+
+				newGuiLAdv(gui, yOffsetExtra);
+
+				newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s")); 
+
+				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0);
+				if(newGuiQuickButton(gui, layoutInc(&l), "Open folder")) shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));			
+
+				{
 					static float scrollValue = 0;
 					Rect r = rectTDim(ld->pos + vec2(ld->dim.w/2, 0), vec2(ld->dim.w - sectionOffset*2, 10 * (rowHeight+listOffset))); 
 
 					ScrollRegionValues scrollValues = {};
-					newGuiQuickScroll(gui, r, ad->searchResultCount * (rowHeight+listOffset), &scrollValue, &scrollValues);
+					newGuiQuickScroll(gui, r, ad->playlistFolderCount * (rowHeight+listOffset), &scrollValue, &scrollValues);
+
 
 					ld = newGuiLayoutPush(gui, scrollValues.region);
 					ld->pos = scrollValues.pos;
 					newGuiScissorPush(gui, scrollValues.scissor);
 					ld->yPadding = listOffset;
 
-						gui->buttonSettings = scrollButtonSettings;
-						for(int i = 0; i < ad->searchResultCount; i++) {
-							SearchResult* sResult = ad->searchResults + i;
+						char* buttonText = "Del";
+						float buttonTextWidth = getTextDim(buttonText, font).w + font->height*textMargin*2;
 
-							if(ad->lastSearchMode == 0) {
-								char* buttonText = "Load playlists";
-								Layout* l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,getTextDim(buttonText, font).w + font->height*textMargin);
+						for(int i = 0; i < ad->playlistFolderCount; i++) {
+							YoutubePlaylist* playlist = ad->playlistFolder + i;
 
-								if(newGuiQuickButton(gui, layoutInc(&l), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
+							l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0, buttonTextWidth); 
+							char* maxCountText = playlist->count != playlist->maxCount ? fillString("|%i", playlist->maxCount) : "";
+							char* mainButtonText = fillString("%s - (%i%s)", playlist->title, playlist->count, maxCountText);
 
-									strCpy(ad->downloadPlaylist.id, sResult->allPlaylistId);
-									strCpy(ad->downloadPlaylist.title, sResult->title);
-									ad->downloadPlaylist.count = sResult->count;
+							if(newGuiQuickButton(gui, layoutInc(&l), mainButtonText, vec2i(-1,0), &ad->scrollButtonSettings)) {
+								if(ad->modeData.downloadMode != Download_Mode_Videos) {
+									memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
+									ad->playlist.count = playlist->count;
+									ad->startLoadFile = true;
 
-									downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
-									ad->update = false;
-								}
-								if(newGuiQuickButton(gui, layoutInc(&l), buttonText)) {
-									strCpy(ad->channelId, sResult->id);
-									downloadModeSet(&ad->modeData, Download_Mode_ChannelPlaylists, &ad->appIsBusy);
-									ad->lastSearchMode = 1;
-									ad->searchResultCount = 0;
-								}
-							} else {
-								if(newGuiQuickButton(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
+									strCpy(ad->downloadPlaylist.title, ad->playlist.title);
+									strCpy(ad->downloadPlaylist.id, ad->playlist.id);
 
-									strCpy(ad->downloadPlaylist.id, sResult->id);
-									strCpy(ad->downloadPlaylist.title, sResult->title);
-									ad->downloadPlaylist.count = sResult->count;
-
-									downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
-									ad->update = false;
+									ad->playlistFolderIndex = i;
 								}
 							}
+
+							if(newGuiQuickButton(gui, layoutInc(&l), buttonText, vec2i(0,0), &ad->scrollButtonSettings)) {
+								removePlaylistFile(playlist);
+							}
 						}
-						gui->buttonSettings = buttonSettings;
 
 					ld = newGuiLayoutPop(gui);
 					newGuiScissorPop(gui);
 					ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
 				}
-			}
-
-
-			if(strLen(ad->downloadPlaylist.id) != 0) {
 
 				newGuiLAdv(gui, yOffsetExtra);
 
-				newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", ad->downloadPlaylist.title, ad->downloadPlaylist.count)); 
-
-				Rect progressRect;
-				bool activeDownload = ad->modeData.downloadMode == Download_Mode_Videos;
 				{
-					l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
-					Rect rLeft = layoutInc(&l);
-					Rect rRight = layoutInc(&l);
+					newGuiQuickTextBox(gui, newGuiLRectAdv(gui), "Quicksearch"); 
 
-					if(activeDownload && !ad->update) progressRect = rLeft;
-					if(activeDownload && ad->update) progressRect = rRight;
+					l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0); 
 
-					if(!activeDownload) {
-						if(newGuiQuickButton(gui, rLeft, "Download")) {
-							downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
-							ad->update = false;
+					gui->editSettings.defaultText = "<Playlist_Name>";
+					if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->searchStringPlaylists, 50)) {
+						if(strLen(ad->searchStringPlaylists) > 0) {
+							ad->lastSearchMode = 1;
+							strCpy(ad->searchString, ad->searchStringPlaylists);
+							downloadModeSet(&ad->modeData, Download_Mode_Search, &ad->appIsBusy);
+							ad->searchResultCount = 0;
 						}
-						if(newGuiQuickButton(gui, rRight, "Update")) {
-							downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
-							ad->update = true;
+					}
+					gui->editSettings.defaultText = "<Channel_Name>";
+					if(newGuiQuickTextEdit(gui, layoutInc(&l), ad->searchStringChannels, 50)) {
+						if(strLen(ad->searchStringChannels) > 0) {
+							ad->lastSearchMode = 0;
+							strCpy(ad->searchString, ad->searchStringChannels);
+							downloadModeSet(&ad->modeData, Download_Mode_Search, &ad->appIsBusy);
+							ad->searchResultCount = 0;
 						}
+					}
+					gui->editSettings.defaultText = "";
+
+
+
+					if(ad->modeData.downloadMode == Download_Mode_ChannelPlaylists) {
+						// Show progress.
+						Layout* lTemp = layoutQuickRow(&layTemp, newGuiLRectAdv(gui), 0, rowHeight); 
+
+						Rect r = layoutInc(&lTemp);
+						scissorTestIntersect(gui->scissor, r);
+						// drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
+						drawRectProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
+						newGuiQuickTextBox(gui, r, fillString("%i/%i", ad->modeData.downloadProgress, ad->modeData.downloadMax));
+
+						r = scissorTestIntersect(gui->scissor, layoutInc(&lTemp));
+						if(newGuiQuickButton(gui, r, "")) downloadModeAbort(&ad->modeData, &ad->appIsBusy);
+						drawCross(rectCen(r), rectH(r)/2 *0.5f, 2, vec2(1,0), fontColor);
+					}
+
+					if(ad->searchResultCount > 0) {
+						// writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
+
+						static float scrollValue = 0;
+						Rect r = rectTDim(ld->pos + vec2(ld->dim.w/2, 0), vec2(ld->dim.w - sectionOffset*2, 10 * (rowHeight+listOffset))); 
+
+						ScrollRegionValues scrollValues = {};
+						newGuiQuickScroll(gui, r, ad->searchResultCount * (rowHeight+listOffset), &scrollValue, &scrollValues);
+
+						ld = newGuiLayoutPush(gui, scrollValues.region);
+						ld->pos = scrollValues.pos;
+						newGuiScissorPush(gui, scrollValues.scissor);
+						ld->yPadding = listOffset;
+
+							gui->buttonSettings = ad->scrollButtonSettings;
+							for(int i = 0; i < ad->searchResultCount; i++) {
+								SearchResult* sResult = ad->searchResults + i;
+
+								if(ad->lastSearchMode == 0) {
+									char* buttonText = "Load playlists";
+									Layout* l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,getTextDim(buttonText, font).w + font->height*textMargin*2);
+
+									if(newGuiQuickButton(gui, layoutInc(&l), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
+
+										strCpy(ad->downloadPlaylist.id, sResult->allPlaylistId);
+										strCpy(ad->downloadPlaylist.title, sResult->title);
+										ad->downloadPlaylist.count = sResult->count;
+
+										downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
+										ad->update = false;
+									}
+									if(newGuiQuickButton(gui, layoutInc(&l), buttonText)) {
+										strCpy(ad->channelId, sResult->id);
+										downloadModeSet(&ad->modeData, Download_Mode_ChannelPlaylists, &ad->appIsBusy);
+										ad->lastSearchMode = 1;
+										ad->searchResultCount = 0;
+									}
+								} else {
+									if(newGuiQuickButton(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
+
+										strCpy(ad->downloadPlaylist.id, sResult->id);
+										strCpy(ad->downloadPlaylist.title, sResult->title);
+										ad->downloadPlaylist.count = sResult->count;
+
+										downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
+										ad->update = false;
+									}
+								}
+							}
+							gui->buttonSettings = ad->buttonSettings;
+
+						ld = newGuiLayoutPop(gui);
+						newGuiScissorPop(gui);
+						ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
 					}
 				}
 
-				// Show progress.
-				if(activeDownload) {
-					Layout* lTemp = layoutQuickRow(&layTemp, progressRect, 0, rowHeight);
 
-					Rect r = layoutInc(&lTemp);
-					scissorTestIntersect(gui->scissor, r);
-					// drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
-					drawRectProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
-					newGuiQuickTextBox(gui, r, fillString("%i/%i", ad->modeData.downloadProgress, ad->modeData.downloadMax));
+				if(strLen(ad->downloadPlaylist.id) != 0) {
 
-					r = scissorTestIntersect(gui->scissor, layoutInc(&lTemp));
-					if(newGuiQuickButton(gui, r, "")) downloadModeAbort(&ad->modeData, &ad->appIsBusy);
-					drawCross(rectCen(r), rectH(r)/2 *0.5f, 2, vec2(1,0), fontColor);
+					newGuiLAdv(gui, yOffsetExtra);
+
+					newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", ad->downloadPlaylist.title, ad->downloadPlaylist.count)); 
+
+					Rect progressRect;
+					bool activeDownload = ad->modeData.downloadMode == Download_Mode_Videos;
+					{
+						l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
+						Rect rLeft = layoutInc(&l);
+						Rect rRight = layoutInc(&l);
+
+						if(activeDownload && !ad->update) progressRect = rLeft;
+						if(activeDownload && ad->update) progressRect = rRight;
+
+						if(!activeDownload) {
+							if(newGuiQuickButton(gui, rLeft, "Download")) {
+								downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
+								ad->update = false;
+							}
+							if(newGuiQuickButton(gui, rRight, "Update")) {
+								downloadModeSet(&ad->modeData, Download_Mode_Videos, &ad->appIsBusy);
+								ad->update = true;
+							}
+						}
+					}
+
+					// Show progress.
+					if(activeDownload) {
+						Layout* lTemp = layoutQuickRow(&layTemp, progressRect, 0, rowHeight);
+
+						Rect r = layoutInc(&lTemp);
+						scissorTestIntersect(gui->scissor, r);
+						// drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
+						drawRectProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
+						newGuiQuickTextBox(gui, r, fillString("%i/%i", ad->modeData.downloadProgress, ad->modeData.downloadMax));
+
+						r = scissorTestIntersect(gui->scissor, layoutInc(&lTemp));
+						if(newGuiQuickButton(gui, r, "")) downloadModeAbort(&ad->modeData, &ad->appIsBusy);
+						drawCross(rectCen(r), rectH(r)/2 *0.5f, 2, vec2(1,0), fontColor);
+					}
+
 				}
-
 			}
 
 			// lastPanelHeight = (insideRect.top - writePos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset;
-			lastPanelHeight = (insideRect.top - ld->pos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset*2 + clientBorder.y;
+			// lastPanelHeight = (insideRect.top - ld->pos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset*2 + clientBorder.y;
+			lastPanelHeight = (insideRect.top - ld->pos.y) + clientBorder.y*2 + panelBorder*2 + titleHeight - rowOffset*2 + clientBorder.y + rectH(modeRect);
 
 			newGuiScissorPop(gui);
 			newGuiLayoutPop(gui);
@@ -7710,10 +6574,24 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-	if(false)
+	if(true)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1));
 		drawRectRoundedOutlined(rectCenDim(400,-400,200,200), vec4(0.4f,1), vec4(1.0f,1), 5, 10);
+
+		// struct TextSettings {
+		// 	Font* font;
+		// 	Vec4 color;
+		// 	int wrapWidth;
+
+		// 	int shadowMode; // 0 = noShadow, 1 = shadow, 2 = outline;
+		// 	Vec2 shadowDir;
+		// 	float shadowSize;
+		// 	Vec4 shadowColor;
+		// };
+
+		TextSettings settings = {ad->font, vec4(1,1), 0, 0, vec2(23423,0), 0.2f, vec4(0,0,0,1)};
+		drawText("We <c>#FF000000 can now draw <b>Bold Text<b> and <i>Italic Text<i>!", vec2(800,-400), settings);
 	}
 
 	if(false)
@@ -7845,7 +6723,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	// @App End.
 
 	// Save app state.
-	if(*isRunning == false && fileExists(appSaveFilePath)) {
+	if(*isRunning == false && fileExists(App_Save_File)) {
 		AppTempSettings at = {};
 
 		RECT r; 
@@ -7858,7 +6736,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		at.panelRect = ad->panelRect;
 
-		appWriteTempSettings(appSaveFilePath, &at);
+		appWriteTempSettings(App_Save_File, &at);
 	}
 
 	// if(init) printf("Startup Time: %fs\n", timerUpdate(startupTimer));

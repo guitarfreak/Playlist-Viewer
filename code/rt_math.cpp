@@ -313,6 +313,11 @@ inline int triangularNumber(int n) {
 	return n*(n+1) / 2;
 }
 
+inline double divZero(double a, double b) {
+	if(a == 0 || b == 0) return 0;
+	else return a/b;
+}
+
 //
 
 inline int colorFloatToInt(float color) {
@@ -391,24 +396,6 @@ void rgbToHsl(float color[3], double r, double g, double b) {
 
 void vSet3(float res[3], float x, float y, float z);
 void hslToRgb(float color[3], double h, double s, double l) {
-	double c = 0.0, m = 0.0, x = 0.0;
-	c = (1.0 - fabs(2 * l - 1.0)) * s;
-	m = 1.0 * (l - 0.5 * c);
-	// x = c * (1.0 - fabs(fmod(h / 60.0, 2) - 1.0));
-	x = c * (1.0 - fabs(modFloat(h / 60.0, 2) - 1.0));
-	if (h == 360) h = 0;
-	if (h >= 0.0 && h < 60)  vSet3(color, c + m, x + m, m);
-	else if (h >= 60 && h < 120) vSet3(color, x + m, c + m, m);
-	else if (h >= 120 && h < 180) vSet3(color, m, c + m, x + m);
-	else if (h >= 180 && h < 240) vSet3(color, m, x + m, c + m);
-	else if (h >= 240 && h < 300) vSet3(color, x + m, m, c + m);
-	else if (h >= 300 && h < 360) vSet3(color, c + m, m, x + m);
-	else vSet3(color, m, m, m);
-}
-
-void hslToRgbFloat(float color[3], double hPercent, double s, double l) {
-	int h = 360 * hPercent;
-
 	double c = 0.0, m = 0.0, x = 0.0;
 	c = (1.0 - fabs(2 * l - 1.0)) * s;
 	m = 1.0 * (l - 0.5 * c);
@@ -1800,6 +1787,12 @@ inline Vec2 clampVec2(Vec2 v, Vec2 min, Vec2 max) {
 	return v;
 }
 
+Vec2 operator+(Vec2 a, Vec2i b) {
+	a.x += b.x;
+	a.y += b.y;
+	return a;	
+}
+
 //
 //
 //
@@ -2044,10 +2037,20 @@ Vec3 hslToRgb(Vec3 hslColor) {
 	return result;
 }
 
-Vec2 operator+(Vec2 a, Vec2i b) {
-	a.x += b.x;
-	a.y += b.y;
-	return a;	
+inline Vec3 hslToRgbFloat(Vec3 hsl) {
+	float c[3];
+	hsl.x = modFloat(hsl.x, 1.0f);
+	hsl.y = clamp(hsl.y, 0, 1);
+	hsl.z = clamp(hsl.z, 0, 1);
+	hslToRgb(c, 360 * hsl.x, hsl.y, hsl.z);
+
+	return vec3(c[0], c[1], c[2]);
+}
+
+inline Vec3 rgbToHslFloat(Vec3 rgb) {
+	Vec3 hsl = rgbToHsl(rgb);
+	Vec3 hslFloat = vec3(hsl.x / (float)360, hsl.y, hsl.z);
+	return hslFloat;
 }
 
 //
@@ -2201,6 +2204,10 @@ inline bool operator!=(Vec4 a, Vec4 b) {
 	return result;
 }
 
+inline Vec4 hslToRgbFloatAlpha(Vec3 hsl) {
+	return vec4(hslToRgbFloat(hsl), 1);
+}
+
 //
 //
 //
@@ -2330,19 +2337,6 @@ inline Mat4 projMatrix(float fov, float ar, float n, float f) {
 	projMatrix(&m, fov, ar, n, f);
 	
 	return m;
-}
-
-inline Vec4 colorHSL(Vec3 hsl) {
-	float c[3];
-	hsl.x = modFloat(hsl.x, 1.0f);
-	hsl.y = clamp(hsl.y, 0, 1);
-	hsl.z = clamp(hsl.z, 0, 1);
-	hslToRgbFloat(c, hsl.x, hsl.y, hsl.z);
-	return vec4(c[0], c[1], c[2], 1);
-}
-
-inline Vec4 colorHSL(float h, float s, float l) {
-	return colorHSL(vec3(h,s,l));
 }
 
 //
