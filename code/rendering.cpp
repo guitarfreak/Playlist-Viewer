@@ -1039,6 +1039,9 @@ struct TextSimInfo {
 
 	bool bold;
 	bool italic;
+
+	bool colorMode;
+	Vec3 colorOverwrite;
 };
 
 TextSimInfo initTextSimInfo(Vec2 startPos) {
@@ -1050,11 +1053,6 @@ TextSimInfo initTextSimInfo(Vec2 startPos) {
 	tsi.breakPos = vec2(0,0);
 	return tsi;
 }
-
-#define Bold_Mark "<b>"
-#define Bold_Mark_Size 3
-#define Italic_Mark "<i>"
-#define Italic_Mark_Size 3
 
 int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPos = vec2(0,0), int wrapWidth = 0) {
 	ti->lineBreak = false;
@@ -1133,16 +1131,88 @@ int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPo
 	return 1;
 }
 
-float getTextHeight(char* text, Font* font, Vec2 startPos = vec2(0,0), int wrapWidth = 0) {
+struct TextSettings {
+	Font* font;
+	Vec4 color;
 
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
-		TextInfo ti;
-		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
+	int shadowMode;
+	Vec2 shadowDir;
+	float shadowSize;
+	Vec4 shadowColor;
+};
+
+TextSettings textSettings(Font* font, Vec4 color, int shadowMode, Vec2 shadowDir, float shadowSize, Vec4 shadowColor) {
+	return {font, color, shadowMode, shadowDir, shadowSize, shadowColor};
+}
+TextSettings textSettings(Font* font, Vec4 color, int shadowMode, float shadowSize, Vec4 shadowColor) {
+	return {font, color, shadowMode, vec2(1,-1), shadowSize, shadowColor};
+}
+TextSettings textSettings(Font* font, Vec4 color) {
+	return {font, color};
+}
+
+
+enum {
+	TEXT_NOSHADOW = 0,
+	TEXT_SHADOW,
+	TEXT_OUTLINE,
+};
+
+#define Bold_Mark "<b>"
+#define Bold_Mark_Size 3
+#define Italic_Mark "<i>"
+#define Italic_Mark_Size 3
+#define Color_Mark "<c>"
+#define Color_Mark_Size 3
+
+void textParseMarkers(char* text, TextSimInfo* tsi, Font* font, bool skip = false) {
+	if(text[tsi->index] == Bold_Mark[0]) {
+		if(strStartsWith(&text[tsi->index], Bold_Mark, Bold_Mark_Size)) {
+			tsi->index += Bold_Mark_Size;
+			if(skip) return;
+
+			if(!tsi->bold) {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->boldFont->tex.id);
+				glBegin(GL_QUADS);
+			} else {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->tex.id);
+				glBegin(GL_QUADS);
+			}
+			tsi->bold = !tsi->bold;
+		} else if(strStartsWith(&text[tsi->index], Italic_Mark, Italic_Mark_Size)) {
+			tsi->index += Italic_Mark_Size;
+			if(skip) return;
+			
+			if(!tsi->italic) {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->italicFont->tex.id);
+				glBegin(GL_QUADS);
+			} else {
+				glEnd();
+				glBindTexture(GL_TEXTURE_2D, font->tex.id);
+				glBegin(GL_QUADS);
+			}
+			tsi->italic = !tsi->italic;
+		} else if(strStartsWith(&text[tsi->index], Color_Mark, Color_Mark_Size)) {
+			if(skip) {
+				tsi->index += 9; // <c>FFFFFF
+				return;
+			}
+
+			tsi->index += 3;
+			Vec3 c;
+			if(!tsi->colorMode) {
+				c.r = colorIntToFloat(strHexToInt(getTStringCpy(&text[tsi->index], 2))); tsi->index += 2;
+				c.g = colorIntToFloat(strHexToInt(getTStringCpy(&text[tsi->index], 2))); tsi->index += 2;
+				c.b = colorIntToFloat(strHexToInt(getTStringCpy(&text[tsi->index], 2))); tsi->index += 2;
+				tsi->colorOverwrite = COLOR_SRGB(c);
+			}
+
+			tsi->colorMode = !tsi->colorMode;
+		}
 	}
-
-	float height = startPos.y - (tsi.pos.y - font->height);
-	return height;
 }
 
 Vec2 getTextDim(char* text, Font* font, Vec2 startPos = vec2(0,0), int wrapWidth = 0) {
@@ -1150,6 +1220,8 @@ Vec2 getTextDim(char* text, Font* font, Vec2 startPos = vec2(0,0), int wrapWidth
 
 	TextSimInfo tsi = initTextSimInfo(startPos);
 	while(true) {
+		textParseMarkers(text, &tsi, font, true);
+
 		TextInfo ti;
 		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
 
@@ -1178,88 +1250,16 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 	return r;
 }
 
-void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
-	float z = globalGraphicsState->zOrder;
-
-	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
-	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
-
-	glBindTexture(GL_TEXTURE_2D, font->tex.id);
-	Vec4 c = COLOR_SRGB(color);
-	glColor4f(c.r, c.g, c.b, c.a);
-	glBegin(GL_QUADS);
-
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
-		TextInfo ti;
-		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
-		if(text[ti.index] == '\n') continue;
-
-		glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(ti.r.left, ti.r.bottom, z);
-		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, z);
-		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, z);
-		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, z);
-	}
-	
-	glEnd();
-}
-
-
-
-struct TextSettings {
-	Font* font;
-	Vec4 color;
-	int wrapWidth;
-
-	int shadowMode; // 0 = noShadow, 1 = shadow, 2 = outline;
-	Vec2 shadowDir;
-	float shadowSize;
-	Vec4 shadowColor;
-};
-
-void textParseMarkers(char* text, Font* font, TextSimInfo* tsi) {
-	if(text[tsi->index] == Bold_Mark[0]) {
-		if(strStartsWith(&text[tsi->index], Bold_Mark, Bold_Mark_Size)) {
-			tsi->index += Bold_Mark_Size;
-			
-			if(!tsi->bold) {
-				glEnd();
-				glBindTexture(GL_TEXTURE_2D, font->boldFont->tex.id);
-				glBegin(GL_QUADS);
-			} else {
-				glEnd();
-				glBindTexture(GL_TEXTURE_2D, font->tex.id);
-				glBegin(GL_QUADS);
-			}
-			tsi->bold = !tsi->bold;
-		} else if(strStartsWith(&text[tsi->index], Italic_Mark, Italic_Mark_Size)) {
-			tsi->index += Italic_Mark_Size;
-			
-			if(!tsi->italic) {
-				glEnd();
-				glBindTexture(GL_TEXTURE_2D, font->italicFont->tex.id);
-				glBegin(GL_QUADS);
-			} else {
-				glEnd();
-				glBindTexture(GL_TEXTURE_2D, font->tex.id);
-				glBegin(GL_QUADS);
-			}
-			tsi->italic = !tsi->italic;
-		}
-	}
-}
-
-void drawText(char* text, Vec2 startPos, TextSettings settings, Vec2i align = vec2i(-1,1)) {
+void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSettings settings) {
 	float z = globalGraphicsState->zOrder;
 	Font* font = settings.font;
-	int wrapWidth = settings.wrapWidth;
 
 	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
 
 	Vec4 c = COLOR_SRGB(settings.color);
 	Vec4 sc = COLOR_SRGB(settings.shadowColor);
 
-	glColor4f(c.r, c.g, c.b, c.a);
+	pushColor(c);
 	glBindTexture(GL_TEXTURE_2D, font->tex.id);
 	glBegin(GL_QUADS);
 
@@ -1267,21 +1267,23 @@ void drawText(char* text, Vec2 startPos, TextSettings settings, Vec2i align = ve
 	while(true) {
 		
 		Font* f = font;
-		textParseMarkers(text, font, &tsi);
+		textParseMarkers(text, &tsi, font);
 		if(tsi.bold) f = font->boldFont;
 		if(tsi.italic) f = font->italicFont;
+		if(tsi.colorMode) pushColor(vec4(tsi.colorOverwrite, 1));
+		else pushColor(c);
 
 		TextInfo ti;
 		if(!textSim(text, f, &tsi, &ti, startPos, wrapWidth)) break;
 		if(text[ti.index] == '\n') continue;
 
-		if(settings.shadowMode) {
+		if(settings.shadowMode != TEXT_NOSHADOW) {
 			pushColor(sc);
 
-			if(settings.shadowMode == 1) {
+			if(settings.shadowMode == TEXT_SHADOW) {
 				Rect r = rectTrans(ti.r, normVec2(settings.shadowDir) * settings.shadowSize);
 				pushRect(r, ti.uv, z);
-			} else {
+			} else if(settings.shadowMode == TEXT_OUTLINE) {
 				for(int i = 0; i < 8; i++) {
 					Vec2 dir = rotateVec2(vec2(1,0), (M_2PI/8)*i);
 					Rect r = rectTrans(ti.r, dir*settings.shadowSize);
@@ -1297,91 +1299,11 @@ void drawText(char* text, Vec2 startPos, TextSettings settings, Vec2i align = ve
 	
 	glEnd();
 }
-
-void drawTextOutlined(char* text, Font* font, Vec2 startPos, float outlineSize, Vec4 color, Vec4 colorOutline, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
-
-	float z = globalGraphicsState->zOrder;
-
-	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
-	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
-
-	glBindTexture(GL_TEXTURE_2D, font->tex.id);
-	Vec4 c = COLOR_SRGB(color);
-	Vec4 c2 = COLOR_SRGB(colorOutline);
-	glBegin(GL_QUADS);
-
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
-		TextInfo ti;
-		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
-		if(text[ti.index] == '\n') continue;
-
-		glColor4f(c2.r,c2.g,c2.b,c2.a);
-
-		for(int i = 0; i < 8; i++) {
-			Vec2 dir = rotateVec2(vec2(1,0), (M_2PI/8)*i);
-
-			Rect nr = rectTrans(ti.r, dir*outlineSize);
-			glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(nr.left, nr.bottom, z);
-			glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(nr.left, nr.top, z);
-			glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(nr.right, nr.top, z);
-			glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(nr.right, nr.bottom, z);
-		}
-
-		glColor4f(c.r, c.g, c.b, c.a);
-
-		glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(ti.r.left, ti.r.bottom, z);
-		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, z);
-		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, z);
-		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, z);
-
-	}
-	
-	glEnd();
+void drawText(char* text, Vec2 startPos, TextSettings settings) {
+	return drawText(text, startPos, vec2i(-1,1), 0, settings);
 }
-
-void drawText(char* text, Font* font, Vec2 startPos, Vec4 color, Vec2i align, int wrapWidth, float shadow, Vec4 shadowColor = vec4(0,1)) {
-
-	float z = globalGraphicsState->zOrder;
-
-	Vec2 dr = normVec2(vec2(1,-1));
-
-	startPos = testgetTextStartPos(text, font, startPos, align, wrapWidth);
-	// startPos = vec2(roundInt((int)startPos.x), roundInt((int)startPos.y));
-
-	Vec4 c, sc;
-	glBindTexture(GL_TEXTURE_2D, font->tex.id);
-	c = COLOR_SRGB(color);
-	sc = COLOR_SRGB(shadowColor);
-	glColor4f(c.r, c.g, c.b, c.a);
-	glBegin(GL_QUADS);
-
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
-		TextInfo ti;
-		if(!textSim(text, font, &tsi, &ti, startPos, wrapWidth)) break;
-		if(text[ti.index] == '\n') continue;
-
-		if(shadow > 0) {
-			glColor4f(sc.r, sc.g, sc.b, sc.a);
-
-			Rect r = rectTrans(ti.r, dr * shadow);
-			glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(r.left, r.bottom, z);
-			glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(r.left, r.top, z);
-			glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(r.right, r.top, z);
-			glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(r.right, r.bottom, z);
-
-			glColor4f(c.r, c.g, c.b, c.a);
-		}
-
-		glTexCoord2f(ti.uv.left,  ti.uv.top);    glVertex3f(ti.r.left, ti.r.bottom, z);
-		glTexCoord2f(ti.uv.left,  ti.uv.bottom); glVertex3f(ti.r.left, ti.r.top, z);
-		glTexCoord2f(ti.uv.right, ti.uv.bottom); glVertex3f(ti.r.right, ti.r.top, z);
-		glTexCoord2f(ti.uv.right, ti.uv.top);    glVertex3f(ti.r.right, ti.r.bottom, z);
-		
-	}
-
-	glEnd();
+void drawText(char* text, Vec2 startPos, Vec2i align, TextSettings settings) {
+	return drawText(text, startPos, align, 0, settings);
 }
 
 void drawTextLineCulled(char* text, Font* font, Vec2 startPos, float width, Vec4 color, Vec2i align = vec2i(-1,1)) {

@@ -22,8 +22,8 @@
 	- Text box settings add align left right text padding/offset.
 
 	Done Today: 
-	- Text edit offset. Text edit cursor hover. Started putting in settings sub menu. Code deletion. Bold and italic fonts. 
 
+	
 	Bugs:
 	- Crash when server takes too long to respond.
 
@@ -738,26 +738,42 @@ struct TextEditVars {
 	bool cursorChanged;
 };
 
-struct TextBoxSettings {
-	Font* font;
-	float shadow;
-	Vec4 textColor;
-	Vec4 shadowColor;
-
-	Vec4 backgroundColor;
+struct BoxSettings {
+	Vec4 color;
 	float roundedCorner;
-
 	Vec4 borderColor;
+	float borderSize; // Not used yet.
 };
+
+BoxSettings boxSettings(Vec4 color, float roundedCorner, Vec4 borderColor) {
+	return {color, roundedCorner, borderColor};
+}
+BoxSettings boxSettings(Vec4 color) {
+	return {color, 0};
+}
+BoxSettings boxSettings() {
+	return {0};
+}
+
+struct TextBoxSettings {
+	TextSettings textSettings;
+	BoxSettings boxSettings;
+};
+
+TextBoxSettings textBoxSettings(TextSettings textSettings, BoxSettings boxSettings) {
+	return {textSettings, boxSettings};
+}
 
 struct TextEditSettings {
 	TextBoxSettings textBoxSettings;
+
 	char* textBuffer;
 
 	bool wrapping;
 	bool singleLine;
 
 	float cursorWidth;
+	float cursorHeightMod;
 
 	char* defaultText;
 
@@ -765,29 +781,6 @@ struct TextEditSettings {
 	Vec4 colorCursor;
 
 	float textOffset;
-};
-
-struct ScrollRegionSettings {
-	Vec2 border;
-	float scrollBarWidth;
-	Vec2 sliderMargin;
-	float sliderRounding;
-
-	float sliderSize;
-	float sliderSizeMin;
-
-	float scrollAmount;
-
-	bool scrollWithBackground;
-	bool scrollWithSlider;
-	bool scrollWithMouseWheel;
-
-	bool fixedHeight;
-
-	Vec4 sliderColor;
-	Vec4 scrollBarColor;
-	Vec4 backgroundColor;
-	Vec4 borderColor;
 };
 
 struct SliderSettings {
@@ -802,6 +795,53 @@ struct SliderSettings {
 	Vec4 color;
 	Vec4 lineColor;
 };
+
+SliderSettings sliderSettings(TextBoxSettings textBoxSettings, float size, float minSize, float lineWidth, float rounding, float heightOffset, Vec4 color, Vec4 lineColor) {
+	return {textBoxSettings, size, minSize, lineWidth, rounding, heightOffset, color, lineColor};
+}
+
+enum {
+	SCROLL_BACKGROUND = 0,
+	SCROLL_SLIDER,
+	SCROLL_MOUSE_WHEEL,
+	SCROLL_DYNAMIC_HEIGHT,
+};
+
+struct ScrollRegionSettings {
+	BoxSettings boxSettings;
+
+	int flags;
+
+	Vec2 border;
+	float scrollBarWidth;
+	Vec2 sliderMargin;
+	float sliderRounding;
+
+	float sliderSize;
+	float sliderSizeMin;
+
+	float scrollAmount;
+
+	Vec4 sliderColor;
+	Vec4 scrollBarColor;
+};
+
+ScrollRegionSettings scrollRegionSettings(BoxSettings boxSettings, int flags, Vec2 border, float scrollBarWidth, Vec2 sliderMargin, float sliderRounding, float sliderSize, float sliderSizeMin, float scrollAmount, Vec4 sliderColor, Vec4 scrollBarColor) {
+
+	ScrollRegionSettings s;
+	s.boxSettings = boxSettings;
+	s.flags = flags;
+	s.border = border;
+	s.scrollBarWidth = scrollBarWidth;
+	s.sliderMargin = sliderMargin;
+	s.sliderRounding = sliderRounding;
+	s.sliderSize = sliderSize;
+	s.sliderSizeMin = sliderSizeMin;
+	s.scrollAmount = scrollAmount;
+	s.sliderColor = sliderColor;
+	s.scrollBarColor = scrollBarColor;
+	return s;
+}
 
 struct LayoutData {
 	Rect region;
@@ -842,6 +882,8 @@ struct NewGui {
 
 	int zLevel;
 
+	TextSettings textSettings;
+	BoxSettings boxSettings;
 	TextBoxSettings textBoxSettings;
 	TextBoxSettings buttonSettings;
 	TextEditSettings editSettings;
@@ -1084,18 +1126,6 @@ Vec4 newGuiColorModB(NewGui* gui, int focus = 0) {
 
 
 
-TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor, float roundedCorners, Vec4 borderColor) {
-	return {font, shadow, textColor, shadowColor, backgroundColor, roundedCorners, borderColor};
-}
-TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor, float shadow, Vec4 shadowColor) {
-	return textBoxSettings(font, backgroundColor, textColor, shadow, shadowColor, 0, vec4(0,0));
-}
-TextBoxSettings textBoxSettings(Font* font, Vec4 backgroundColor, Vec4 textColor) {
-	return {font, 0, textColor, vec4(0,0), backgroundColor, 0};
-}
-TextBoxSettings textBoxSettings(Font* font, Vec4 textColor) {
-	return textBoxSettings(font, vec4(0,0), textColor);
-}
 
 
 
@@ -1247,19 +1277,7 @@ Rect scissorTestIntersect(Rect scissor, Rect r) {
 
 
 
-
-void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
-	// scissorTestScreen(rectExpand(scissor, vec2(2,2)));
-	scissorTestScreen(scissor);
-
-	if(settings.backgroundColor.a != 0) {
-		drawRectRounded(r, settings.backgroundColor, settings.roundedCorner);
-	}
-	glLineWidth(0.5f);
-	if(settings.borderColor.a != 0) {
-		drawRectRoundedOutlined(r, settings.backgroundColor, settings.borderColor, settings.roundedCorner);
-	}
-
+void drawText(Rect r, char* text, Vec2i align, Rect scissor, TextSettings settings) {
 	float xPos = rectCen(r).x + (rectW(r)/2)*align.x;
 	float yPos = rectCen(r).y + (rectH(r)/2)*align.y;
 
@@ -1267,35 +1285,39 @@ void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings 
 	if(align.x == 1) xPos -= 2;
 
 	scissorTestScreen(rectExpand(getRectScissor(r, scissor), vec2(-3,-3)));
-	// scissorTestScreen(getRectScissor(r, scissor));
-
-	if(settings.shadow == 0) drawText(text, settings.font, vec2(xPos, yPos), settings.textColor, align);
-	else drawText(text, settings.font, vec2(xPos, yPos), settings.textColor, align, 0, settings.shadow, settings.shadowColor);
-
+	drawText(text, vec2(xPos, yPos), align, settings);
 	scissorTestScreen(scissor);
 }
-void drawTextBox(Rect r, char* text, Vec2i align, TextBoxSettings settings) {
-	drawTextBox(r, text, align, rectExpand(r, vec2(1,1)), settings);
-}
-void drawTextBox(Rect r, char* text, Rect scissor, TextBoxSettings settings) {
-	drawTextBox(r, text, vec2i(0,0), scissor, settings);
-}
-void drawTextBox(Rect r, char* text, TextBoxSettings settings) {
-	drawTextBox(r, text, vec2i(0,0), rectExpand(r, vec2(1,1)), settings);
+
+void drawBox(Rect r, Rect scissor, BoxSettings settings) {
+	if(settings.color.a != 0) {
+		drawRectRounded(r, settings.color, settings.roundedCorner);
+	}
+	glLineWidth(0.5f);
+	if(settings.borderColor.a != 0) {
+		drawRectRoundedOutlined(r, settings.color, settings.borderColor, settings.roundedCorner);
+	}
 }
 
+void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
+	scissorTestScreen(scissor);
+	drawBox(r, scissor, settings.boxSettings);
+	drawText(r, text, align, scissor, settings.textSettings);
+}
 
 void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
-	TextBoxSettings textSettings = editSettings.textBoxSettings;
+
+	BoxSettings* boxSettings = &editSettings.textBoxSettings.boxSettings;
+	TextSettings* textSettings = &editSettings.textBoxSettings.textSettings;
 
 	Vec2 startPos = rectL(textRect) + vec2(editSettings.textOffset,0);
 	if(active) startPos += editVars.scrollOffset;
 
 	scissorTestScreen(scissor);
-	drawRect(textRect, textSettings.backgroundColor);
-	if(textSettings.borderColor.a != 0) {
+	drawRect(textRect, boxSettings->color);
+	if(boxSettings->borderColor.a != 0) {
 		glLineWidth(0.5f);
-		drawRectOutline(textRect, textSettings.borderColor);
+		drawRectOutline(textRect, boxSettings->borderColor);
 	}
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
@@ -1307,19 +1329,18 @@ void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextE
 	Vec2i align = vec2i(-1,0);
 	if(active) {
 		// Selection.
-		drawTextSelection(text, textSettings.font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
+		drawTextSelection(text, textSettings->font, startPos, editVars.cursorIndex, editVars.markerIndex, editSettings.colorSelection, align);
 	}
 
 	if(!strEmpty(editSettings.defaultText) && strEmpty(text) && !active) 
-		drawText(editSettings.defaultText, textSettings.font, rectCen(textRect), textSettings.textColor, vec2i(0,0), 0, textSettings.shadow, textSettings.shadowColor);
+		drawText(editSettings.defaultText, rectCen(textRect), vec2i(0,0), *textSettings);
 	else 
-		drawText(text, textSettings.font, startPos, textSettings.textColor, align, 0, textSettings.shadow, textSettings.shadowColor);
+		drawText(text, startPos, align, *textSettings);
 
 	if(active) {
 		// Cursor.
-		Vec2 cPos = textIndexToPos(text, textSettings.font, startPos, editVars.cursorIndex, align);
-		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, textSettings.font->height));
-		if(editVars.cursorIndex == 0) cRect = rectTrans(cRect, vec2(editSettings.cursorWidth/2));
+		Vec2 cPos = textIndexToPos(text, textSettings->font, startPos, editVars.cursorIndex, align);
+		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, textSettings->font->height* editSettings.cursorHeightMod));
 		drawRect(cRect, editSettings.colorCursor);
 	}
 
@@ -1336,11 +1357,12 @@ void drawTextEditBox(float number, Rect textRect, bool active, Rect scissor, Tex
 void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
 	scissorTestScreen(scissor);
 
-	TextBoxSettings textSettings = settings.textBoxSettings;
+	BoxSettings* boxSettings = &settings.textBoxSettings.boxSettings;
+	TextSettings* textSettings = &settings.textBoxSettings.textSettings;
 
 	rectExpand(&sr, vec2(0,-settings.heightOffset*2));
 
-	if(textSettings.backgroundColor.a > 0) drawRect(br, textSettings.backgroundColor);
+	if(boxSettings->color.a > 0) drawRect(br, boxSettings->color);
 	if(settings.lineColor.a > 0 && settings.lineWidth > 0) {
 		glLineWidth(settings.lineWidth);
 		drawLine(rectL(br), rectR(br), settings.lineColor);
@@ -1349,13 +1371,13 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSett
 	if(settings.rounding > 0) drawRectRounded(sr, settings.color, settings.rounding);
 	else drawRect(sr, settings.color);
 
-	if(textSettings.borderColor.a != 0) drawRectOutline(br, textSettings.borderColor);
+	if(boxSettings->borderColor.a != 0) drawRectOutline(br, boxSettings->borderColor);
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 	scissorTestScreen(getRectScissor(br, scissor));
 
 	char* text = type == 0 ? fillString("%f", *((float*)val)) : fillString("%i", *((int*)val)) ;
-	drawText(text, textSettings.font, rectCen(br), textSettings.textColor, vec2i(0,0), 0, textSettings.shadow, textSettings.shadowColor);
+	drawText(text, rectCen(br), vec2i(0,0), *textSettings);
 }
 void drawSlider(float val, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
 	return drawSlider(&val, 0, br, sr, scissor, settings);
@@ -1366,11 +1388,31 @@ void drawSlider(int val, Rect br, Rect sr, Rect scissor, SliderSettings settings
 
 //
 
-void newGuiQuickTextBox(NewGui* gui, Rect r, char* t, Vec2i align = vec2i(0,0), TextBoxSettings* settings = 0) {
+void newGuiQuickText(NewGui* gui, Rect r, char* t, Vec2i align, TextSettings* settings = 0) {
+	if(rectEmpty(getRectScissor(gui->scissor, r))) return;
+
+	TextSettings set = settings == 0 ? gui->textSettings : *settings;
+	drawText(r, t, align, gui->scissor, set);
+}
+void newGuiQuickText(NewGui* gui, Rect r, char* t, TextSettings* settings = 0) {
+	newGuiQuickText(gui, r, t, vec2i(0,0), settings);
+}
+
+void newGuiQuickBox(NewGui* gui, Rect r, BoxSettings* settings = 0) {
+	if(rectEmpty(getRectScissor(gui->scissor, r))) return;
+
+	BoxSettings set = settings == 0 ? gui->boxSettings : *settings;
+	drawBox(r, gui->scissor, set);
+}
+
+void newGuiQuickTextBox(NewGui* gui, Rect r, char* t, Vec2i align, TextBoxSettings* settings = 0) {
 	if(rectEmpty(getRectScissor(gui->scissor, r))) return;
 
 	TextBoxSettings set = settings == 0 ? gui->textBoxSettings : *settings;
 	drawTextBox(r, t, align, gui->scissor, set);
+}
+void newGuiQuickTextBox(NewGui* gui, Rect r, char* t, TextBoxSettings* settings = 0) {
+	return newGuiQuickTextBox(gui, r, t, vec2i(0,0), settings);
 }
 
 bool newGuiQuickButton(NewGui* gui, Rect r, char* text, Vec2i align = vec2i(0,0), TextBoxSettings* settings = 0) {
@@ -1380,7 +1422,7 @@ bool newGuiQuickButton(NewGui* gui, Rect r, char* text, Vec2i align = vec2i(0,0)
 	if(rectEmpty(intersection)) return false;
 
 	TextBoxSettings set = settings == 0 ? gui->buttonSettings : *settings;
-	set.backgroundColor += newGuiColorModB(gui);
+	set.boxSettings.color += newGuiColorModB(gui);
 	drawTextBox(r, text, align, gui->scissor, set);
 
 	return active;
@@ -1437,20 +1479,21 @@ bool newGuiQuickTextEditAllVars(NewGui* gui, Rect r, void* data, int varType, in
 	Rect intersect = getRectScissor(gui->scissor, r);
 
 	TextEditSettings set = editSettings == 0 ? gui->editSettings : *editSettings;
-	TextBoxSettings textSettings = set.textBoxSettings;
+	TextSettings* textSettings = &set.textBoxSettings.textSettings;
 
 	char* charData = (char*)data;
 	int* intData = (int*)data;
 	float* floatData = (float*)data;
 
 	int event;
-	if(varType == 0) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, charData, textSettings.font, set, maxSize);
-	else if(varType == 1) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, intData, textSettings.font, set);
-	else event = newGuiGoTextEdit(gui, intersect, gui->zLevel, floatData, textSettings.font, set);
+	if(varType == 0) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, charData, textSettings->font, set, maxSize);
+	else if(varType == 1) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, intData, textSettings->font, set);
+	else event = newGuiGoTextEdit(gui, intersect, gui->zLevel, floatData, textSettings->font, set);
 
 	if(rectEmpty(intersect)) return false;
 
-	if(event == 0) set.textBoxSettings.backgroundColor += newGuiColorMod(gui);
+	if(event == 0) set.textBoxSettings.boxSettings.color += newGuiColorMod(gui);
+
 	if(varType == 0) drawTextEditBox(charData, r, event > 0, gui->scissor, gui->editVars, set);
 	else if(varType == 1) drawTextEditBox(*intData, r, event > 0, gui->scissor, gui->editVars, set);
 	else drawTextEditBox(*floatData, r, event > 0, gui->scissor, gui->editVars, set);
@@ -1483,6 +1526,7 @@ struct ScrollRegionValues {
 
 void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, ScrollRegionValues* scrollValues, ScrollRegionSettings* settings = 0) {
 	ScrollRegionSettings set = settings == 0 ? gui->scrollSettings : *settings;
+	int flags = set.flags;
 
 	clampMin(&height, 0);
 
@@ -1493,7 +1537,7 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 	bool hasScrollbar = itemsHeight > 0;
 
 	Rect scrollRegion = r;
-	if(!hasScrollbar && !set.fixedHeight) rectSetB(&scrollRegion, scrollRegion.top - height);
+	if(!hasScrollbar && flagGet(flags, SCROLL_DYNAMIC_HEIGHT)) rectSetB(&scrollRegion, scrollRegion.top - height);
 	float scrollBarWidth = hasScrollbar?set.scrollBarWidth:0;
 
 	Rect itemRegion = rectSetR(scrollRegion, scrollRegion.right - scrollBarWidth);
@@ -1503,11 +1547,11 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 	scissorTestScreen(rectExpand(gui->scissor, vec2(-3,-3)));
 
 	// if(!hasScrollbar) rectSetB(&scrollRegion, scrollRegion.top-height);
-	drawRect(scrollRegion, set.backgroundColor);
+	drawRect(scrollRegion, set.boxSettings.color);
 	if(set.scrollBarColor.a != 0) drawRect(scrollBarRegion, set.scrollBarColor);
-	if(set.borderColor.a != 0) {
+	if(set.boxSettings.borderColor.a != 0) {
 		glLineWidth(0.5f);
-		drawRectOutline(scrollRegion, set.borderColor);
+		drawRectOutline(scrollRegion, set.boxSettings.borderColor);
 	}
 
 	float sliderSize = set.sliderSize;
@@ -1540,7 +1584,7 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 		}
 
 		// Scroll with background drag.
-		if(set.scrollWithBackground)
+		if(flagGet(flags, SCROLL_BACKGROUND))
 		{
 			int event = newGuiGoDragAction(gui, getRectScissor(gui->scissor, itemRegion), gui->zLevel);
 			if(event == 1) gui->mouseAnchor.y = gui->input->mousePosNegative.y - ((*scrollValue)*itemsHeight);
@@ -1570,8 +1614,8 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-3)));
 }
 
-TextEditSettings textEditSettings(TextBoxSettings textSettings, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, Vec4 colorSelection, Vec4 colorCursor, float textOffset) {
-	return {textSettings, textBuffer, wrapping, singleLine, cursorWidth, "", colorSelection, colorCursor, textOffset};
+TextEditSettings textEditSettings(TextBoxSettings textSettings, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, float cursorHeightMod, Vec4 colorSelection, Vec4 colorCursor, float textOffset) {
+	return {textSettings, textBuffer, wrapping, singleLine, cursorWidth, cursorHeightMod, "", colorSelection, colorCursor, textOffset};
 }
 
 void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev) {
@@ -3802,8 +3846,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 
-		// if(init || ad->reloadSettings) {
-		if(init || ad->reloadSettings || reload) {
+		if(init || ad->reloadSettings) {
+		// if(init || ad->reloadSettings || reload) {
 			ad->reloadSettings = false;
 
 			if(!fileExists(App_Settings_File)) {
@@ -3822,35 +3866,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				ad->font = getFont(as->font, as->fontHeight, as->fontBold, as->fontItalic);
 				ad->fontTitle = getFont(as->font, as->graphTitleFontHeight, as->fontBold, as->fontItalic);
-
-			// 	NewAppSettings* as = &ad->newAppSettings;
-			// 	NewAppColors* ac = &ad->newAppColors;
-
-			// 	// Check folders for fonts.
-			// 	int fontCount = 2;
-			// 	for(int i = 0; i < fontCount; i++) {
-			// 		char* fileName;
-			// 		int fontSize;
-			// 		if(i == 0) {
-			// 			fileName = as->font;
-			// 			fontSize = as->fontHeight;
-			// 		} else if(i == 1) {
-			// 			fileName = as->font;
-			// 			fontSize = as->graphTitleFontHeight;
-			// 		} 
-			// 		char* filePath = App_Font_Folder;
-
-			// 		if(!fileExists(fillString("%s%s", filePath, fileName))) {
-			// 			if(fileExists(fillString("%s%s", Windows_Font_Folder, fileName))) filePath = Windows_Font_Folder;
-			// 			else fileName = Default_Font;
-			// 		}
-
-			// 		Font* font = fontInit(&gs->fonts[FONT_SIZE + i][0], fileName, filePath, fontSize, -1);
-			// 		if(i == 0) ad->font = font;
-			// 		else if(i == 1) ad->fontBold = font;
-			// 		else if(i == 2) ad->fontTitle = font;
-			// 		else ad->fontComment = font;
-			// 	}
 			}
 		}
 
@@ -3877,36 +3892,41 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 		}
 
-
-
 		{
 			NewAppSettings* newas = &ad->newAppSettings;
 			NewAppColors* newac = &ad->newAppColors;
 
 			Font* font = ad->font;
-			// Font* font = ad->fontSlim;
 			float textPadding = font->height * newas->textPaddingMod;
 
-			TextBoxSettings textSettings = textBoxSettings(font, newac->uiBackground, newac->font, newas->fontShadow, newac->fontShadow, newas->rounding, newac->edge);
+			TextSettings ts = textSettings(font, newac->font, TEXT_SHADOW, vec2(1,-1), newas->fontShadow, newac->fontShadow);
+			BoxSettings bs = boxSettings(newac->button, newas->rounding, newac->edge);
 
-			ad->labelSettings = textBoxSettings(font, vec4(0,0), newac->font, newas->fontShadow, newac->fontShadow, 0, vec4(0,0));
-			ad->buttonSettings = textBoxSettings(font, newac->button, newac->font, newas->fontShadow, newac->fontShadow, newas->rounding, newac->edge);
-			ad->uiButtonSettings = ad->buttonSettings;
-			ad->uiButtonSettings.roundedCorner = 0;
+			ad->labelSettings = textBoxSettings(ts, boxSettings());
+			ad->buttonSettings = textBoxSettings(ts, bs);
 
-			ad->scrollButtonSettings = ad->buttonSettings;
-			ad->scrollButtonSettings.roundedCorner = 0;
-			ad->scrollButtonSettings.borderColor = vec4(0,0);
+			ad->uiButtonSettings = ad->buttonSettings; ad->uiButtonSettings.boxSettings.roundedCorner = 0;
+			ad->scrollButtonSettings = ad->uiButtonSettings; ad->scrollButtonSettings.boxSettings.borderColor = vec4(0,0);
 
-			ad->editSettings = textEditSettings(textSettings, ad->gui->editText, true, true, 2, newac->editSelection, newac->editCursor, font->height * newas->textPaddingMod);
-			ad->sliderSettings = {textSettings, 20, 20, 0, 0, 0, newac->button, newac->font};
-			ad->scrollSettings = {vec2(newas->padding,0), 20, vec2(4,4), 6, 0, 40, font->height+1, true, true, true, false, newac->button, vec4(0,0), newac->uiBackground, newac->edge};
-			ad->commentScrollSettings = {vec2(textPadding,0), 20, vec2(4,4), 6, 0, 40, font->height+1, true, true, true, true, newac->button, vec4(0,0), newac->uiBackground, newac->edge};
+			TextBoxSettings settings = ad->uiButtonSettings; settings.boxSettings.color = newac->uiBackground;
 
+			ad->editSettings = textEditSettings(settings, ad->gui->editText, true, true, 1, 0.8f, newac->editSelection, newac->editCursor, textPadding);
+			ad->sliderSettings = sliderSettings(settings, 20, 20, 0, 0, 0, newac->button, newac->font);
+
+			int scrollFlags = SCROLL_BACKGROUND | SCROLL_SLIDER | SCROLL_MOUSE_WHEEL | SCROLL_DYNAMIC_HEIGHT;
+			
+			ad->scrollSettings = scrollRegionSettings(settings.boxSettings, scrollFlags, vec2(newas->padding,0), 20, vec2(4,4), 6, 0, 40, font->height+1, newac->button, vec4(0,0));
+
+			ad->commentScrollSettings = ad->scrollSettings;
+			ad->commentScrollSettings.border = vec2(textPadding, 0);
+			flagRemove(&ad->commentScrollSettings.flags, SCROLL_DYNAMIC_HEIGHT);
 		}
 
 		{
 			NewGui* gui = ad->gui;
+			gui->textSettings = ad->buttonSettings.textSettings;
+			gui->boxSettings = ad->buttonSettings.boxSettings;
+
 			gui->buttonSettings = ad->buttonSettings;
 			gui->textBoxSettings = ad->labelSettings;
 			gui->editSettings = ad->editSettings;
@@ -4084,7 +4104,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		glFrontFace(GL_CW);
 		// glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
-		glDisable(GL_SCISSOR_TEST);
+		scissorState(false);
 		// glEnable(GL_LINE_SMOOTH);
 		// glEnable(GL_POLYGON_SMOOTH);
 		// glDisable(GL_POLYGON_SMOOTH);
@@ -5176,6 +5196,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float iconMargin = 0.4f;
 			float iconWidth = 1.0f;
 			char* titleText = fillString("%s - %i - %s", ad->playlist.title, ad->playlist.count, ad->playlist.id);
+			TextSettings titleTextSettings = ad->gui->textSettings; 
+			titleTextSettings.font = titleTextSettings.font->boldFont;
 
 			Vec4 iconColor = newac->font;
 
@@ -5197,7 +5219,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			scissorState();
 			Rect rTitle = layoutGetRect(lay);
 			rTitle.right = lTitle->r.right;
-			drawTextBox(rTitle, text, vec2i(-1,0), ad->gui->textBoxSettings);
+			// newGuiQuickText(ad->gui, rTitle, text, vec2i(-1,0));
+			newGuiQuickText(ad->gui, rTitle, text, vec2i(-1,0), &titleTextSettings);
 			scissorState(false);
 
 			float iconSize = font->height*iconMargin;
@@ -5378,17 +5401,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Vec4 subHoriLinesColor = newac->graphSubMark;
 			Vec4 shadowColor = newac->fontShadow;
 
+			TextSettings settingsMain = textSettings(font->boldFont, mainColor, TEXT_SHADOW, shadow, shadowColor);
+			TextSettings settingsSemi = textSettings(font, semiColor, TEXT_SHADOW, shadow, shadowColor);
+
 			float div = 10;
 			int subDiv = 4;
 			float splitSizePixels = font->height*3;
-
 
 			Vec4 leftScaleDividerColor = newac->edge;
 			float leftScaleDividerSize = 1;
 
 
 			glLineWidth(lineWidth);
-			glEnable(GL_SCISSOR_TEST);
+			scissorState();
 
 			float textMargin = font->height*textMarginMod;
 			float markSizeDifference = 0.5f;
@@ -5425,7 +5450,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
 					else text = fillString("%f",p);
 
-					drawText(text, font, vec2(scaleRect.right - markLength - textMargin, y), mainColor, vec2i(1,0), 0, shadow, shadowColor);
+					drawText(text, vec2(scaleRect.right - markLength - textMargin, y), vec2i(1,0), settingsMain);
 					
 					float textWidth = getTextDim(text, font).w;
 
@@ -5440,7 +5465,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						if(stepSize/subDiv > 10) subText = fillString("%i.",(int)(stepSize/subDiv));
 						else subText = fillString("%f",(stepSize/subDiv));
 
-						drawText(subText, font, vec2(scaleRect.right - markLength*markSizeDifference - textMargin, y), semiColor, vec2i(1,0), 0, shadow, shadowColor);
+						drawText(subText, vec2(scaleRect.right - markLength*markSizeDifference - textMargin, y), vec2i(1,0), settingsSemi);
 
 						// Draw horizontal line.
 						scissorTestScreen(cam->viewPort);
@@ -5460,7 +5485,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 
-			glDisable(GL_SCISSOR_TEST);
+			scissorState(false);
 
 			// Draw dividers.
 			Vec4 color = leftScaleDividerColor;
@@ -5478,7 +5503,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		{
 			TIMER_BLOCK_NAMED("Bottom Text");
 
-
 			int subStringMargin = font->height/2;
 			float splitOffset = font->height;
 
@@ -5494,11 +5518,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float shadow = newas->fontShadow;
 			Vec4 shadowColor = newac->fontShadow;
 
+			TextSettings settingsMain = textSettings(font->boldFont, mainColor, TEXT_SHADOW, shadow, shadowColor);
+			TextSettings settingsSemi = textSettings(font, semiColor, TEXT_SHADOW, shadow, shadowColor);
+
 			float div = 10;
 			float splitSizePixels = 1000;
 
 			glLineWidth(lineWidth);
-			glEnable(GL_SCISSOR_TEST);
+			scissorState();
 
 			Rect scaleRect = rBottomText;
 
@@ -5593,8 +5620,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 						scissorTestScreen(scaleRect);
 
 						drawLineNewOff(vec2(roundFloat(x)+0.5f, scaleRect.top), vec2(0,-markLength), mainColor); 
-						// drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1));
-						drawText(dateString, font, vec2(x, scaleRect.top - markLength - fontMargin), mainColor, vec2i(0,1), 0, shadow, shadowColor);
+
+						drawText(dateString, vec2(x, scaleRect.top - markLength - fontMargin), vec2i(0,1), settingsMain);
 
 						dateIncrement(&d, subMarkerWidth, zoomStage+1);
 						dateEncode(&d);
@@ -5609,8 +5636,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 						}
 
 						char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
-						// drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1));
-						drawText(subString, font, vec2(leftX + (x-leftX)/2, scaleRect.top), semiColor, vec2i(0,1), 0, shadow, shadowColor);
+						drawText(subString, vec2(leftX + (x-leftX)/2, scaleRect.top), vec2i(0,1), settingsSemi);
 
 						leftX = x;
 					}
@@ -5622,7 +5648,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				dateEncode(&startDate);
 			}
 
-			glDisable(GL_SCISSOR_TEST);
+			scissorState(false);
 		}
 
 		// Graphs.
@@ -5642,22 +5668,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 			int statLineWidth = 1;
 
 
+			float textPadding = font->height * newas->textPaddingMod;
 
 			int settingHoverPointSize = 10;
 			int settingHoverPointOffset = 10;
 			Font* graphTextFont = ad->font;
-			Vec2 graphTextOffset = vec2(5);
+			Vec2 graphTextOffset = vec2(textPadding);
 			float graphTextOutline = newas->graphFontShadow;
 			float hoverTextOutline = newas->graphFontShadow;
 
 			Vec4 graphTextColor = newac->graphFont;
-
+			Vec4 graphTextShadowColor = newac->fontShadow;
 
 
 
 			Font* graphTitleFont = ad->fontTitle;
-			Vec2 graphTitleOffset = vec2(as->titleOffset, -as->titleOffset);
-			// Vec2 graphTitleOffset = vec2(graphTitleFont->height*0.25f,-1);
+			Vec2 graphTitleOffset = vec2(textPadding, -textPadding);
 			Vec4 graphTitleColor = newac->font;
 			float graphTitleOutline = newas->fontShadow;
 			Vec4 graphTitleOutlineColor = newac->fontShadow;
@@ -5665,7 +5691,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			char* graphTitles[Line_Graph_Count] = {"Views", "Likes", "Likes/Dislikes", "Comments"};
 			char* sortButtonText = "Sort";
 			Vec2 sortButtonOffset = vec2(font->height*0.5f, 0);
-			float textPadding = font->height * newas->textPaddingMod;
 
 
 			float selectionWidth = 1;
@@ -5673,12 +5698,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			selectionColor.a = 0.2f;
 
 
-
 			YoutubeVideo* vids = ad->videos;
 			int vidCount = ad->playlist.count;
 			ad->hoveredVideo = -1;
 
-			glEnable(GL_SCISSOR_TEST);
+			scissorState();
 
 			// Draw Graphs.
 			int graphCount = ad->camCount + 1;
@@ -5763,7 +5787,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			// Average line.
 			{
 				glLineWidth(statLineWidth);
-				glEnable(GL_SCISSOR_TEST);
+				scissorState();
 
 				for(int graphIndex = 0; graphIndex < Line_Graph_Count; graphIndex++) {
 
@@ -5820,13 +5844,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				}
 
-				glDisable(GL_SCISSOR_TEST);
+				scissorState(false);
 				glLineWidth(1);
 			}
 
 			TIMER_BLOCK_END(drawGraphs);
 
-			glDisable(GL_SCISSOR_TEST);
+			scissorState(false);
 
 			// Mouse hover.
 			{
@@ -5834,26 +5858,28 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				Font* font = graphTextFont;
 				Vec4 c = graphTextColor;
+				Vec4 cf = graphTextShadowColor;
 				float os = graphTextOutline;
+
+				TextSettings ts = textSettings(font->boldFont, c, 2, vec2(0,0), os, cf);
 
 				int id = newGuiIncrementId(ad->gui);
 				bool mPosActive = newGuiGoMousePosAction(ad->gui, rGraphs, 0);
 				if(mPosActive && ad->hoveredVideo != -1) {
 					scissorTestScreen(rGraphs);
-					glEnable(GL_SCISSOR_TEST);
+					scissorState();
 
 					int vi = ad->hoveredVideo;
 
 					// Draw text top right.
 
 					Vec2 p = rChart.max - graphTextOffset;
-					drawTextOutlined(fillString("%s", ad->videos[vi].title), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
-					drawTextOutlined(fillString("%s", ad->videos[vi].dateString), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
-					drawTextOutlined(fillString("%i", vi), font, p, os, c, vec4(0,1), vec2i(1,1)); p.y -= font->height;
+					drawText(fillString("%s", ad->videos[vi].title), p, vec2i(1,1), ts); p.y -= font->height;
+					drawText(fillString("%s", ad->videos[vi].dateString), p, vec2i(1,1), ts); p.y -= font->height;
+					drawText(fillString("%i", vi), p, vec2i(1,1), ts); p.y -= font->height;
 
 					// Draw Point.
 					glPointSize(settingHoverPointSize);
-					// drawText(fillString("%i", ad->videos[vi].viewCount), font, ad->hoveredPoint + vec2(10,10), c, vec2i(-1,-1));
 					char* text;
 					if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
 					else text = fillString("%f", ad->hoveredVideoStat);
@@ -5862,15 +5888,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 					// Get text pos and clamp to graph rect.
 					Vec2 hoverPos = ad->hoveredPoint + vec2(settingHoverPointOffset,settingHoverPointOffset);
 					Rect textRect = rectBLDim(hoverPos, getTextDim(text, font));
-					Vec2 offset = rectInsideRectClamp(textRect, rectExpand(rGraphs, vec2(-4)));
+					Vec2 offset = rectInsideRectClamp(textRect, rectExpand(rGraphs, vec2(-textPadding*2)));
 					textRect = rectTrans(textRect, offset);
 					hoverPos = rectBL(textRect);
 
-					drawTextOutlined(text, font, hoverPos, os, c, vec4(0,1), vec2i(-1,-1));
+					drawText(text, hoverPos, vec2i(-1,-1), ts);
 					drawPoint(ad->hoveredPoint, c);
 					glPointSize(1);
 
-					glDisable(GL_SCISSOR_TEST);
+					scissorState(false);
 
 					if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
 						if(vi != ad->selectedVideo) {
@@ -5884,17 +5910,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 
 			// Draw graph titles. 
-			glEnable(GL_SCISSOR_TEST);
+			scissorState();
 			for(int i = 0; i < ad->camCount; i++) {
 				Rect rGraph = graphRects[i];
 				Vec2 tp = rectTL(rGraph) + graphTitleOffset;
 
 				scissorTestScreen(rGraph);
 
+				TextSettings ts = textSettings(graphTitleFont->boldFont, graphTitleColor, 2, vec2(0,0), graphTitleOutline, graphTitleOutlineColor);
 				char* text = graphTitles[i];
-				float textWidth = getTextDim(text, graphTitleFont).w;
+				float textWidth = getTextDim(text, ts.font).w;
 
-				drawTextOutlined(text, graphTitleFont, tp, graphTitleOutline, graphTitleColor, graphTitleOutlineColor, vec2i(-1,1));
+				drawText(text, tp, ts);
 
 				// Sort buttons.
 				{
@@ -5912,7 +5939,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					ad->gui->zLevel--;
 				}
 			}
-			glDisable(GL_SCISSOR_TEST);
+			scissorState(false);
 
 			// Graph selection line.
 			if(ad->selectedVideo != -1)
@@ -5922,6 +5949,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				else x = graphCamMapX(&ad->cams[0], ad->selectedVideo);
 
 				glLineWidth(selectionWidth);
+				scissorState();
+				scissorTestScreen(rGraphs);
 				drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), selectionColor);
 				glLineWidth(1);
 			}
@@ -5957,8 +5986,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float commentShadow = newas->fontShadow;
 			Vec4 commentShadowColor = newac->fontShadow;
 
-			NewGui* gui = ad->gui;
+			TextSettings boldLabelSettings = ad->gui->textSettings;
+			boldLabelSettings.font = boldLabelSettings.font->boldFont;
 
+			TextSettings darkerLabelSettings = ad->gui->textSettings;
+			darkerLabelSettings.color = fc2;
+
+			NewGui* gui = ad->gui;
 
 			// Panel width slider.
 			{
@@ -6044,8 +6078,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				else drawRect(imageRect, rect(0.01,0,0.99,1), sn->thumbnailTexture.id);
 			}
 
-            drawText(sv->title, font, vec2(xMid, ld->pos.y), fc, vec2i(0,1), width, shadow, shadowColor);
-            newGuiLAdv(gui, getTextHeight(sv->title, font, vec2(xMid, ld->pos.y), width));
+            drawText(sv->title, vec2(xMid, ld->pos.y), vec2i(0,1), width, boldLabelSettings);
+            newGuiLAdv(gui, getTextDim(sv->title, boldLabelSettings.font, vec2(xMid, ld->pos.y), width).y);
 
 			{
 				Rect r = newGuiLRectAdv(gui);
@@ -6054,7 +6088,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				glLineWidth(1);
 				float dislikePercent = videoGetLikesDiff(sv);
 				drawRectProgressHollow(r, 1-dislikePercent, newac->windowBorder, newac->edge);
-				drawText(fillString("%f%%", dislikePercent*100), font, rectCen(r), fc, vec2i(0,0), 0, shadow, shadowColor);
+				newGuiQuickText(gui, r, fillString("%f%%", dislikePercent*100));
 			}
 
 			{
@@ -6070,7 +6104,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				for(int i = 0; i < lineCount; i++) {
 					char* t = text[i];
 				
-					drawText(t, font, p, fc, vec2i(1,1), 0, shadow, shadowColor); 
+					drawText(t, p, vec2i(1,1), gui->textSettings); 
 					p.y -= font->height;
 				}
 
@@ -6088,12 +6122,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 					if(i == 4) t = fillString("%i", sv->commentCount);
 					if(i == 5) t = fillString("%i", sv->favoriteCount);
 				
-					drawText(t, font, p, fc, vec2i(-1,1), 0, shadow, shadowColor); 
+					drawText(t, p, vec2i(-1,1), gui->textSettings); 
 					p.y -= font->height;
 				}
 			}
 
-			newGuiQuickTextBox(gui, newGuiLRectAdv(gui), "Comments");
+			newGuiQuickText(gui, newGuiLRectAdv(gui), "Comments", &boldLabelSettings);
 
 			// Comments section.
 			{
@@ -6110,10 +6144,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 					float wrapWidth = ld->dim.w;
 					if(!(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 4)) {
 						for(int i = 0; i < sn->selectedCommentCount; i++) {
-							drawText(sn->selectedTopComments[i], font, ld->pos, fcComment, vec2i(-1,1), wrapWidth, commentShadow, commentShadowColor);
-							ld->pos.y -= getTextHeight(sn->selectedTopComments[i], font, vec2(xMid, ld->pos.y), wrapWidth);
+							drawText(sn->selectedTopComments[i], ld->pos, vec2i(-1,1), wrapWidth, gui->textSettings);
+							ld->pos.y -= getTextDim(sn->selectedTopComments[i], font, vec2(xMid, ld->pos.y), wrapWidth).y;
 							
-							drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), font, ld->pos + vec2(ld->dim.w,0), fc2, vec2i(1,1), wrapWidth, commentShadow, commentShadowColor);
+							drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), ld->pos + vec2(ld->dim.w,0), vec2i(1,1), wrapWidth, darkerLabelSettings);
 							ld->pos.y -= font->height;
 						}
 						scrollHeight = scrollValues.pos.y - ld->pos.y + 4; // @Hack.
@@ -6210,6 +6244,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		float textMargin = newas.textPaddingMod;
 		float textPadding = font->height * newas.textPaddingMod;
 
+		TextSettings boldLabelSettings = ad->gui->textSettings;
+		boldLabelSettings.font = boldLabelSettings.font->boldFont;
+
 		NewGui* gui = ad->gui;
 		float zLevel = 2;
 		gui->zLevel = zLevel;
@@ -6232,7 +6269,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float titleHeight = font->height*titleHeightMod;
 
 			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight);
-			drawTextBox(titleRect, titleText, ad->labelSettings);
+			newGuiQuickText(gui, titleRect, titleText, &boldLabelSettings);
 
 			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
 
@@ -6253,9 +6290,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			Rect modeRect = rectSetB(insideRect, insideRect.top - font->height);
 
+			insideRect.top -= font->height;
+			drawRectOutlined(insideRect, backgroundColor, edgeColor);
+			// drawRectOutlined(insideRect, backgroundColor, vec4(0,0));
+
 			// Panel mode switches.
 			{
-				insideRect.top -= font->height;
 
 				char* labels[] = {"Main", "Settings"};
 				int li = 0;
@@ -6263,32 +6303,36 @@ extern "C" APPMAINFUNCTION(appMain) {
 				li = 0;
 
 				scissorState();
-				newGuiScissorPush(gui, modeRect);
 
-				Vec4 bgColor = ad->uiButtonSettings.backgroundColor;
+				// Vec4 bgColor = ad->uiButtonSettings.boxSettings.color;
+				Vec4 bgColor = newac.background;
 				gui->buttonSettings = ad->uiButtonSettings;
+				modeRect.left += textPadding;
 				Vec2 p = rectTL(modeRect);
 				
 				for(int i = 0; i < arrayCount(labels); i++) {
 					Rect r = rectTLDim(p, vec2(widths[li++], rectH(modeRect))); 
 
-					gui->buttonSettings.backgroundColor = panelMode == i ? newac.windowBorder : bgColor;
-					gui->buttonSettings.borderColor.a = panelMode == i ? 0 : 1;
-
+					gui->buttonSettings.boxSettings.color = panelMode == i ? bgColor : newac.windowBorder;
+					gui->buttonSettings.boxSettings.borderColor.a = 0;
 
 					if(newGuiQuickButton(gui, r, labels[i])) panelMode = i;
+
+					if(panelMode == i) {
+						glLineWidth(2);
+						Vec2 off = vec2(0,-1);
+						drawLine(rectBL(r) + off, rectBR(r) + off, bgColor);
+					}
 
 					p += vec2(rectW(r), 0);
 				}
 
 				gui->buttonSettings = ad->buttonSettings;
 
-				newGuiScissorPop(gui);
 				scissorState(false);
 			}
 
 
-			drawRectOutlined(insideRect, backgroundColor, edgeColor);
 
 			scissorState();
 			newGuiScissorPush(gui, insideRect);
@@ -6354,7 +6398,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				newGuiLAdv(gui, yOffsetExtra);
 
-				newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s")); 
+				newGuiQuickText(gui, newGuiLRectAdv(gui), fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s"), &boldLabelSettings); 
 
 				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0);
 				if(newGuiQuickButton(gui, layoutInc(&l), "Open folder")) shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));			
@@ -6408,7 +6452,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				newGuiLAdv(gui, yOffsetExtra);
 
 				{
-					newGuiQuickTextBox(gui, newGuiLRectAdv(gui), "Quicksearch"); 
+					newGuiQuickText(gui, newGuiLRectAdv(gui), "Quicksearch", &boldLabelSettings); 
 
 					l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0); 
 
@@ -6511,7 +6555,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					newGuiLAdv(gui, yOffsetExtra);
 
-					newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", ad->downloadPlaylist.title, ad->downloadPlaylist.count)); 
+					newGuiQuickText(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", ad->downloadPlaylist.title, ad->downloadPlaylist.count), &boldLabelSettings); 
 
 					Rect progressRect;
 					bool activeDownload = ad->modeData.downloadMode == Download_Mode_Videos;
@@ -6574,24 +6618,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-	if(true)
+	if(false)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1));
 		drawRectRoundedOutlined(rectCenDim(400,-400,200,200), vec4(0.4f,1), vec4(1.0f,1), 5, 10);
-
-		// struct TextSettings {
-		// 	Font* font;
-		// 	Vec4 color;
-		// 	int wrapWidth;
-
-		// 	int shadowMode; // 0 = noShadow, 1 = shadow, 2 = outline;
-		// 	Vec2 shadowDir;
-		// 	float shadowSize;
-		// 	Vec4 shadowColor;
-		// };
-
-		TextSettings settings = {ad->font, vec4(1,1), 0, 0, vec2(23423,0), 0.2f, vec4(0,0,0,1)};
-		drawText("We <c>#FF000000 can now draw <b>Bold Text<b> and <i>Italic Text<i>!", vec2(800,-400), settings);
 	}
 
 	if(false)
@@ -7226,7 +7256,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						if(valueBetween(bgRect.min.x, textPos.x - tw/2, textPos.x + tw/2)) textPos.x = bgRect.min.x + tw/2;
 						if(valueBetween(bgRect.max.x, textPos.x - tw/2, textPos.x + tw/2)) textPos.x = bgRect.max.x - tw/2;
 
-						drawText(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, 1, gui->colors.shadowColor);
+						drawText(s, textPos, vec2i(0,0), textSettings(gui->font, gui->colors.textColor, TEXT_SHADOW, 1, gui->colors.shadowColor));
 					}
 
 					pos += timelineSection;
@@ -7259,7 +7289,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						else if(cycles < 1000000000000) s = fillString("%.1fbc", cycles/1000000000);
 						else s = fillString("INF");
 
-						drawText(s, gui->font, textPos, gui->colors.textColor, vec2i(0,0), 0, gui->settings.textShadow, gui->colors.shadowColor);
+						drawText(s, textPos, vec2i(0,0), textSettings(gui->font, gui->colors.textColor, TEXT_SHADOW, gui->settings.textShadow, gui->colors.shadowColor));
 					}
 
 					pos += timelineSection;
@@ -7466,7 +7496,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					y = mapRange(p, orthoBottom, orthoTop, rBottom, rTop);
 
 					drawLine(vec2(rectNumbers.min.x, y), vec2(rectNumbers.min.x + length, y), vec4(1,1,1,1)); 
-					drawText(fillString("%i64.c",(i64)p), gui->font, vec2(rectNumbers.min.x + length + 4, y), vec4(1,1,1,1), vec2i(-1,0));
+					drawText(fillString("%i64.c",(i64)p), vec2(rectNumbers.min.x + length + 4, y), vec2i(-1,0), textSettings(gui->font, vec4(1,1)));
 				}
 
 				gui->scissorPop();
@@ -7584,7 +7614,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		float y = -fontSize/2;
 		for(int i = 0; i < ds->notificationCount; i++) {
 			char* note = ds->notificationStack[i];
-			drawText(note, font, vec2(ws->currentRes.w/2, y), color, vec2i(0,0), 0, 2);
+			drawText(note, vec2(ws->currentRes.w/2, y), vec2i(0,0), textSettings(font, color, TEXT_SHADOW, 2, vec4(0,1)));
 			y -= fontSize;
 		}
 	}
@@ -7617,8 +7647,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		// drawText(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		// drawText(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 
+		TextSettings ts = textSettings(font, c, TEXT_SHADOW, sh, c2);
 		for(int i = 0; i < ds->infoStackCount; i++) {
-			drawText(fillString("%s", ds->infoStack[i]), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+			drawText(fillString("%s", ds->infoStack[i]), tp, ali, ts); tp.y -= fontSize;
 		}
 
 		ds->infoStackCount = 0;

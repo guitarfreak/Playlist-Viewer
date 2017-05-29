@@ -327,7 +327,7 @@ struct Gui {
 		}
 
 		// drawText(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, settings.textShadow, colors.shadowColor);
-		::drawText(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, textShadow, sColor);
+		::drawText(text, textPos, vec2i(align-1, 0), textSettings(font, colors.textColor, TEXT_SHADOW, vec2(1,-1), textShadow, sColor));
 
 		scissorPop();
 	}
@@ -340,7 +340,7 @@ struct Gui {
 		else if(align == 2) textPos.x += rectDim(region).w*0.5f;
 
 		// if(cullWidth == -1) 
-			::drawText(text, font, textPos, colors.textColor, vec2i(align-1, 0), 0, settings.textShadow, colors.shadowColor);		
+			::drawText(text, textPos, vec2i(align-1, 0), textSettings(font, colors.textColor, TEXT_SHADOW, vec2(1,-1), settings.textShadow, colors.shadowColor));
 		// else 
 			// drawTextLineCulled(text, font, textPos, colors.textColor, vec2i(align-1, 0), cullWidth, settings.textShadow, colors.shadowColor);		
 
@@ -2003,7 +2003,7 @@ struct Console {
 			glEnable(GL_SCISSOR_TEST);
 			scissorTest(inputRect, res.h);
 
-			drawText(inputBuffer, cs.inputFont, inputStartPos, cs.inputFontColor, vec2i(-1,0));
+			drawText(inputBuffer, inputStartPos, vec2i(-1,0), textSettings(cs.inputFont, cs.inputFontColor));
 
 			glDisable(GL_SCISSOR_TEST);
 
@@ -2170,7 +2170,7 @@ struct Console {
 
 				for(int i = 0; i < mainBufferSize; i++) {
 					if(i%2 == 0) {
-						drawText(cs.commandPreText, cs.bodyFont, textPos - vec2(preSize,0), cs.bodyFontColor, vec2i(-1,1));
+						drawText(cs.commandPreText, textPos - vec2(preSize,0), vec2i(-1,1), textSettings(cs.bodyFont, cs.bodyFontColor));
 					} else {
 						if(strEmpty(mainBuffer[i])) continue;
 					}
@@ -2199,7 +2199,7 @@ struct Console {
 						}
 
 						Vec4 color = i%2 == 0 ? cs.bodyFontColor : cs.bodyFontResultColor;
-						drawText(mainBuffer[i], cs.bodyFont, textPos, color, vec2i(-1,1), wrappingWidth);
+						drawText(mainBuffer[i], textPos, vec2i(-1,1), wrappingWidth, textSettings(cs.bodyFont, color));
 					}
 
 					textPos.y -= textHeight;
@@ -2275,7 +2275,7 @@ struct Console {
 		mainBuffer[mainBufferSize] = newString;
 		mainBufferSize++;
 
-		float height = getTextHeight(newString, cs.bodyFont, vec2(0,0), bodyTextWrapWidth);
+		float height = getTextDim(newString, cs.bodyFont, vec2(0,0), bodyTextWrapWidth).y;
 		mainBufferTextHeight += height;
 	}
 

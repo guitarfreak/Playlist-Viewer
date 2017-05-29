@@ -61,15 +61,15 @@ void popTMemoryStack(MemoryBlock* memory = 0) {
 	globalMemory->tempStackSize--;
 }
 
-inline char* getPStringCpy(char* str) {
-	char* newStr = getPString(strLen(str) + 1);
-	strCpy(newStr, str);
+inline char* getPStringCpy(char* str, int size = -1) {
+	char* newStr = getPString((size == -1 ? strLen(str) : size) + 1);
+	strCpy(newStr, str, size);
 	return newStr;
 }
 
-inline char* getTStringCpy(char* str) {
-	char* newStr = getTString(strLen(str) + 1);
-	strCpy(newStr, str);
+inline char* getTStringCpy(char* str, int size = -1) {
+	char* newStr = getTString((size == -1 ? strLen(str) : size) + 1);
+	strCpy(newStr, str, size);
 	return newStr;
 }
 
