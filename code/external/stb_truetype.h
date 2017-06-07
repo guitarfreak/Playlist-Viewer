@@ -3146,11 +3146,6 @@ void stbtt_GetPackedQuad(stbtt_packedchar *chardata, int pw, int ph, int char_in
 	  q->y1 = y + (-b->yoff - -b->yoff2);
       
    } else {
-      // q->x0 = xpos + b->xoff;
-      // q->y0 = ypos + b->yoff;
-      // q->x1 = xpos + b->xoff2;
-      // q->y1 = ypos + b->yoff2;
-
       q->x0 = xpos +  b->xoff;
       q->y0 = ypos + -b->yoff2;
       q->x1 = xpos +  b->xoff2;

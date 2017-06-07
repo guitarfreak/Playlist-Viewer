@@ -380,6 +380,7 @@ struct GraphicsState {
 	FrameBuffer frameBuffers[FRAMEBUFFER_SIZE];
 
 	float zOrder;
+	Vec2i screenRes;
 };
 
 Texture* getTexture(int textureId) {
@@ -424,9 +425,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 
 	myAssert(fontFolder);
 
-
 	char* path = fillString("%s%s", fontFolder, file);
-	char* fileBuffer = (char*)getPMemory(fileSize(path) + 1);
+	char* fileBuffer = mallocString(fileSize(path) + 1);
 	readFileToBuffer(fileBuffer, path);
 
 	// Vec2i size = vec2i(512,512);
@@ -452,7 +452,7 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	int totalGlyphCount = 0;
 	for(int i = 0; i < font.glyphRangeCount; i++) totalGlyphCount += font.glyphRanges[i].y;
 
-	font.cData = getPArray(stbtt_packedchar, totalGlyphCount);
+	font.cData = mallocArray(stbtt_packedchar, totalGlyphCount);
 
 
 	int fontFileOffset = stbtt_GetFontOffsetForIndex((uchar*)fileBuffer, 0);
@@ -492,10 +492,12 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	font.baseOffset = (ascent*font.pixelScale);
 
 	for(int i = 0; i < size.w*size.h; i++) {
-		fontBitmap[i*4] = 255;
+		fontBitmap[i*4]   = 255;
 		fontBitmap[i*4+1] = 255;
 		fontBitmap[i*4+2] = 255;
-		fontBitmap[i*4+3] = fontBitmapBuffer[i];
+		// Trying to negate gamma correction because fonts look better without it.
+		// fontBitmap[i*4+3] = fontBitmapBuffer[i]; // Black to thin?
+		fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
 	}
 
 	Texture tex;
@@ -507,6 +509,12 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 
 	*fontSlot = font;
 	return fontSlot;
+}
+
+void freeFont(Font* font) {
+	freeZero(font->cData);
+	freeZero(font->info.data);
+	glDeleteTextures(1, &font->tex.id);
 }
 
 Font* getFont(char* fontFile, int height, char* boldFontFile = 0, char* italicFontFile = 0) {
@@ -565,10 +573,8 @@ void scissorTest(Rect r, float screenHeight) {
 	glScissor(sr.min.x, sr.min.y, rectW(sr), rectH(sr));
 }
 
-extern float globalScreenHeight;
-
 void scissorTestScreen(Rect r) {
-	Rect sr = scissorRectScreenSpace(r, globalScreenHeight);
+	Rect sr = scissorRectScreenSpace(r, globalGraphicsState->screenRes.h);
 	if(rectW(sr) < 0 || rectH(sr) < 0) sr = rect(0,0,0,0);
 
 	glScissor(sr.min.x, sr.min.y, rectW(sr), rectH(sr));
@@ -1237,6 +1243,9 @@ Vec2 testgetTextStartPos(char* text, Font* font, Vec2 startPos, Vec2i align = ve
 	Vec2 dim = getTextDim(text, font, startPos, wrapWidth);
 	startPos.x -= (align.x+1)*0.5f*dim.w;
 	startPos.y -= (align.y-1)*0.5f*dim.h;
+
+	// startPos.x = roundFloat(startPos.x);
+	// startPos.y = roundFloat(startPos.y);
 
 	return startPos;
 }

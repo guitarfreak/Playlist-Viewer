@@ -55,6 +55,13 @@ void memCpy(void* dest, void* source, int numOfBytes) {
 	}
 }
 
+void freeZero(void* data) {
+	if(data) {
+		free(data);
+		data = 0;
+	}
+}
+
 //
 // Strings
 // 
@@ -237,6 +244,14 @@ void strCpy(char * destination, char * source, int size = -1) {
 		memCpy(destination, source, size);
 	}
 	destination[size] = '\0';
+}
+void strCpyInc(char ** destination, char * source, int size = -1) {
+	if(size != 0) {
+		if(size == -1) size = strLen(source);
+		memCpy(*destination, source, size);
+	}
+	(*destination)[size] = '\0';
+	(*destination) += size;
 }
 
 bool strCompare(char* str, char* str2, int size = -1) {
@@ -991,6 +1006,12 @@ void endStatistic(Statistic* stat) {
 //
 //
 //
+
+struct Token {
+	int type;
+	char* data;
+	int size;
+};
 
 bool charIsSign(char c) { return c == '-' || c == '+'; }
 bool charIsDigit(char c) { return (c >= '0') && (c <= '9'); }

@@ -73,6 +73,19 @@ inline char* getTStringCpy(char* str, int size = -1) {
 	return newStr;
 }
 
+inline char* getPStringClr(int size) { 
+	char* s = getPString(size);
+	s[0] = '\0';
+	return s;
+}
+
+inline char* getTStringClr(int size) { 
+	char* s = getTString(size);
+	s[0] = '\0';
+	return s;
+}
+
+
 #define getPStructDebug(type) 		(type*)(getPMemoryDebug(sizeof(type)))
 #define getPArrayDebug(type, count) 	(type*)(getPMemoryDebug(sizeof(type) * count))
 #define getPStringDebug(count) (char*)(getPMemoryDebug(count))
