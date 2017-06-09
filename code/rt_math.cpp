@@ -153,29 +153,29 @@ inline void clampDouble(double* n, double min, double max) {
 };
 
 
-inline int clampIntMin(int a, int min) {
+inline int clampMinInt(int a, int min) {
 	return a < min ? min : a;
 }
 
-inline void clampIntMin(int* a, int min) {
+inline void clampMinInt(int* a, int min) {
 	*a < min ? min : *a;
 }
 
-inline int clampIntMax(int a, int max) {
+inline int clampMaxInt(int a, int max) {
 	return a > max ? max : a;
 }
 
-inline void clampIntMax(int* a, int max) {
+inline void clampMaxInt(int* a, int max) {
 	*a > max ? max : *a;
 }
 
 inline int clampInt(int n, int min, int max) {
-	int result = clampIntMax(clampIntMin(n, min), max);
+	int result = clampMaxInt(clampMinInt(n, min), max);
 	return result;
 };
 
 inline void clampInt(int* n, int min, int max) {
-	*n = clampMax(clampIntMin(*n, min), max);
+	*n = clampMax(clampMinInt(*n, min), max);
 };
 
 inline float mapRange(float value, float min, float max, float rangeMin, float rangeMax) {

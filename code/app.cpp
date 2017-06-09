@@ -16,6 +16,8 @@
 	- Look into how stbtt does rendering and try to learn about hinting.
 	- Put outlines outside of region and not inside. (Or maybe not?)
 	- Fix fillString.
+	- Write own windows.h?
+	- Remove c runtime?
 
 	- Runs poorly when aero is enabled.
 	- Finish color panel.
@@ -24,10 +26,11 @@
 
 	- Slider dir keys steps, double click edit box, 
 	- Combo Box
+	- Slider snap back.
 
 
 	Done Today: 
-	- NewAppSettings writer/parser. Settings file working again. Relative colors. Font gamma sqrt.
+
 
 	Bugs:
 
@@ -201,26 +204,26 @@ void relativeToAbsoluteColors(Vec4* ac, RelativeColor* rc, int count) {
 	int* indexes = getTArray(int, count);
 	for(int i = 0; i < count; i++) indexes[i] = rc[i].i;
 
-	for(;;) {
-		bool unresolvedValues = false;
+		for(;;) {
+			bool unresolvedValues = false;
 
-		for(int i = 0; i < count; i++) {
-			if(indexes[i] != -1) {
-				int index = indexes[i];
-				if(indexes[index] == -1) {
-					rc[i].c += rc[index].c;
-					indexes[i] = -1;
-				} else {
-					unresolvedValues = true;
+			for(int i = 0; i < count; i++) {
+				if(indexes[i] != -1) {
+					int index = indexes[i];
+					if(indexes[index] == -1) {
+						rc[i].c += rc[index].c;
+						indexes[i] = -1;
+					} else {
+						unresolvedValues = true;
+					}
 				}
 			}
+
+			if(!unresolvedValues) break;
 		}
 
-		if(!unresolvedValues) break;
+		for(int i = 0; i < count; i++) ac[i] = vec4(hslToRgbFloat(rc[i].c.rgb), rc[i].c.a);
 	}
-
-	for(int i = 0; i < count; i++) ac[i] = vec4(hslToRgbFloat(rc[i].c.rgb), rc[i].c.a);
-}
 
 
 
@@ -392,10 +395,10 @@ i64 dateEncode(char year, char month, char day, char hour, char minute, char sec
 	i64 yearSeconds = 0;
 	for(int i = 0; i < year; i++) yearSeconds += (i64)getYearDayCount(i)*86400;
 
-	i64 monthSeconds = 0;
+		i64 monthSeconds = 0;
 	for(int i = 0; i < month-1; i++) monthSeconds += (i64)getMonthDayCount(i+1, year)*86400;
 
-	i64 result = 0;
+		i64 result = 0;
 	result += yearSeconds;
 	result += monthSeconds;
 	if(day > 0) result += (i64)(day-1)*86400;
@@ -596,27 +599,27 @@ inline double videoGetLikesDiff(YoutubeVideo* vid) {
 
 char* requestPlaylistItems(char* playlistId, int maxResults, char* pageToken = 0) {
 	return fillString("%s?key=%s&maxResults=%i&playlistId=%s&part=contentDetails%s", 
-					  Youtube_Api_Playlist_Items, Youtube_Api_Key, maxResults, playlistId, pageToken?fillString("&pageToken=%s",pageToken):"");
+	                  Youtube_Api_Playlist_Items, Youtube_Api_Key, maxResults, playlistId, pageToken?fillString("&pageToken=%s",pageToken):"");
 }
 char* requestCommentThread(char* videoId, int maxResults) {
 	return fillString("%s?key=%s&maxResults=%i&videoId=%s&part=snippet&order=relevance&=textFormat=plainText", 
-						Youtube_Api_Comment_Thread, Youtube_Api_Key, maxResults, videoId);
+	                  Youtube_Api_Comment_Thread, Youtube_Api_Key, maxResults, videoId);
 }
 char* requestPlaylist(char* idType, char* id, char* part, int maxResults, char* pageToken = 0) {
 	return fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s%s", 
-								Youtube_Api_Playlist, Youtube_Api_Key, maxResults, idType, id, part, pageToken?fillString("&pageToken=%s",pageToken):"");
+	                  Youtube_Api_Playlist, Youtube_Api_Key, maxResults, idType, id, part, pageToken?fillString("&pageToken=%s",pageToken):"");
 }
 char* requestChannel(char* idType, char* id, char* part, int maxResults) {
 	return fillString("%s?key=%s&maxResults=%i&%s=%s&part=%s", 
-								Youtube_Api_Channel, Youtube_Api_Key, maxResults, idType, id, part);
+	                  Youtube_Api_Channel, Youtube_Api_Key, maxResults, idType, id, part);
 }
 char* requestVideos(char* id, char* part) {
 	return fillString("%s?key=%s&id=%s&part=%s", 
-								Youtube_Api_Videos, Youtube_Api_Key, id, part);
+	                  Youtube_Api_Videos, Youtube_Api_Key, id, part);
 }
 char* requestSearch(char* type, char* searchString, int maxResults) {
 	return fillString("%s?key=%s&maxResults=%i&part=snippet&type=%s&q=%s", 
-								Youtube_Api_Search, Youtube_Api_Key, maxResults, type, searchString);
+	                  Youtube_Api_Search, Youtube_Api_Key, maxResults, type, searchString);
 }
 
 
@@ -793,9 +796,9 @@ void calculateAverages(YoutubeVideo* videos, int videoCount, LineGraph* lineGrap
 	Statistic* stats[Line_Graph_Count];
 	for(int i = 0; i < Line_Graph_Count; i++) stats[i] = getTArray(Statistic, statCount);
 
-	for(int i = 0; i < statCount; i++) {
-		for(int gi = 0; gi < Line_Graph_Count; gi++) beginStatistic(stats[gi] + i);
-	}
+		for(int i = 0; i < statCount; i++) {
+			for(int gi = 0; gi < Line_Graph_Count; gi++) beginStatistic(stats[gi] + i);
+		}
 
 	for(int i = 1; i < videoCount; i++) {
 		YoutubeVideo* vid = videos + i;
@@ -852,6 +855,7 @@ enum GuiFocus {
 	Gui_Focus_MMiddle,
 	Gui_Focus_MWheel,
 	Gui_Focus_MPos,
+	Gui_Focus_ArrowKeys,
 
 	Gui_Focus_Size,
 };
@@ -891,14 +895,18 @@ TextBoxSettings textBoxSettings(TextSettings textSettings, BoxSettings boxSettin
 	return {textSettings, boxSettings};
 }
 
+enum {
+	ESETTINGS_WRAPPING = 0,
+	ESETTINGS_SINGLE_LINE,
+	ESETTINGS_START_RIGHT,
+};
 struct TextEditSettings {
 	TextBoxSettings textBoxSettings;
 	Vec4 defaultTextColor;
 
 	char* textBuffer;
 
-	bool wrapping;
-	bool singleLine;
+	int flags;
 
 	float cursorWidth;
 	float cursorHeightMod;
@@ -922,6 +930,9 @@ struct SliderSettings {
 
 	Vec4 color;
 	Vec4 lineColor;
+
+	int mouseWheelModInt;
+	float mouseWheelModFloat;
 };
 
 SliderSettings sliderSettings(TextBoxSettings textBoxSettings, float size, float minSize, float lineWidth, float rounding, float heightOffset, Vec4 color, Vec4 lineColor) {
@@ -1044,15 +1055,15 @@ void newGuiBegin(NewGui* gui, Input* input = 0) {
 		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = 0;
 	}
 
-	gui->colorModHot = vec4(0.08f, 0);
-	gui->colorModActive = vec4(0.17f, 0);
+gui->colorModHot = vec4(0.08f, 0);
+gui->colorModActive = vec4(0.17f, 0);
 
-	gui->input = input;
+gui->input = input;
 
-	gui->scissor = rectCenDim(0,0,10000000,10000000);
-	gui->scissorStack[0] = gui->scissor;
-	gui->scissorStackIndex = 0;
-	gui->layoutStackIndex = 0;
+gui->scissor = rectCenDim(0,0,10000000,10000000);
+gui->scissorStack[0] = gui->scissor;
+gui->scissorStackIndex = 0;
+gui->layoutStackIndex = 0;
 }
 
 void newGuiEnd(NewGui* gui) {
@@ -1149,7 +1160,7 @@ void newGuiSetHotAllMouseOver(NewGui* gui, Rect r, float z) {
 }
 
 void newGuiSetHotMouseOver(NewGui* gui, int id, Vec2 mousePos, Rect r, float z, int focus = 0) {
-	if(pointInRectEx(mousePos, r)) {
+	if(pointInRectEx(mousePos, r) && !rectEmpty(r)) {
 		newGuiSetHot(gui, id, z, focus);
 	}
 }
@@ -1187,17 +1198,24 @@ int newGuiButtonAction(NewGui* gui, int id, Rect r, float z, int focus = 0) {
 int newGuiButtonAction(NewGui* gui, Rect r, float z, int focus = 0) {
 	return newGuiButtonAction(gui, newGuiIncrementId(gui), r, z, focus);
 }
-
-bool newGuiGoButtonAction(NewGui* gui, Rect r, float z, int focus = 0) {
-	int id = newGuiButtonAction(gui, r, z, focus);
-	bool gotActive = newGuiGotActive(gui, id);
-	return gotActive;
+int newGuiButtonAction(NewGui* gui, Rect r, float z, bool input, int focus = 0) {
+	return newGuiButtonAction(gui, newGuiIncrementId(gui), r, z, gui->input->mousePosNegative, input, focus);
 }
+
 bool newGuiGoButtonAction(NewGui* gui, int id, Rect r, float z, int focus = 0) {
 	id = newGuiButtonAction(gui, id, r, z, focus);
 	bool gotActive = newGuiGotActive(gui, id);
 	return gotActive;
 }
+bool newGuiGoButtonAction(NewGui* gui, Rect r, float z, int focus = 0) {
+	return newGuiGoButtonAction(gui, newGuiIncrementId(gui), r, z, focus);
+}
+bool newGuiGoButtonAction(NewGui* gui, Rect r, float z, bool input, int focus = 0) {
+	int id = newGuiButtonAction(gui, r, z, input, focus);
+	bool gotActive = newGuiGotActive(gui, id);
+	return gotActive;
+}
+
 
 int newGuiDragAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, bool inputRelease, int focus = 0) {
 	newGuiSetActive(gui, id, input, focus);
@@ -1263,10 +1281,66 @@ Vec4 newGuiColorModB(NewGui* gui, int focus = 0) {
 
 
 
+
+enum {
+	EDIT_MODE_CHAR = 0,
+	EDIT_MODE_INT,
+	EDIT_MODE_FLOAT,
+};
+
 void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev);
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, int mode, TextEditSettings editSettings, TextEditVars* editVars, int maxTextSize, bool doubleClick = false) {
+	Input* input = gui->input;
+
+	if(maxTextSize == 0) maxTextSize = arrayCount(gui->editText);
+	maxTextSize = min(maxTextSize, arrayCount(gui->editText));
+
+	bool leftMouse = input->mouseButtonPressed[0] && !pointInRectEx(input->mousePosNegative, textRect);
+	bool enter = input->keysPressed[KEYCODE_RETURN];
+	bool escape = input->keysPressed[KEYCODE_ESCAPE];
+
+	bool releaseEvent = leftMouse || enter || escape;
+
+	int event = newGuiGoDragAction(gui, textRect, z, doubleClick?input->doubleClick:input->mouseButtonPressed[0], releaseEvent, Gui_Focus_MLeft);
+
+	if(event == 1) {
+		gui->editVars.scrollOffset = vec2(0,0);
+		if(mode == EDIT_MODE_CHAR)      strCpy(gui->editText, (char*)var);
+		else if(mode == EDIT_MODE_INT) strCpy(gui->editText, fillString("%i", *((int*)var)));
+		else if(mode == EDIT_MODE_FLOAT) strCpy(gui->editText, fillString("%f", *((float*)var)));
+		if(flagGet(editSettings.flags, ESETTINGS_START_RIGHT)) {
+			editVars->cursorIndex = editVars->markerIndex = strlen(gui->editText);
+		}
+	}
+
+	// if(event == 3 && (leftMouse || enter)) {
+	if(event == 3 && (enter)) {
+		if(mode == 0)      strCpy((char*)var, gui->editText);
+		else if(mode == 1) *((int*)var) = strToInt(gui->editText);
+		else if(mode == 2) *((float*)var) = strToFloat(gui->editText);
+	}
+
+	if(event == 1 || event == 2) {
+		textEditBox(gui->editText, maxTextSize, editSettings.textBoxSettings.textSettings.font, textRect, input, vec2i(-1,1), editSettings, editVars);
+	}
+
+	if(event == 3 && (escape || leftMouse)) event = 4;
+
+	return event;
+}
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, char* text, TextEditSettings editSettings, int maxTextSize) {
+	return newGuiGoTextEdit(gui, textRect, z, text, EDIT_MODE_CHAR, editSettings, &gui->editVars, maxTextSize);
+}
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, int* number, TextEditSettings editSettings) {
+	return newGuiGoTextEdit(gui, textRect, z, number, EDIT_MODE_INT, editSettings, &gui->editVars, 0);
+}
+int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, float* number, TextEditSettings editSettings) {
+	return newGuiGoTextEdit(gui, textRect, z, number, EDIT_MODE_FLOAT, editSettings, &gui->editVars, 0);
+}
 
 
-int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font, TextEditSettings editSettings, TextEditVars* editVars, int maxTextSize, int mode) {
+
+int asdf(NewGui* gui, Rect textRect, float z, void* var, int mode, TextEditSettings editSettings, TextEditVars* editVars, int maxTextSize) {
 	Input* input = gui->input;
 
 	maxTextSize = min(maxTextSize, arrayCount(gui->editText));
@@ -1281,9 +1355,9 @@ int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font,
 
 	if(event == 1) {
 		gui->editVars.scrollOffset = vec2(0,0);
-		if(mode == 0)      strCpy(gui->editText, (char*)var);
-		else if(mode == 1) strCpy(gui->editText, fillString("%i", *((int*)var)));
-		else if(mode == 2) strCpy(gui->editText, fillString("%f", *((float*)var)));
+		if(mode == EDIT_MODE_CHAR)      strCpy(gui->editText, (char*)var);
+		else if(mode == EDIT_MODE_INT) strCpy(gui->editText, fillString("%i", *((int*)var)));
+		else if(mode == EDIT_MODE_FLOAT) strCpy(gui->editText, fillString("%f", *((float*)var)));
 	}
 
 	// if(event == 3 && (leftMouse || enter)) {
@@ -1294,21 +1368,12 @@ int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, Font* font,
 	}
 
 	if(event == 1 || event == 2) {
-		textEditBox(gui->editText, maxTextSize, font, textRect, input, vec2i(-1,1), editSettings, editVars);
+		textEditBox(gui->editText, maxTextSize, editSettings.textBoxSettings.textSettings.font, textRect, input, vec2i(-1,1), editSettings, editVars);
 	}
 
 	if(event == 3 && (escape || leftMouse)) event = 4;
 
 	return event;
-}
-int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, char* text, Font* font, TextEditSettings editSettings, int maxTextSize) {
-	return newGuiGoTextEdit(gui, textRect, z, text, font, editSettings, &gui->editVars, maxTextSize, 0);
-}
-int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, int* number, Font* font, TextEditSettings editSettings) {
-	return newGuiGoTextEdit(gui, textRect, z, number, font, editSettings, &gui->editVars, arrayCount(gui->editText), 1);
-}
-int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, float* number, Font* font, TextEditSettings editSettings) {
-	return newGuiGoTextEdit(gui, textRect, z, number, font, editSettings, &gui->editVars, arrayCount(gui->editText), 2);
 }
 
 
@@ -1482,18 +1547,32 @@ void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextE
 		// Cursor.
 		Vec2 cPos = textIndexToPos(text, textSettings->font, startPos, editVars.cursorIndex, align);
 		Rect cRect = rectCenDim(cPos, vec2(editSettings.cursorWidth, textSettings->font->height* editSettings.cursorHeightMod));
+
+		if(editVars.cursorIndex == strLen(text) && editVars.cursorIndex == editVars.markerIndex) {
+			cRect = rectTrans(cRect, vec2(2,0)); // Small offset for looks.
+		}
+
 		drawRect(cRect, editSettings.colorCursor);
 	}
 
 	scissorTestScreen(scissor);
 }
+
+void drawTextEditBox(void* val, int mode, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
+	return drawTextEditBox(mode == EDIT_MODE_INT ? fillString("%i", Void_Dref(int, val)) : fillString("%f", Void_Dref(float, val)), textRect, active, scissor, editVars, editSettings);
+}
 void drawTextEditBox(int number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
-	drawTextEditBox(fillString("%i", number), textRect, active, scissor, editVars, editSettings);
+	return drawTextEditBox(fillString("%i", number), textRect, active, scissor, editVars, editSettings);
 }
 void drawTextEditBox(float number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
-	drawTextEditBox(fillString("%f", number), textRect, active, scissor, editVars, editSettings);
+	return drawTextEditBox(fillString("%f", number), textRect, active, scissor, editVars, editSettings);
 }
 
+
+enum {
+	SLIDER_TYPE_INT = 0,
+	SLIDER_TYPE_FLOAT,
+};
 
 void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
 	scissorTestScreen(scissor);
@@ -1518,14 +1597,14 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSett
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 	scissorTestScreen(getRectScissor(br, scissor));
 
-	char* text = type == 0 ? fillString("%f", *((float*)val)) : fillString("%i", *((int*)val)) ;
+	char* text = type == SLIDER_TYPE_FLOAT ? fillString("%f", *((float*)val)) : fillString("%i", *((int*)val)) ;
 	drawText(text, rectCen(br), vec2i(0,0), *textSettings);
 }
 void drawSlider(float val, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
-	return drawSlider(&val, 0, br, sr, scissor, settings);
+	return drawSlider(&val, SLIDER_TYPE_FLOAT, br, sr, scissor, settings);
 }
 void drawSlider(int val, Rect br, Rect sr, Rect scissor, SliderSettings settings) {
-	return drawSlider(&val, 1, br, sr, scissor, settings);
+	return drawSlider(&val, SLIDER_TYPE_INT, br, sr, scissor, settings);
 }
 
 //
@@ -1573,56 +1652,6 @@ bool newGuiQuickButton(NewGui* gui, Rect r, char* text, TextBoxSettings* setting
 	return newGuiQuickButton(gui, r, text, vec2i(0,0), settings);
 }
 
-bool newGuiQuickSlider(NewGui* gui, Rect r, float* val, float min, float max, SliderSettings* settings = 0) {
-
-	SliderSettings set = settings == 0 ? gui->sliderSettings : *settings;
-	Rect slider = newGuiCalcSlider(*val, r, set.size, min, max, true);
-
-	int event = newGuiGoDragAction(gui, slider, gui->zLevel);
-	if(rectEmpty(getRectScissor(gui->scissor, r))) return false;
-
-	if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
-	if(event > 0) {
-		*val = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, set.size, min, max, true);
-		slider = newGuiCalcSlider(*val, r, set.size, min, max, true);
-	}
-
-	set.color += newGuiColorMod(gui);
-	drawSlider(*val, r, slider, gui->scissor, set);
-
-	if(event > 3) return true;
-	return false;
-}
-bool newGuiQuickSlider(NewGui* gui, Rect r, int* val, int min, int max, SliderSettings* settings = 0) {
-
-	float floatVal = *val;
-
-	SliderSettings set = settings == 0 ? gui->sliderSettings : *settings;
-
-	float sliderSize = (rectW(r) / (float)(max - min + 1));
-	sliderSize = clampMin(sliderSize, set.minSize);
-	Rect slider = newGuiCalcSlider(floatVal, r, sliderSize, min, max, true);
-
-	int event = newGuiGoDragAction(gui, slider, gui->zLevel);
-	if(rectEmpty(getRectScissor(gui->scissor, r))) return false;
-
-	if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
-	if(event > 0) {
-		floatVal = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, sliderSize, min, max, true);
-		floatVal = roundInt(floatVal);
-		slider = newGuiCalcSlider(floatVal, r, sliderSize, min, max, true);
-	}
-
-	*val = floatVal;
-
-	set.color += newGuiColorMod(gui);
-	drawSlider(*val, r, slider, gui->scissor, set);
-
-	if(event > 3) return true;
-	return false;
-}
-
-// varType: 0 = char, 1 = int, 2 = float
 bool newGuiQuickTextEditAllVars(NewGui* gui, Rect r, void* data, int varType, int maxSize, TextEditSettings* editSettings = 0) {
 	Rect intersect = getRectScissor(gui->scissor, r);
 
@@ -1634,9 +1663,9 @@ bool newGuiQuickTextEditAllVars(NewGui* gui, Rect r, void* data, int varType, in
 	float* floatData = (float*)data;
 
 	int event;
-	if(varType == 0) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, charData, textSettings->font, set, maxSize);
-	else if(varType == 1) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, intData, textSettings->font, set);
-	else event = newGuiGoTextEdit(gui, intersect, gui->zLevel, floatData, textSettings->font, set);
+	if(varType == 0) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, charData, set, maxSize);
+	else if(varType == 1) event = newGuiGoTextEdit(gui, intersect, gui->zLevel, intData, set);
+	else event = newGuiGoTextEdit(gui, intersect, gui->zLevel, floatData, set);
 
 	if(rectEmpty(intersect)) return false;
 
@@ -1653,15 +1682,126 @@ bool newGuiQuickTextEditAllVars(NewGui* gui, Rect r, void* data, int varType, in
 	return false;
 }
 bool newGuiQuickTextEdit(NewGui* gui, Rect r, char* data, int maxSize, TextEditSettings* editSettings = 0) {
-	return newGuiQuickTextEditAllVars(gui, r, data, 0, maxSize, editSettings);
+	return newGuiQuickTextEditAllVars(gui, r, data, EDIT_MODE_CHAR, maxSize, editSettings);
 }
 bool newGuiQuickTextEdit(NewGui* gui, Rect r, int* data, TextEditSettings* editSettings = 0) {
-	return newGuiQuickTextEditAllVars(gui, r, data, 1, 0, editSettings);
+	return newGuiQuickTextEditAllVars(gui, r, data, EDIT_MODE_INT, 0, editSettings);
 }
 bool newGuiQuickTextEdit(NewGui* gui, Rect r, float* data, TextEditSettings* editSettings = 0) {
-	return newGuiQuickTextEditAllVars(gui, r, data, 2, 0, editSettings);
+	return newGuiQuickTextEditAllVars(gui, r, data, EDIT_MODE_FLOAT, 0, editSettings);
 }
 
+
+float sliderGetMod(NewGui* gui, int type, SliderSettings* settings, bool neg = false) {
+	Input* input = gui->input;
+	float modifier = (neg?-1:1);
+	if(input->keysDown[KEYCODE_SHIFT] && input->keysDown[KEYCODE_CTRL]) modifier *= 100;
+	else if(input->keysDown[KEYCODE_SHIFT]) modifier *= 10;
+	else if(input->keysDown[KEYCODE_CTRL]) modifier /= 10;
+	
+	if(type == SLIDER_TYPE_INT) {
+		int mod = settings->mouseWheelModInt * modifier;
+		clampMinInt(&mod, 1);
+		return mod;
+	} else {
+		float mod = settings->mouseWheelModFloat * modifier;
+		return mod;
+	}
+}
+
+bool newGuiQuickSlider(NewGui* gui, Rect r, int type, void* val, void* min, void* max, SliderSettings* settings = 0) {
+
+	bool typeIsInt = type == SLIDER_TYPE_INT;
+	SliderSettings set = settings == 0 ? gui->sliderSettings : *settings;
+
+	bool result = false;
+	bool editMode = false;
+
+	// Double click text edit mode.
+	{
+		Rect intersect = getRectScissor(gui->scissor, r);
+
+		TextEditSettings edSet = gui->editSettings;
+
+		int event;
+		flagSet(&edSet.flags, ESETTINGS_START_RIGHT);
+		event = newGuiGoTextEdit(gui, intersect, gui->zLevel, val, typeIsInt?EDIT_MODE_INT:EDIT_MODE_FLOAT, edSet, &gui->editVars, 0, true);
+
+		if(event != 0) {
+			drawTextEditBox(val, typeIsInt?EDIT_MODE_INT:EDIT_MODE_FLOAT, r, event > 0, gui->scissor, gui->editVars, edSet);
+			editMode = true;
+			if(event == 3) result = true;
+		}
+	}
+
+	// Mouse Wheel / Arrow Keys.
+	{
+		Input* input = gui->input;
+		bool mod = false;
+		bool neg = false;
+		if(newGuiGoButtonAction(gui, r, gui->zLevel, Gui_Focus_MWheel)) {
+			mod = true;
+			neg = input->mouseWheel < 0;
+		}
+		if(newGuiGoButtonAction(gui, r, gui->zLevel, input->keysPressed[KEYCODE_LEFT] || input->keysPressed[KEYCODE_RIGHT], Gui_Focus_ArrowKeys)) {
+			mod = true;
+			neg = input->keysPressed[KEYCODE_LEFT];
+		}
+
+		if(mod) {
+			float mod = sliderGetMod(gui, type, &set, neg);
+			if(typeIsInt) Void_Dref(int, val) += roundInt(mod);
+			else Void_Dref(float, val) += mod;
+			result = true;
+		}
+	}
+
+	// Right now we just handle int as if it was a float.
+
+	if(typeIsInt) clampInt((int*)val, Void_Dref(int, min), Void_Dref(int, max));
+	else clamp((float*)val, Void_Dref(float, min), Void_Dref(float, max));
+
+	float floatVal = typeIsInt ? Void_Dref(int, val) : Void_Dref(float, val);
+	float floatMin = typeIsInt ? Void_Dref(int, min) : Void_Dref(float, min);
+	float floatMax = typeIsInt ? Void_Dref(int, max) : Void_Dref(float, max);
+
+	float sliderSize;
+	if(typeIsInt) {
+		sliderSize = (rectW(r) / (float)(Void_Dref(int, max) - Void_Dref(int, min) + 1));
+		sliderSize = clampMin(sliderSize, set.minSize);
+	} else {
+		sliderSize = set.size;
+	}
+
+	Rect slider = newGuiCalcSlider(floatVal, r, sliderSize, floatMin, floatMax, true);
+
+	int event = newGuiGoDragAction(gui, slider, gui->zLevel);
+	if(rectEmpty(getRectScissor(gui->scissor, r))) return false;
+
+	if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
+	if(event > 0) {
+		floatVal = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, sliderSize, floatMin, floatMax, true);
+
+		if(typeIsInt) floatVal = roundInt(floatVal);
+		slider = newGuiCalcSlider(floatVal, r, sliderSize, floatMin, floatMax, true);
+	}
+
+	if(typeIsInt) Void_Dref(int, val) = floatVal;
+	else Void_Dref(float, val) = floatVal;
+
+	set.color += newGuiColorMod(gui);
+	if(!editMode) drawSlider(val, type, r, slider, gui->scissor, set);
+
+	if(event == 3) result = true;
+	return result;
+}
+
+bool newGuiQuickSlider(NewGui* gui, Rect r, float* val, float min, float max, SliderSettings* settings = 0) {
+	return newGuiQuickSlider(gui, r, SLIDER_TYPE_FLOAT, val, &min, &max, settings);
+}
+bool newGuiQuickSlider(NewGui* gui, Rect r, int* val, int min, int max, SliderSettings* settings = 0) {
+	return newGuiQuickSlider(gui, r, SLIDER_TYPE_INT, val, &min, &max, settings);
+}
 
 
 
@@ -1762,22 +1902,31 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-3)));
 }
 
-TextEditSettings textEditSettings(TextBoxSettings textSettings, Vec4 defaultTextColor, char* textBuffer, bool wrapping, bool singleLine, float cursorWidth, float cursorHeightMod, Vec4 colorSelection, Vec4 colorCursor, float textOffset) {
-	return {textSettings, defaultTextColor, textBuffer, wrapping, singleLine, cursorWidth, cursorHeightMod, "", colorSelection, colorCursor, textOffset};
+TextEditSettings textEditSettings(TextBoxSettings textSettings, Vec4 defaultTextColor, char* textBuffer, int flags, float cursorWidth, float cursorHeightMod, Vec4 colorSelection, Vec4 colorCursor, float textOffset) {
+	return {textSettings, defaultTextColor, textBuffer, flags, cursorWidth, cursorHeightMod, "", colorSelection, colorCursor, textOffset};
 }
 
 void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev) {
 
-	if(tes.singleLine) tes.wrapping = false;
+	bool wrapping = flagGet(tes.flags, ESETTINGS_WRAPPING);
+	bool singleLine = flagGet(tes.flags, ESETTINGS_SINGLE_LINE);
+
+	if(singleLine) wrapping = false;
 
 	// Vec2 startPos = rectTL(textRect) + tev->scrollOffset;
 	Vec2 startPos = rectTL(textRect) + tev->scrollOffset + vec2(tes.textOffset,0);
-	int wrapWidth = tes.wrapping ? rectDim(textRect).w : 0;
+	int wrapWidth = wrapping ? rectDim(textRect).w : 0;
 
 	int cursorIndex = tev->cursorIndex;
 	int markerIndex = tev->markerIndex;
 
-	int mouseIndex = textMouseToIndex(text, font, startPos, input->mousePosNegative, align, wrapWidth);
+	int mouseIndex;
+	if(input->mouseButtonPressed[0] || input->mouseButtonDown[0]) {
+		Vec2 mp = input->mousePosNegative;
+		if(singleLine) mp.y = rectCenY(textRect); // Lock mouse y axis.
+
+		mouseIndex = textMouseToIndex(text, font, startPos, mp, align, wrapWidth);
+	}
 
 	if(input->mouseButtonPressed[0]) {
 		if(pointInRect(input->mousePosNegative, textRect)) {
@@ -1825,7 +1974,7 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 		right = true;
 	}
 
-	if(!tes.singleLine) {
+	if(!singleLine) {
 		if(up || down) {
 			float cursorYOffset;
 			if(up) cursorYOffset = font->height;
@@ -1845,7 +1994,7 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 				while(text[cursorIndex-1] == ' ') cursorIndex--;
 
 				if(cursorIndex > 0)
-			 		cursorIndex = strFindBackwards(text, ' ', cursorIndex-1);
+					cursorIndex = strFindBackwards(text, ' ', cursorIndex-1);
 			}
 		} else {
 			bool isSelected = cursorIndex != markerIndex;
@@ -1882,7 +2031,7 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 		}
 	}
 
-	if(tes.singleLine) {
+	if(singleLine) {
 		if(home) {
 			cursorIndex = 0;
 		}
@@ -1914,7 +2063,7 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 	}
 
 	if(enter) {
-		if(tes.singleLine) {
+		if(singleLine) {
 			// strClear(text);
 			// cursorIndex = 0;
 			// markerIndex = 0;
@@ -1981,14 +2130,13 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 		clampMax(&tev->scrollOffset.x, 0);
 		
 		float ch = font->height;
-		if(!tes.singleLine) {
+		if(!singleLine) {
 			if(		cursorPos.y - ch/2 < textRect.min.y) tev->scrollOffset.y += textRect.min.y - (cursorPos.y - ch/2);
 			else if(cursorPos.y + ch/2 > textRect.max.y) tev->scrollOffset.y += textRect.max.y - (cursorPos.y + ch/2);
-		
+
 			clampMin(&tev->scrollOffset.y, 0);
 		}
 	}
-
 
 	tev->cursorChanged = (tev->cursorIndex != cursorIndex || tev->markerIndex != markerIndex);
 
@@ -2076,46 +2224,46 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
 	}
 
 	float cornerSize = settings.cornerSize;
-    for(int x = -1; x < 2; x++) {
-    	for(int y = -1; y < 2; y++) {
-    		if(x == 0 && y == 0) continue;
+	for(int x = -1; x < 2; x++) {
+		for(int y = -1; y < 2; y++) {
+			if(x == 0 && y == 0) continue;
 
-    		Vec2i align = vec2i(x,y);
-    		Vec2 dim = vec2(align.x==0?rectW(region)-cornerSize*2+2:w+1, align.y==0?rectH(region)-cornerSize*2+2:w+1);
-    		Rect r = rectAlignDim(region, align, dim);
+			Vec2i align = vec2i(x,y);
+			Vec2 dim = vec2(align.x==0?rectW(region)-cornerSize*2+2:w+1, align.y==0?rectH(region)-cornerSize*2+2:w+1);
+			Rect r = rectAlignDim(region, align, dim);
 
-    		int event;
-    		bool corner = abs(x) == 1 && abs(y) == 1;
-    		if(corner) {
-    			r = rectAlignDim(region, align, vec2(w+1,cornerSize));
-	    		event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
-    			r = rectAlignDim(region, align, vec2(cornerSize,w+1));
-    			gui->id--;
+			int event;
+			bool corner = abs(x) == 1 && abs(y) == 1;
+			if(corner) {
+				r = rectAlignDim(region, align, vec2(w+1,cornerSize));
 				event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
-    		} else {
-	    		event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
-    		}
-
-    		if(event > 0) {
-    			uiEvent = event;
-    			resizeAlign = align;
-    		}
-			if(newGuiIsWasHotOrActive(gui)) {
-    			changeCursor = true;
-    			resizeAlign = align;
+				r = rectAlignDim(region, align, vec2(cornerSize,w+1));
+				gui->id--;
+				event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
+			} else {
+				event = newGuiGoDragAction(gui, r, z, Gui_Focus_MLeft, screenMouse);
 			}
-    	}
-    }
 
-    if(!move) {
-        if(uiEvent == 1) {
-        	if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - region.left;
-        	if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - region.right;
-        	if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - region.top;
-        	if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - region.bottom;
-        }
+			if(event > 0) {
+				uiEvent = event;
+				resizeAlign = align;
+			}
+			if(newGuiIsWasHotOrActive(gui)) {
+				changeCursor = true;
+				resizeAlign = align;
+			}
+		}
+	}
 
-        if(uiEvent > 0) {
+	if(!move) {
+		if(uiEvent == 1) {
+			if(resizeAlign.x == -1) gui->mouseAnchor.x = p.x - region.left;
+			if(resizeAlign.x ==  1) gui->mouseAnchor.x = p.x - region.right;
+			if(resizeAlign.y ==  1) gui->mouseAnchor.y = p.y - region.top;
+			if(resizeAlign.y == -1) gui->mouseAnchor.y = p.y - region.bottom;
+		}
+
+		if(uiEvent > 0) {
 			if(resizeAlign.x == -1) region.left = (p - gui->mouseAnchor).x;
 			else if(resizeAlign.x == 1) region.right = (p - gui->mouseAnchor).x;
 
@@ -2123,57 +2271,57 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
 				if(resizeAlign.y == -1) region.bottom = (p - gui->mouseAnchor).y;
 				else if(resizeAlign.y == 1) region.top = (p - gui->mouseAnchor).y;
 			}
-        }
+		}
 
-    	if(changeCursor) {
-    		if(resizeAlign == vec2i(-1,-1) || resizeAlign == vec2i(1,1)) newGuiSetCursor(gui, IDC_SIZENESW);
-    		if(resizeAlign == vec2i(-1,1) || resizeAlign == vec2i(1,-1)) newGuiSetCursor(gui, IDC_SIZENWSE);
-    		if(resizeAlign == vec2i(-1,0) || resizeAlign == vec2i(1, 0)) newGuiSetCursor(gui, IDC_SIZEWE);
-    		if(resizeAlign == vec2i(0,-1) || resizeAlign == vec2i(0, 1)) newGuiSetCursor(gui, IDC_SIZENS);
-    	}
+		if(changeCursor) {
+			if(resizeAlign == vec2i(-1,-1) || resizeAlign == vec2i(1,1)) newGuiSetCursor(gui, IDC_SIZENESW);
+			if(resizeAlign == vec2i(-1,1) || resizeAlign == vec2i(1,-1)) newGuiSetCursor(gui, IDC_SIZENWSE);
+			if(resizeAlign == vec2i(-1,0) || resizeAlign == vec2i(1, 0)) newGuiSetCursor(gui, IDC_SIZEWE);
+			if(resizeAlign == vec2i(0,-1) || resizeAlign == vec2i(0, 1)) newGuiSetCursor(gui, IDC_SIZENS);
+		}
 
     	// if(uiEvent > 0 && insideClamp) {
-    	if(uiEvent > 0) {
-    		Vec2 minDim = settings.minDim;
-    		Vec2 maxDim = settings.maxDim;
+		if(uiEvent > 0) {
+			Vec2 minDim = settings.minDim;
+			Vec2 maxDim = settings.maxDim;
 
 			if(settings.resizableX) {
-    			if(resizeAlign.x == -1) region.left = clamp(region.left, max(sr.left, region.right - maxDim.x), region.right - minDim.x);
-    			if(resizeAlign.x ==  1) region.right = clamp(region.right, region.left + minDim.x, min(sr.right, region.left + maxDim.x));
+				if(resizeAlign.x == -1) region.left = clamp(region.left, max(sr.left, region.right - maxDim.x), region.right - minDim.x);
+				if(resizeAlign.x ==  1) region.right = clamp(region.right, region.left + minDim.x, min(sr.right, region.left + maxDim.x));
 			}
 
 			if(settings.resizableY) {
-	    		if(resizeAlign.y == -1) region.bottom = clamp(region.bottom, max(sr.bottom, region.top - maxDim.y), region.top - minDim.y);
-	    		if(resizeAlign.y ==  1) region.top = clamp(region.top, region.bottom + minDim.y, min(sr.top, region.bottom + maxDim.y));
-    		}
-    	}
-    }
+				if(resizeAlign.y == -1) region.bottom = clamp(region.bottom, max(sr.bottom, region.top - maxDim.y), region.top - minDim.y);
+				if(resizeAlign.y ==  1) region.top = clamp(region.top, region.bottom + minDim.y, min(sr.top, region.bottom + maxDim.y));
+			}
+		}
+	}
 
 
     // If window is resizing clamp panel.
-    if(insideClamp)
-    {
-    	Vec2 dim = rectDim(region);
-    	if(region.left < sr.left) rectTrans(&region, vec2(sr.left - region.left, 0));
-    	if(region.right > sr.right) rectTrans(&region, vec2(sr.right - region.right, 0));
-    	if(region.bottom < sr.bottom) rectTrans(&region, vec2(0, sr.bottom - region.bottom));
-    	if(region.top > sr.top) rectTrans(&region, vec2(0, sr.top - region.top));
+	if(insideClamp)
+	{
+		Vec2 dim = rectDim(region);
+		if(region.left < sr.left) rectTrans(&region, vec2(sr.left - region.left, 0));
+		if(region.right > sr.right) rectTrans(&region, vec2(sr.right - region.right, 0));
+		if(region.bottom < sr.bottom) rectTrans(&region, vec2(0, sr.bottom - region.bottom));
+		if(region.top > sr.top) rectTrans(&region, vec2(0, sr.top - region.top));
 
-    	if(rectH(region) > rectH(sr)) {
-    		region.top = sr.top;
-    		region.bottom = sr.bottom;
-    	}
-    	if(rectW(region) > rectW(sr)) {
-    		region.left = sr.left;
-    		region.right = sr.right;
-    	}
-    }
+		if(rectH(region) > rectH(sr)) {
+			region.top = sr.top;
+			region.bottom = sr.bottom;
+		}
+		if(rectW(region) > rectW(sr)) {
+			region.left = sr.left;
+			region.right = sr.right;
+		}
+	}
 
-    *r = region;
+	*r = region;
 
-    if(move || uiEvent) return true;
+	if(move || uiEvent) return true;
 
-    return false;
+	return false;
 }
 
 // @GuiAutomation
@@ -2721,472 +2869,472 @@ char* jsonGetString(JSonValue* object, char* name, char* name2 = 0, char* name3 
 
 
 #define For_Layout(layout) \
-	for(Layout* l = layout->list; l != 0; l = l->next)
+for(Layout* l = layout->list; l != 0; l = l->next)
 
-struct Layout {
-	Vec2i align;
-	Rect r;
+	struct Layout {
+		Vec2i align;
+		Rect r;
 
-	Layout* next;
-	Layout* list;
+		Layout* next;
+		Layout* list;
 
-	Vec2 minDim;
-	Vec2 maxDim;
-	Vec2 dim;
+		Vec2 minDim;
+		Vec2 maxDim;
+		Vec2 dim;
 
-	Vec2 finalDim;
+		Vec2 finalDim;
 
-	Vec2 padding;
-	Vec2 borderPadding;
-	bool vAxis;
-};
+		Vec2 padding;
+		Vec2 borderPadding;
+		bool vAxis;
+	};
 
-Layout* layoutAlloc(Layout node) {
-	Layout* newNode = getTStruct(Layout);
-	*newNode = node;
+	Layout* layoutAlloc(Layout node) {
+		Layout* newNode = getTStruct(Layout);
+		*newNode = node;
 
-	return newNode;
-}
-
-Layout layout(Vec2 dim, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
-	Layout node = {};
-	node.dim = dim;
-	node.align = align;
-	node.vAxis = vAxis;
-	node.borderPadding = borderPadding;
-	node.padding = padding;
-
-	return node;
-}
-
-Layout layout(Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
-	Layout node = {};
-	node.r = region;
-	node.align = align;
-	node.vAxis = vAxis;
-	node.borderPadding = borderPadding;
-	node.padding = padding;
-
-	return node;
-}
-void layout(Layout* node, Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
-	*node = layout(region, vAxis, align, padding, borderPadding);
-}
-
-Rect layoutGetRect(Layout* node) {
-	return rectExpand(node->r, -node->borderPadding*2);
-}
-
-Vec2 layoutGetDim(Layout* node) {
-	return rectDim(layoutGetRect(node));
-}
-
-Rect layoutInc(Layout** node) {
-	if((*node)) {
-		Rect r = (*node)->r;
-		(*node) = (*node)->next;
-		return r;
+		return newNode;
 	}
-	return rect(0,0,0,0);
-}
 
-void layoutAdd(Layout* node, Layout* newNode, bool addEnd = true) {
-	Layout* list = node->list;
+	Layout layout(Vec2 dim, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+		Layout node = {};
+		node.dim = dim;
+		node.align = align;
+		node.vAxis = vAxis;
+		node.borderPadding = borderPadding;
+		node.padding = padding;
 
-	if(list == 0) node->list = newNode;
-	else {
-		if(addEnd) {
-			while(list->next != 0) list = list->next;
-			list->next = newNode;
-		} else {
-			newNode->next = list;
-			node->list = newNode;
+		return node;
+	}
+
+	Layout layout(Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+		Layout node = {};
+		node.r = region;
+		node.align = align;
+		node.vAxis = vAxis;
+		node.borderPadding = borderPadding;
+		node.padding = padding;
+
+		return node;
+	}
+	void layout(Layout* node, Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+		*node = layout(region, vAxis, align, padding, borderPadding);
+	}
+
+	Rect layoutGetRect(Layout* node) {
+		return rectExpand(node->r, -node->borderPadding*2);
+	}
+
+	Vec2 layoutGetDim(Layout* node) {
+		return rectDim(layoutGetRect(node));
+	}
+
+	Rect layoutInc(Layout** node) {
+		if((*node)) {
+			Rect r = (*node)->r;
+			(*node) = (*node)->next;
+			return r;
 		}
-	}
-}
-
-Layout* layoutAdd(Layout* node, Layout nn, bool addEnd = true) {
-	Layout* newNode = getTStruct(Layout);
-	*newNode = nn;
-
-	layoutAdd(node, newNode, addEnd);
-	return newNode;
-}
-
-void layoutCalcSizes(Layout* mainNode) {
-	Layout* n;
-	bool vAxis = mainNode->vAxis;
-	Rect mainRect = layoutGetRect(mainNode);
-
-	if(rectZero(mainRect)) return;
-
-	int size = 0;
-	n = mainNode->list;
-	while(n != 0) {
-		size++;
-		n = n->next;
+		return rect(0,0,0,0);
 	}
 
-	float dim = vAxis==0? rectW(mainRect) : rectH(mainRect);
-	float dim2 = vAxis==1? rectW(mainRect) : rectH(mainRect);
-	float offset = mainNode->padding.e[vAxis];
-	float totalWidth = dim - offset*(size-1);
+	void layoutAdd(Layout* node, Layout* newNode, bool addEnd = true) {
+		Layout* list = node->list;
 
-	float dynamicSum = 0;
-	int flowCount = 0;
-	float staticSum = 0;
-	int staticCount = 0;
-
-	float widthWithoutFloats = 0;
-
-	n = mainNode->list;
-	while(n != 0) {
-		float val = n->dim.e[vAxis];
-			
-		if(val < 0) {}
-		else if(val == 0) flowCount++;
-		else if(val <= 1) widthWithoutFloats += val*totalWidth;
-		else widthWithoutFloats += val;
-
-		val = n->dim.e[(vAxis+1)%2];
-		if(val == 0) n->dim.e[(vAxis+1)%2] = dim2;
-		else if(val <= 1) n->dim.e[(vAxis+1)%2] = val * dim2;
-
-		n = n->next;
-	}
-
-
-	float flowVal = flowCount>0 ? (totalWidth-widthWithoutFloats)/flowCount : 0;
-	flowVal = clampMin(flowVal, 0);
-	n = mainNode->list;
-	while(n != 0) {
-		n->finalDim = n->dim;
-
-		float val = n->dim.e[vAxis];
-
-		if(val < 0) n->finalDim.e[vAxis] = 0;
-		else if(val == 0) n->finalDim.e[vAxis] = flowVal;
-		else if(val <= 1) n->finalDim.e[vAxis] = val*totalWidth;
-
-		clampMin(&n->finalDim.e[vAxis], 0);
-
-		if(n->minDim.x != 0) clampMin(&n->finalDim.x, n->minDim.x);
-		if(n->maxDim.x != 0) clampMax(&n->finalDim.x, n->maxDim.x);
-		if(n->minDim.y != 0) clampMin(&n->finalDim.y, n->minDim.y);
-		if(n->maxDim.y != 0) clampMax(&n->finalDim.y, n->maxDim.y);
-
-		n = n->next;
-	}
-
-}
-
-void layoutCalcRects(Layout* mainNode) {
-	Rect mainRect = layoutGetRect(mainNode);
-	if(rectZero(mainRect)) return;
-
-	bool vAxis = mainNode->vAxis;
-	Layout* node;
-
-	Vec2 boundingDim = vec2(0,0);
-	node = mainNode->list;
-	while(node != 0) {
-		boundingDim.e[vAxis] += node->finalDim.e[vAxis] + mainNode->padding.e[vAxis];
-		boundingDim.e[(vAxis+1)%2] = max(boundingDim.e[(vAxis+1)%2], node->finalDim.e[(vAxis+1)%2]);
-
-		node = node->next;
-	}
-	boundingDim.e[vAxis] -= mainNode->padding.e[vAxis];
-
-	Vec2i align = mainNode->align;
-	Vec2 currentPos = rectAlign(mainRect, align);
-
-	if(vAxis == false) {
-		currentPos.x -= boundingDim.x * (align.x+1)/2;
-		currentPos.y += boundingDim.y * (-align.y)/2;
-
-		node = mainNode->list;
-		while(node != 0) {
-			Vec2 p = currentPos;
-			p.y -= node->finalDim.y/2;
-
-			node->r = rectBLDim(p, node->finalDim);
-			currentPos.x += node->finalDim.x + mainNode->padding.x;
-
-			node = node->next;
-		}
-	} else {
-		currentPos.y -= boundingDim.y * (align.y-1)/2;
-		currentPos.x += boundingDim.x * (-align.x)/2;
-
-		node = mainNode->list;
-		while(node != 0) {
-			Vec2 p = currentPos;
-			p.x -= node->finalDim.x/2;
-
-			node->r = rectTLDim(p, node->finalDim);
-			currentPos.y -= node->finalDim.y + mainNode->padding.y;
-
-			node = node->next;
-		}
-	}
-
-}
-
-void layoutCalc(Layout* mainNode, bool recursive = true) {
-	layoutCalcSizes(mainNode);
-	layoutCalcRects(mainNode);
-
-	if(recursive) {
-		Layout* node = mainNode->list;
-		while(node != 0) {
-			if(node->list != 0) {
-				layoutCalc(node, true);			
+		if(list == 0) node->list = newNode;
+		else {
+			if(addEnd) {
+				while(list->next != 0) list = list->next;
+				list->next = newNode;
+			} else {
+				newNode->next = list;
+				node->list = newNode;
 			}
+		}
+	}
+
+	Layout* layoutAdd(Layout* node, Layout nn, bool addEnd = true) {
+		Layout* newNode = getTStruct(Layout);
+		*newNode = nn;
+
+		layoutAdd(node, newNode, addEnd);
+		return newNode;
+	}
+
+	void layoutCalcSizes(Layout* mainNode) {
+		Layout* n;
+		bool vAxis = mainNode->vAxis;
+		Rect mainRect = layoutGetRect(mainNode);
+
+		if(rectZero(mainRect)) return;
+
+		int size = 0;
+		n = mainNode->list;
+		while(n != 0) {
+			size++;
+			n = n->next;
+		}
+
+		float dim = vAxis==0? rectW(mainRect) : rectH(mainRect);
+		float dim2 = vAxis==1? rectW(mainRect) : rectH(mainRect);
+		float offset = mainNode->padding.e[vAxis];
+		float totalWidth = dim - offset*(size-1);
+
+		float dynamicSum = 0;
+		int flowCount = 0;
+		float staticSum = 0;
+		int staticCount = 0;
+
+		float widthWithoutFloats = 0;
+
+		n = mainNode->list;
+		while(n != 0) {
+			float val = n->dim.e[vAxis];
+			
+			if(val < 0) {}
+				else if(val == 0) flowCount++;
+			else if(val <= 1) widthWithoutFloats += val*totalWidth;
+			else widthWithoutFloats += val;
+
+			val = n->dim.e[(vAxis+1)%2];
+			if(val == 0) n->dim.e[(vAxis+1)%2] = dim2;
+			else if(val <= 1) n->dim.e[(vAxis+1)%2] = val * dim2;
+
+			n = n->next;
+		}
+
+
+		float flowVal = flowCount>0 ? (totalWidth-widthWithoutFloats)/flowCount : 0;
+		flowVal = clampMin(flowVal, 0);
+		n = mainNode->list;
+		while(n != 0) {
+			n->finalDim = n->dim;
+
+			float val = n->dim.e[vAxis];
+
+			if(val < 0) n->finalDim.e[vAxis] = 0;
+			else if(val == 0) n->finalDim.e[vAxis] = flowVal;
+			else if(val <= 1) n->finalDim.e[vAxis] = val*totalWidth;
+
+			clampMin(&n->finalDim.e[vAxis], 0);
+
+			if(n->minDim.x != 0) clampMin(&n->finalDim.x, n->minDim.x);
+			if(n->maxDim.x != 0) clampMax(&n->finalDim.x, n->maxDim.x);
+			if(n->minDim.y != 0) clampMin(&n->finalDim.y, n->minDim.y);
+			if(n->maxDim.y != 0) clampMax(&n->finalDim.y, n->maxDim.y);
+
+			n = n->next;
+		}
+
+	}
+
+	void layoutCalcRects(Layout* mainNode) {
+		Rect mainRect = layoutGetRect(mainNode);
+		if(rectZero(mainRect)) return;
+
+		bool vAxis = mainNode->vAxis;
+		Layout* node;
+
+		Vec2 boundingDim = vec2(0,0);
+		node = mainNode->list;
+		while(node != 0) {
+			boundingDim.e[vAxis] += node->finalDim.e[vAxis] + mainNode->padding.e[vAxis];
+			boundingDim.e[(vAxis+1)%2] = max(boundingDim.e[(vAxis+1)%2], node->finalDim.e[(vAxis+1)%2]);
 
 			node = node->next;
 		}
+		boundingDim.e[vAxis] -= mainNode->padding.e[vAxis];
+
+		Vec2i align = mainNode->align;
+		Vec2 currentPos = rectAlign(mainRect, align);
+
+		if(vAxis == false) {
+			currentPos.x -= boundingDim.x * (align.x+1)/2;
+			currentPos.y += boundingDim.y * (-align.y)/2;
+
+			node = mainNode->list;
+			while(node != 0) {
+				Vec2 p = currentPos;
+				p.y -= node->finalDim.y/2;
+
+				node->r = rectBLDim(p, node->finalDim);
+				currentPos.x += node->finalDim.x + mainNode->padding.x;
+
+				node = node->next;
+			}
+		} else {
+			currentPos.y -= boundingDim.y * (align.y-1)/2;
+			currentPos.x += boundingDim.x * (-align.x)/2;
+
+			node = mainNode->list;
+			while(node != 0) {
+				Vec2 p = currentPos;
+				p.x -= node->finalDim.x/2;
+
+				node->r = rectTLDim(p, node->finalDim);
+				currentPos.y -= node->finalDim.y + mainNode->padding.y;
+
+				node = node->next;
+			}
+		}
+
 	}
-}
 
-Layout* layoutQuickRow(Layout* node, Rect region, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
-	node->r = region;
-	node->list = 0;
-	layoutAdd(node, layout(!node->vAxis ? vec2(s1,0) : vec2(0,s1)));
-	if(s2 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s2,0) : vec2(0,s2)));
-	if(s3 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s3,0) : vec2(0,s3)));
-	if(s4 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s4,0) : vec2(0,s4)));
+	void layoutCalc(Layout* mainNode, bool recursive = true) {
+		layoutCalcSizes(mainNode);
+		layoutCalcRects(mainNode);
 
-	layoutCalc(node);
+		if(recursive) {
+			Layout* node = mainNode->list;
+			while(node != 0) {
+				if(node->list != 0) {
+					layoutCalc(node, true);			
+				}
 
-	return node->list;
-}
-
-Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
-	node->r = region;
-	node->list = 0;
-
-	for(int i = 0; i < count; i++) {
-		layoutAdd(node, layout(!node->vAxis ? vec2(s[i],0) : vec2(0,s[i])));
+				node = node->next;
+			}
+		}
 	}
 
-	layoutCalc(node);
+	Layout* layoutQuickRow(Layout* node, Rect region, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
+		node->r = region;
+		node->list = 0;
+		layoutAdd(node, layout(!node->vAxis ? vec2(s1,0) : vec2(0,s1)));
+		if(s2 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s2,0) : vec2(0,s2)));
+		if(s3 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s3,0) : vec2(0,s3)));
+		if(s4 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s4,0) : vec2(0,s4)));
 
-	return node->list;
-}
+		layoutCalc(node);
+
+		return node->list;
+	}
+
+	Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
+		node->r = region;
+		node->list = 0;
+
+		for(int i = 0; i < count; i++) {
+			layoutAdd(node, layout(!node->vAxis ? vec2(s[i],0) : vec2(0,s[i])));
+		}
+
+		layoutCalc(node);
+
+		return node->list;
+	}
 
 
 
 
-struct AppData {
+	struct AppData {
 	// General.
 
-	SystemData systemData;
-	Input input;
-	WindowSettings wSettings;
-	GraphicsState graphicsState;
+		SystemData systemData;
+		Input input;
+		WindowSettings wSettings;
+		GraphicsState graphicsState;
 
-	f64 dt;
-	f64 time;
-	int frameCount;
-	i64 swapTime;
+		f64 dt;
+		f64 time;
+		int frameCount;
+		i64 swapTime;
 
-	bool updateFrameBuffers;
+		bool updateFrameBuffers;
 
-	int msaaSamples;
+		int msaaSamples;
 
 	// Window.
 
-	Rect clientRect;
-	Vec2i frameBufferSize;
-	bool screenShotMode;
+		Rect clientRect;
+		Vec2i frameBufferSize;
+		bool screenShotMode;
 
 	// App.
 
-	bool reloadSettings;
-	FILETIME settingsFileLastWriteTime;
+		bool reloadSettings;
+		FILETIME settingsFileLastWriteTime;
 
-	AppColors appColors;
-	AppColorsRelative appColorsRelative;
-	AppSettings appSettings;
+		AppColors appColors;
+		AppColorsRelative appColorsRelative;
+		AppSettings appSettings;
 
-	bool appIsBusy;
+		bool appIsBusy;
 
-	Font* font;
-	Font* fontTitle;
+		Font* font;
+		Font* fontTitle;
 
-	CURL* curlHandle;
-	HMODULE curlDll;
+		CURL* curlHandle;
+		HMODULE curlDll;
 
-	GraphCam cams[10];
-	int camCount;
+		GraphCam cams[10];
+		int camCount;
 
-	int heightMoveMode;
-	bool widthMove;
+		int heightMoveMode;
+		bool widthMove;
 
-	float leftTextWidth;
+		float leftTextWidth;
 
-	float graphOffsets[Line_Graph_Count+1];
-	float sidePanelWidth;
-	float sidePanelMax;
-
-	//
-
-	DownloadInfo dInfo;
-	CurlRequestData requestData;
-	DownloadModeData modeData;
+		float graphOffsets[Line_Graph_Count+1];
+		float sidePanelWidth;
+		float sidePanelMax;
 
 	//
 
-	NewGui newGui;
-	NewGui* gui;
-
-	Rect panelRect;
-	bool panelActive;
-	int panelMode;
-	float lastPanelHeight;
-
-	TextBoxSettings labelSettings;
-	TextBoxSettings buttonSettings;
-	TextBoxSettings uiButtonSettings;
-	TextBoxSettings scrollButtonSettings;
-	TextEditSettings editSettings;
-	SliderSettings sliderSettings;
-	ScrollRegionSettings scrollSettings;
-	ScrollRegionSettings commentScrollSettings;
+		DownloadInfo dInfo;
+		CurlRequestData requestData;
+		DownloadModeData modeData;
 
 	//
 
-	int playlistFolderIndex;
-	YoutubePlaylist playlist;
-	YoutubeVideo* videos;
-	int maxVideoCount;
+		NewGui newGui;
+		NewGui* gui;
 
-	VideoSnippet videoSnippet;
-	Vec2 hoveredPoint;
-	int hoveredVideo;
-	float hoveredVideoStat;
-	float commentScrollValue;
+		Rect panelRect;
+		bool panelActive;
+		int panelMode;
+		float lastPanelHeight;
 
-	Vec2 selectedPoint;
-	int selectedVideo;
+		TextBoxSettings labelSettings;
+		TextBoxSettings buttonSettings;
+		TextBoxSettings uiButtonSettings;
+		TextBoxSettings scrollButtonSettings;
+		TextEditSettings editSettings;
+		SliderSettings sliderSettings;
+		ScrollRegionSettings scrollSettings;
+		ScrollRegionSettings commentScrollSettings;
 
-	YoutubePlaylist downloadPlaylist;
+	//
 
-	bool startScreenShot;
-	char screenShotFilePath[50];
-	Vec2i screenShotDim;
+		int playlistFolderIndex;
+		YoutubePlaylist playlist;
+		YoutubeVideo* videos;
+		int maxVideoCount;
 
-	char* searchString;
-	char* searchStringPlaylists;
-	char* searchStringChannels;
+		VideoSnippet videoSnippet;
+		Vec2 hoveredPoint;
+		int hoveredVideo;
+		float hoveredVideoStat;
+		float commentScrollValue;
 
-	bool startDownload;
-	bool update;
-	bool startLoadFile;
+		Vec2 selectedPoint;
+		int selectedVideo;
 
-	char* userName;
-	char* channelId;
-	int playlistDownloadCount;
+		YoutubePlaylist downloadPlaylist;
 
-	YoutubePlaylist* playlists;
-	int playlistCount;
+		bool startScreenShot;
+		char screenShotFilePath[50];
+		Vec2i screenShotDim;
 
-	SearchResult* searchResults;
-	int searchResultCount;
-	int searchResultMaxCount;
+		char* searchString;
+		char* searchStringPlaylists;
+		char* searchStringChannels;
 
-	int lastSearchMode;
+		bool startDownload;
+		bool update;
+		bool startLoadFile;
 
-	YoutubePlaylist playlistFolder[50];
-	int playlistFolderCount;
+		char* userName;
+		char* channelId;
+		int playlistDownloadCount;
 
-	float statTimeSpan;
-	float statWidth;
+		YoutubePlaylist* playlists;
+		int playlistCount;
 
-	Statistic stats[Line_Graph_Count];
-	LineGraph averagesLineGraph;
-	LineGraph releaseCountLineGraph;
+		SearchResult* searchResults;
+		int searchResultCount;
+		int searchResultMaxCount;
 
-	char exclusiveFilter[50];
-	char inclusiveFilter[50];
+		int lastSearchMode;
 
-	int graphDrawMode;
+		YoutubePlaylist playlistFolder[50];
+		int playlistFolderCount;
 
-	bool sortByDate;
-	int sortStat;
+		float statTimeSpan;
+		float statWidth;
 
-	Vec2 clampFilter[Line_Graph_Count];
-};
+		Statistic stats[Line_Graph_Count];
+		LineGraph averagesLineGraph;
+		LineGraph releaseCountLineGraph;
+
+		char exclusiveFilter[50];
+		char inclusiveFilter[50];
+
+		int graphDrawMode;
+
+		bool sortByDate;
+		int sortStat;
+
+		Vec2 clampFilter[Line_Graph_Count];
+	};
 
 
 
-void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
+	void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
 
 // #pragma optimize( "", off )
 #pragma optimize( "", on )
-extern "C" APPMAINFUNCTION(appMain) {
+	extern "C" APPMAINFUNCTION(appMain) {
 
-	i64 startupTimer = timerInit();
+		i64 startupTimer = timerInit();
 
-	if(init) {
+		if(init) {
 
 		// Init memory.
 
-		SYSTEM_INFO info;
-		GetSystemInfo(&info);
+			SYSTEM_INFO info;
+			GetSystemInfo(&info);
 
-		char* baseAddress = (char*)gigaBytes(8);
-	    VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
+			char* baseAddress = (char*)gigaBytes(8);
+			VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
 
-		ExtendibleMemoryArray* pMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
-		initExtendibleMemoryArray(pMemory, megaBytes(50), info.dwAllocationGranularity, baseAddress);
+			ExtendibleMemoryArray* pMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
+			initExtendibleMemoryArray(pMemory, megaBytes(50), info.dwAllocationGranularity, baseAddress);
 
-		ExtendibleBucketMemory* dMemory = &appMemory->extendibleBucketMemories[appMemory->extendibleBucketMemoryCount++];
-		initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
+			ExtendibleBucketMemory* dMemory = &appMemory->extendibleBucketMemories[appMemory->extendibleBucketMemoryCount++];
+			initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
 
-		MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-		initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
+			MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+			initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
 
 
 
-		MemoryArray* pDebugMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-		initMemoryArray(pDebugMemory, megaBytes(50), 0);
+			MemoryArray* pDebugMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+			initMemoryArray(pDebugMemory, megaBytes(50), 0);
 
-		MemoryArray* tMemoryDebug = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-		initMemoryArray(tMemoryDebug, megaBytes(30), 0);
+			MemoryArray* tMemoryDebug = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+			initMemoryArray(tMemoryDebug, megaBytes(30), 0);
 
-		ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
-		initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
-	}
+			ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
+			initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
+		}
 
 	// Setup memory and globals.
 
-	MemoryBlock gMemory = {};
-	gMemory.pMemory = &appMemory->extendibleMemoryArrays[0];
-	gMemory.tMemory = &appMemory->memoryArrays[0];
-	gMemory.dMemory = &appMemory->extendibleBucketMemories[0];
-	gMemory.pDebugMemory = &appMemory->memoryArrays[1];
-	gMemory.tMemoryDebug = &appMemory->memoryArrays[2];
-	gMemory.debugMemory = &appMemory->extendibleMemoryArrays[1];
-	globalMemory = &gMemory;
+		MemoryBlock gMemory = {};
+		gMemory.pMemory = &appMemory->extendibleMemoryArrays[0];
+		gMemory.tMemory = &appMemory->memoryArrays[0];
+		gMemory.dMemory = &appMemory->extendibleBucketMemories[0];
+		gMemory.pDebugMemory = &appMemory->memoryArrays[1];
+		gMemory.tMemoryDebug = &appMemory->memoryArrays[2];
+		gMemory.debugMemory = &appMemory->extendibleMemoryArrays[1];
+		globalMemory = &gMemory;
 
-	DebugState* ds = (DebugState*)getBaseMemoryArray(gMemory.pDebugMemory);
-	AppData* ad = (AppData*)getBaseExtendibleMemoryArray(gMemory.pMemory);
-	GraphicsState* gs = &ad->graphicsState;
+		DebugState* ds = (DebugState*)getBaseMemoryArray(gMemory.pDebugMemory);
+		AppData* ad = (AppData*)getBaseExtendibleMemoryArray(gMemory.pMemory);
+		GraphicsState* gs = &ad->graphicsState;
 
-	Input* input = &ad->input;
-	SystemData* systemData = &ad->systemData;
-	HWND windowHandle = systemData->windowHandle;
-	WindowSettings* ws = &ad->wSettings;
+		Input* input = &ad->input;
+		SystemData* systemData = &ad->systemData;
+		HWND windowHandle = systemData->windowHandle;
+		WindowSettings* ws = &ad->wSettings;
 
-	globalThreadQueue = threadQueue;
-	globalGraphicsState = &ad->graphicsState;
-	globalDebugState = ds;
-	globalTimer = ds->timer;
+		globalThreadQueue = threadQueue;
+		globalGraphicsState = &ad->graphicsState;
+		globalDebugState = ds;
+		globalTimer = ds->timer;
 
 	// Init.
 
-	if(init) {
+		if(init) {
 
 		// @AppInit.
 
@@ -3194,9 +3342,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// DebugState.
 		//
 
-		getPMemoryDebug(sizeof(DebugState));
+			getPMemoryDebug(sizeof(DebugState));
 
-		*ds = {};
+			*ds = {};
 		// ds->assets = getPArrayDebug(Asset, 100);
 
 		#ifndef RELEASE_BUILD
@@ -3219,28 +3367,28 @@ extern "C" APPMAINFUNCTION(appMain) {
 			globalTimer = ds->timer;
 		#endif
 
-		TIMER_BLOCK_NAMED("Init");
+			TIMER_BLOCK_NAMED("Init");
 
-		ds->gui = getPStructDebug(Gui);
+			ds->gui = getPStructDebug(Gui);
 		// gui->init(rectCenDim(vec2(0,1), vec2(300,800)));
 		// gui->init(rectCenDim(vec2(1300,1), vec2(300,500)));
-		ds->gui->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 0);
+			ds->gui->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 0);
 
 		// ds->gui->cornerPos = 
 
-		ds->gui2 = getPStructDebug(Gui);
+			ds->gui2 = getPStructDebug(Gui);
 		// ds->gui->init(rectCenDim(vec2(1300,1), vec2(400, ws->currentRes.h)), -1);
-		ds->gui2->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 3);
+			ds->gui2->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 3);
 
-		ds->input = getPStructDebug(Input);
+			ds->input = getPStructDebug(Input);
 		// ds->showMenu = true;
-		ds->showMenu = false;
-		ds->showStats = false;
-		ds->showConsole = false;
-		ds->showHud = true;
+			ds->showMenu = false;
+			ds->showStats = false;
+			ds->showConsole = false;
+			ds->showHud = true;
 		// ds->guiAlpha = 0.95f;
-		ds->guiAlpha = 1;
-		ds->noCollating = true;
+			ds->guiAlpha = 1;
+			ds->noCollating = true;
 
 		#ifdef RELEASE_BUILD
 			ds->noCollating = true;
@@ -3248,57 +3396,57 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ds->noCollating = false;
 		#endif
 
-		for(int i = 0; i < arrayCount(ds->notificationStack); i++) {
-			ds->notificationStack[i] = getPStringDebug(DEBUG_NOTE_LENGTH+1);
-		}
+			for(int i = 0; i < arrayCount(ds->notificationStack); i++) {
+				ds->notificationStack[i] = getPStringDebug(DEBUG_NOTE_LENGTH+1);
+			}
 
 		//
 		// AppData.
 		//
 
-		TIMER_BLOCK_BEGIN_NAMED(initAppData, "Init AppData");
+			TIMER_BLOCK_BEGIN_NAMED(initAppData, "Init AppData");
 
-		getPMemory(sizeof(AppData));
-		*ad = {};
-		
-		initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, false, 1);
-		windowHandle = systemData->windowHandle;
+			getPMemory(sizeof(AppData));
+			*ad = {};
 
-	    printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
+			initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, false, 1);
+			windowHandle = systemData->windowHandle;
 
-		loadFunctions();
+			printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
 
-		const char* extensions = wglGetExtensionsStringEXT();
+			loadFunctions();
 
-		wglSwapIntervalEXT(1);
-		int fps = wglGetSwapIntervalEXT();
+			const char* extensions = wglGetExtensionsStringEXT();
 
-		initInput(&ad->input);
+			wglSwapIntervalEXT(1);
+			int fps = wglGetSwapIntervalEXT();
+
+			initInput(&ad->input);
 
 		// Init curl.
 
-		ad->curlDll = LoadLibraryA("libcurl.dll");
-		loadCurlFunctions(ad->curlDll);
+			ad->curlDll = LoadLibraryA("libcurl.dll");
+			loadCurlFunctions(ad->curlDll);
 
-		updateResolution(windowHandle, ws);
-		gs->screenRes = ws->currentRes;
+			updateResolution(windowHandle, ws);
+			gs->screenRes = ws->currentRes;
 
-		TIMER_BLOCK_END(initAppData);
+			TIMER_BLOCK_END(initAppData);
 
 
 		//
 		// Setup Textures.
 		//
 
-		TIMER_BLOCK_BEGIN_NAMED(initGraphics, "Init Graphics");
+			TIMER_BLOCK_BEGIN_NAMED(initGraphics, "Init Graphics");
 
-		for(int i = 0; i < TEXTURE_SIZE; i++) {
-			Texture tex;
-			uchar buffer [] = {255,255,255,255 ,255,255,255,255 ,255,255,255,255, 255,255,255,255};
-			loadTexture(&tex, buffer, 2,2, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+			for(int i = 0; i < TEXTURE_SIZE; i++) {
+				Texture tex;
+				uchar buffer [] = {255,255,255,255 ,255,255,255,255 ,255,255,255,255, 255,255,255,255};
+				loadTexture(&tex, buffer, 2,2, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
 
-			addTexture(tex);
-		}
+				addTexture(tex);
+			}
 
 		// for(int i = 0; i < TEXTURE_SIZE; i++) {
 		// 	Texture tex;
@@ -3310,170 +3458,170 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// Setup Meshs.
 		//
 
-		uint vao = 0;
-		glCreateVertexArrays(1, &vao);
-		glBindVertexArray(vao);
+			uint vao = 0;
+			glCreateVertexArrays(1, &vao);
+			glBindVertexArray(vao);
 
 		// 
 		// Samplers.
 		//
 
-		gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR);
+			gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR);
 		// gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_NEAREST, GL_NEAREST_MIPMAP_NEAREST);
 
 		//
 		//
 		//
 
-		ad->msaaSamples = 4;
-		ad->dt = 1/(float)60;
+			ad->msaaSamples = 4;
+			ad->dt = 1/(float)60;
 
-		ad->graphicsState.zOrder = 0;
+			ad->graphicsState.zOrder = 0;
 
 		//
 		// FrameBuffers.
 		//
 
-		{
-			for(int i = 0; i < FRAMEBUFFER_SIZE; i++) {
-				FrameBuffer* fb = getFrameBuffer(i);
-				initFrameBuffer(fb);
-			}
+			{
+				for(int i = 0; i < FRAMEBUFFER_SIZE; i++) {
+					FrameBuffer* fb = getFrameBuffer(i);
+					initFrameBuffer(fb);
+				}
 
-			attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0, ad->msaaSamples);
-			attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_DEPTH, GL_DEPTH_COMPONENT32F, 0, 0, ad->msaaSamples);
-			attachToFrameBuffer(FRAMEBUFFER_2dNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0);
+				attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0, ad->msaaSamples);
+				attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_DEPTH, GL_DEPTH_COMPONENT32F, 0, 0, ad->msaaSamples);
+				attachToFrameBuffer(FRAMEBUFFER_2dNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0);
 
-			attachToFrameBuffer(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0, ad->msaaSamples);
-			attachToFrameBuffer(FRAMEBUFFER_DebugNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
+				attachToFrameBuffer(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0, ad->msaaSamples);
+				attachToFrameBuffer(FRAMEBUFFER_DebugNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
 
 			// attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8_ALPHA8, 0, 0);
-			attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8, 0, 0);
+				attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8, 0, 0);
 
-			ad->updateFrameBuffers = true;
+				ad->updateFrameBuffers = true;
 
 
 
 			// ad->frameBufferSize = vec2i(2560, 1440);
-			ad->frameBufferSize = ws->biggestMonitorSize;
-			Vec2i fRes = ad->frameBufferSize;
+				ad->frameBufferSize = ws->biggestMonitorSize;
+				Vec2i fRes = ad->frameBufferSize;
 
-			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, fRes.w, fRes.h);
-			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, fRes.w, fRes.h);
-			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, fRes.w, fRes.h);
-			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, fRes.w, fRes.h);
+				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, fRes.w, fRes.h);
+				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, fRes.w, fRes.h);
+				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, fRes.w, fRes.h);
+				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, fRes.w, fRes.h);
 
 			// setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, fRes.w, fRes.h);
-		}
+			}
 
-		TIMER_BLOCK_END(initGraphics);
+			TIMER_BLOCK_END(initGraphics);
 
 		//
 
-		TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
+			TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
 
 
-		HANDLE fileChangeHandle  = FindFirstChangeNotification(App_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
-		if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
-		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
-		ad->settingsFileLastWriteTime = getLastWriteTime(App_Settings_File);
+			HANDLE fileChangeHandle  = FindFirstChangeNotification(App_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
+			if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
+			systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
+			ad->settingsFileLastWriteTime = getLastWriteTime(App_Settings_File);
 
 		// fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
-		fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
-		if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
-		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
+			fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
+			if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
+			systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
 
 
-		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(App_Font_Folder);
-		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(Windows_Font_Folder);
+			globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(App_Font_Folder);
+			globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(Windows_Font_Folder);
 
 
-		ad->curlHandle = curl_easy_initX();
+			ad->curlHandle = curl_easy_initX();
 
-		int maxVideoCount = 5000;
-		ad->maxVideoCount = maxVideoCount;
-		ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*maxVideoCount);
-		ad->videoSnippet.thumbnailTexture.id = -1;
-		ad->selectedVideo = -1;
+			int maxVideoCount = 5000;
+			ad->maxVideoCount = maxVideoCount;
+			ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*maxVideoCount);
+			ad->videoSnippet.thumbnailTexture.id = -1;
+			ad->selectedVideo = -1;
 
-		ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
-		ad->userName = (char*)getPMemory(100); strClear(ad->userName);
-		ad->searchString = (char*)getPMemory(100); strClear(ad->searchString);
-		ad->searchStringPlaylists = (char*)getPMemory(100); strClear(ad->searchStringPlaylists);
-		ad->searchStringChannels = (char*)getPMemory(100); strClear(ad->searchStringChannels);
+			ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
+			ad->userName = (char*)getPMemory(100); strClear(ad->userName);
+			ad->searchString = (char*)getPMemory(100); strClear(ad->searchString);
+			ad->searchStringPlaylists = (char*)getPMemory(100); strClear(ad->searchStringPlaylists);
+			ad->searchStringChannels = (char*)getPMemory(100); strClear(ad->searchStringChannels);
 
-		ad->statTimeSpan = 3.0f;
-		ad->statWidth = 1.0f;
+			ad->statTimeSpan = 3.0f;
+			ad->statWidth = 1.0f;
 
-		strClear(ad->screenShotFilePath);
-		strCpy(ad->screenShotFilePath, Screenshot_File);
-		ad->screenShotDim = vec2i(5000, 1000);
+			strClear(ad->screenShotFilePath);
+			strCpy(ad->screenShotFilePath, Screenshot_File);
+			ad->screenShotDim = vec2i(5000, 1000);
 
-		ad->leftTextWidth = 0;
-		ad->camCount = 4;
+			ad->leftTextWidth = 0;
+			ad->camCount = 4;
 
-		ad->graphOffsets[0] = 0.0f;
-		ad->graphOffsets[1] = 0.4f;
-		ad->graphOffsets[2] = 0.6f;
-		ad->graphOffsets[3] = 0.8f;
-		ad->graphOffsets[4] = 1.0f;
+			ad->graphOffsets[0] = 0.0f;
+			ad->graphOffsets[1] = 0.4f;
+			ad->graphOffsets[2] = 0.6f;
+			ad->graphOffsets[3] = 0.8f;
+			ad->graphOffsets[4] = 1.0f;
 
-		ad->sidePanelWidth = ws->currentRes.w*0.25f;
-		ad->sidePanelMax = 0.5f;
+			ad->sidePanelWidth = ws->currentRes.w*0.25f;
+			ad->sidePanelMax = 0.5f;
 
 		// Make test file.
-		if(false) 
-		{
+			if(false) 
+			{
 			// int count = 10000;
-			int count = 100000;
+				int count = 100000;
 			// int count = 1000;
 
-			YoutubePlaylist playlist = {"PLAYLIST_ID", "PLAYLIST_TITLE", count};
+				YoutubePlaylist playlist = {"PLAYLIST_ID", "PLAYLIST_TITLE", count};
 
-			Date d = {5, 1, 1, 0, 0, 0, 0};
-			dateEncode(&d);
+				Date d = {5, 1, 1, 0, 0, 0, 0};
+				dateEncode(&d);
 
-			clearTMemory();
+				clearTMemory();
 			// YoutubeVideo* videos = getTArray(YoutubeVideo, count);
-			YoutubeVideo* videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
-			for(int i = 0; i < count; i++) {
+				YoutubeVideo* videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
+				for(int i = 0; i < count; i++) {
 				// d.n += randomInt(20*60*60,50*60*60);
-				d.n += randomInt(20*60,2*60*60);
-				dateDecode(&d);
+					d.n += randomInt(20*60,2*60*60);
+					dateDecode(&d);
 
-				char* dateString = fillString("%i %i %i %i:%i:%i", (int)d.y, (int)d.m, (int)d.d, (int)d.h, (int)d.mins, (int)d.secs);
+					char* dateString = fillString("%i %i %i %i:%i:%i", (int)d.y, (int)d.m, (int)d.d, (int)d.h, (int)d.mins, (int)d.secs);
 				// char* dateString = "";
 
-	            videos[i] = {"Video_Id", "Video_Title", "Video_Thumbnail_Url", "", 
-	                          d, 
-	                          randomInt(5000,15000), 
-	                          randomInt(100,2000), 
-	                          randomInt(10,200), 
-	                          randomInt(10,100), 
-	                          randomInt(10,100) };
+					videos[i] = {"Video_Id", "Video_Title", "Video_Thumbnail_Url", "", 
+					d, 
+					randomInt(5000,15000), 
+					randomInt(100,2000), 
+					randomInt(10,200), 
+					randomInt(10,100), 
+					randomInt(10,100) };
 
-	           	strCpy(videos[i].dateString, dateString);
+					strCpy(videos[i].dateString, dateString);
+				}
+
+				savePlaylistToFile(&playlist, videos, count, count, 0, "PageToken");
+
+				free(videos);
 			}
 
-			savePlaylistToFile(&playlist, videos, count, count, 0, "PageToken");
+			ad->graphDrawMode = 0;
+			ad->sortByDate = true;
+			ad->sortStat = -1;
 
-			free(videos);
-		}
-		
-		ad->graphDrawMode = 0;
-		ad->sortByDate = true;
-		ad->sortStat = -1;
+			ad->requestData.curlHandle = ad->curlHandle;
+			ad->requestData.maxSize = megaBytes(1);
+			ad->requestData.buffer = (char*)getPMemory(ad->requestData.maxSize);
 
-		ad->requestData.curlHandle = ad->curlHandle;
-		ad->requestData.maxSize = megaBytes(1);
-		ad->requestData.buffer = (char*)getPMemory(ad->requestData.maxSize);
+			TIMER_BLOCK_END(initRest);
 
-		TIMER_BLOCK_END(initRest);
+			ad->panelActive = false;
 
-		ad->panelActive = false;
-
-		ad->searchResultMaxCount = 300;
-		ad->searchResults = getPArray(SearchResult, ad->searchResultMaxCount);
+			ad->searchResultMaxCount = 300;
+			ad->searchResults = getPArray(SearchResult, ad->searchResultMaxCount);
 
 
 
@@ -3489,125 +3637,126 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// char* filePath = fillString("%s\\%s.playlist", Playlist_Folder, ad->downloadPlaylist.id);
 		// remove(filePath);
-	}
+		}
 
 
 
 	// @AppStart.
 
-	TIMER_BLOCK_BEGIN_NAMED(reload, "Reload");
+		TIMER_BLOCK_BEGIN_NAMED(reload, "Reload");
 
-	if(reload) {
-		loadFunctions();
-		SetWindowLongPtr(systemData->windowHandle, GWLP_WNDPROC, (LONG_PTR)mainWindowCallBack);
+		if(reload) {
+			loadFunctions();
+			SetWindowLongPtr(systemData->windowHandle, GWLP_WNDPROC, (LONG_PTR)mainWindowCallBack);
 
-		gs->screenRes = ws->currentRes;
+			gs->screenRes = ws->currentRes;
 
-		loadCurlFunctions(ad->curlDll);
-	}
+			loadCurlFunctions(ad->curlDll);
+		}
 
-	TIMER_BLOCK_END(reload);
+		TIMER_BLOCK_END(reload);
 
 	// Update timer.
-	{
-		if(init) {
-			ds->lastTimeStamp = timerInit();
-			ds->dt = 1/(float)60;
-		} else {
-			ds->dt = timerUpdate(ds->lastTimeStamp, &ds->lastTimeStamp);
-			ds->time += ds->dt;
+		{
+			if(init) {
+				ds->lastTimeStamp = timerInit();
+				ds->dt = 1/(float)60;
+			} else {
+				ds->dt = timerUpdate(ds->lastTimeStamp, &ds->lastTimeStamp);
+				ds->time += ds->dt;
+			}
 		}
-	}
 
-	clearTMemory();
+		clearTMemory();
 
 	// Update input. (And other stuff.)
-	{
-		TIMER_BLOCK_NAMED("Input");
+		{
+			TIMER_BLOCK_NAMED("Input");
 
-		int inputWaitMask = 0;
-		int waitTimeout = 0;
+			int inputWaitMask = 0;
+			int waitTimeout = 0;
 		#ifdef RELEASE_BUILD
 			inputWaitMask = QS_ALLINPUT;
 			waitTimeout = INFINITE;
 		#endif
 
-		int message = -1;
-		if(!ad->appIsBusy) message = MsgWaitForMultipleObjects(systemData->folderHandleCount, systemData->folderHandles, false, waitTimeout, inputWaitMask);
+			int message = -1;
+			if(!ad->appIsBusy) message = MsgWaitForMultipleObjects(systemData->folderHandleCount, systemData->folderHandles, false, waitTimeout, inputWaitMask);
 
-		if(message == WAIT_OBJECT_0 + WATCH_FOLDER_APP) {
-			FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_APP]);
+			if(message == WAIT_OBJECT_0 + WATCH_FOLDER_APP) {
+				FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_APP]);
 
-			FILETIME newWriteTime = getLastWriteTime(App_Settings_File);
+				FILETIME newWriteTime = getLastWriteTime(App_Settings_File);
 
-			if(CompareFileTime(&newWriteTime, &ad->settingsFileLastWriteTime) != 0) {
-				ad->reloadSettings = true;
-				ad->settingsFileLastWriteTime = newWriteTime;
-			}
-		} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_PLAYLISTS) {
-			FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_PLAYLISTS]);
+				if(CompareFileTime(&newWriteTime, &ad->settingsFileLastWriteTime) != 0) {
+					ad->reloadSettings = true;
+					ad->settingsFileLastWriteTime = newWriteTime;
+				}
+			} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_PLAYLISTS) {
+				FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_PLAYLISTS]);
 
-			loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-		} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_SIZE) {
+				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+			} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_SIZE) {
 			// Input happened.
-		}
+			}
 
-		updateInput(ds->input, isRunning, windowHandle);
-		ad->appIsBusy = false;
+			updateInput(ds->input, isRunning, windowHandle);
 
-		ad->input = *ds->input;
+			ad->appIsBusy = false;
 
-		if(ds->console.isActive) {
-			memSet(ad->input.keysPressed, 0, sizeof(ad->input.keysPressed));
-			memSet(ad->input.keysDown, 0, sizeof(ad->input.keysDown));
-		}
+			ad->input = *ds->input;
 
-		if(input->mouseButtonPressed[0]) {
-			ad->appIsBusy = true;
-		}
+			if(ds->console.isActive) {
+				memSet(ad->input.keysPressed, 0, sizeof(ad->input.keysPressed));
+				memSet(ad->input.keysDown, 0, sizeof(ad->input.keysDown));
+			}
 
-		ad->dt = ds->dt;
-		ad->time = ds->time;
+			if(input->mouseButtonPressed[0]) {
+				ad->appIsBusy = true;
+			}
 
-		ad->frameCount++;
+			ad->dt = ds->dt;
+			ad->time = ds->time;
 
-		ad->gui = &ad->newGui;
-		newGuiBegin(ad->gui, input);
-		ad->gui->windowSettings = ws;
+			ad->frameCount++;
 
-		if(!ws->customCursor) {
-			SetCursor(LoadCursor(0, IDC_ARROW));
-		}
-		ws->customCursor = false;
+			ad->gui = &ad->newGui;
+			newGuiBegin(ad->gui, input);
+			ad->gui->windowSettings = ws;
 
-		if(init || ad->reloadSettings) {
+			if(!ws->customCursor) {
+				SetCursor(LoadCursor(0, IDC_ARROW));
+			}
+			ws->customCursor = false;
+
+			if(init || ad->reloadSettings) {
 		// if(init || ad->reloadSettings || reload) {
 
 			// if(!fileExists(App_Settings_File)) {
-			if(init) {
-				AppSettings as;
-				AppColors ac;
-				AppColorsRelative rac;
+				if(init) {
+					AppSettings as;
+					AppColors ac;
+					AppColorsRelative rac;
 
-				{
-					as.font = "OpenSans-Regular.ttf";
-					as.fontBold = "OpenSans-Bold.ttf";
-					as.fontItalic = "OpenSans-Italic.ttf";
-					as.fontHeight = 20;
-					as.fontShadow = 0;
+					{
+						as.font = "OpenSans-Regular.ttf";
+						as.fontBold = "OpenSans-Bold.ttf";
+						as.fontItalic = "OpenSans-Italic.ttf";
+						as.fontHeight = 20;
+						as.fontShadow = 0;
 
-					as.graphTitleFontHeight = 30;
-					as.graphFontShadow = 1;
+						as.graphTitleFontHeight = 30;
+						as.graphFontShadow = 1;
 
-					as.windowHeightMod = 1.0f;
-					as.windowBorder = 4;
-					as.border = 4;
-					as.padding = 4;
-					as.heightMod = 1.2f;
+						as.windowHeightMod = 1.0f;
+						as.windowBorder = 4;
+						as.border = 4;
+						as.padding = 4;
+						as.heightMod = 1.2f;
 
-					as.textPaddingMod = 0.5f;
+						as.textPaddingMod = 0.5f;
 
-					as.rounding = 5;
+						as.rounding = 5;
 
 
 
@@ -3641,10 +3790,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-					rac.font =                  relativeColor(vec4(0,0,0.9f, 1));
-					rac.font2 =                 relativeColor(vec4(0,0,0.7f, 1));
-					rac.fontShadow =            relativeColor(vec4(0,0,0.1f,1));
-					rac.background =            relativeColor(vec4(0,0,0.2f,1));
+						rac.font =                  relativeColor(vec4(0,0,0.9f, 1));
+						rac.font2 =                 relativeColor(vec4(0,0,0.7f, 1));
+						rac.fontShadow =            relativeColor(vec4(0,0,0.1f,1));
+						rac.background =            relativeColor(vec4(0,0,0.2f,1));
 					rac.windowBorder =          relativeColor(vec4(0,0,+0.08f,0), 5); // background
 					rac.button =                relativeColor(vec4(0,0,0.05f,0), 5); // background
 					rac.uiBackground =		    relativeColor(vec4(0,0,-0.03f,0), 5); // background
@@ -3730,9 +3879,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 				appReadTempSettings(App_Save_File, &at);
 
 				Rect r = at.windowRect;
-		    	MoveWindow(windowHandle, r.left, r.top, r.right-r.left, r.bottom-r.top, true);
+				MoveWindow(windowHandle, r.left, r.top, r.right-r.left, r.bottom-r.top, true);
 
-		    	ad->sidePanelWidth = at.sidePanelWidth;
+				ad->sidePanelWidth = at.sidePanelWidth;
 				memCpy(ad->graphOffsets, at.graphOffsets, memberSize(AppTempSettings, graphOffsets));
 				ad->playlistFolderIndex = at.playlistFolderIndex;
 
@@ -3761,9 +3910,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			TextBoxSettings settings = ad->uiButtonSettings; settings.boxSettings.color = ac->uiBackground;
 
-			ad->editSettings = textEditSettings(settings, vec4(ts.color.rgb, 0.5f), ad->gui->editText, true, true, 1, 1, ac->editSelection, ac->editCursor, textPadding);
+			ad->editSettings = textEditSettings(settings, vec4(ts.color.rgb, 0.5f), ad->gui->editText, ESETTINGS_SINGLE_LINE, 1, 1, ac->editSelection, ac->editCursor, textPadding);
 			float sliderSize = 17;
 			ad->sliderSettings = sliderSettings(settings, sliderSize, sliderSize, 0, 0, 4, ac->button, ac->font);
+			ad->sliderSettings.mouseWheelModInt = 1;
+			ad->sliderSettings.mouseWheelModFloat = 0.1f;
 
 			int scrollFlags = SCROLL_BACKGROUND | SCROLL_SLIDER | SCROLL_MOUSE_WHEEL | SCROLL_DYNAMIC_HEIGHT;
 			
@@ -3843,25 +3994,25 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		TIMER_BLOCK_NAMED("WindowDrag");
 
-	    float z = 0;
+		float z = 0;
 
-	    RECT r; 
-	    GetWindowRect(windowHandle, &r);
-	    Rect wr = rect(r.left, -r.bottom, r.right, -r.top);
+		RECT r; 
+		GetWindowRect(windowHandle, &r);
+		Rect wr = rect(r.left, -r.bottom, r.right, -r.top);
 
-	    GuiWindowSettings windowSettings = {ad->appSettings.windowBorder, ad->appSettings.windowBorder*4, vec2(Window_Min_Size_X, Window_Min_Size_Y), vec2(ws->biggestMonitorSize), rect(0,0,0,0), true, true, true, true};
-	    bool active = newGuiWindowUpdate(ad->gui, &wr, z, windowSettings);
+		GuiWindowSettings windowSettings = {ad->appSettings.windowBorder, ad->appSettings.windowBorder*4, vec2(Window_Min_Size_X, Window_Min_Size_Y), vec2(ws->biggestMonitorSize), rect(0,0,0,0), true, true, true, true};
+		bool active = newGuiWindowUpdate(ad->gui, &wr, z, windowSettings);
 
-	    if(active) {
-	    	Rect r = rectTLDim(wr.left, -wr.top, wr.right-wr.left, -wr.bottom - -wr.top);
+		if(active) {
+			Rect r = rectTLDim(wr.left, -wr.top, wr.right-wr.left, -wr.bottom - -wr.top);
 
 	    	ws->currentRes = vec2i(rectW(r) - 2, rectH(r) - 2); // 1 pixel border.
 	    	ws->aspectRatio = ws->currentRes.w / (float)ws->currentRes.h;
 	    	ad->updateFrameBuffers = true;	
 	    	gs->screenRes = ws->currentRes;
 
-			BringWindowToTop(windowHandle);
-			MoveWindow(windowHandle, r.left, r.top, rectW(r), rectH(r), true);
+	    	BringWindowToTop(windowHandle);
+	    	MoveWindow(windowHandle, r.left, r.top, rectW(r), rectH(r), true);
 	    }
 	}
 
@@ -4080,801 +4231,801 @@ extern "C" APPMAINFUNCTION(appMain) {
 				for(int i = 0; i < Search_Result_Count; i++) ad->searchResults[i].count = 0;
 			}
 
-			if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				char* searchString = ad->searchString;
+		if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			char* searchString = ad->searchString;
 
-				char* search = getTString(strLen(searchString)+1); strClear(search);
-				for(;;) {
-					searchString = eatSpaces(searchString);
-					int pos = strFind(searchString, ' ');
-					if(pos != 0) {
-						strAppend(search, searchString, pos-1);
-						strAppend(search, ",");
-						searchString += pos-1;
-						continue;
-					}
-
-					pos = strLen(searchString);
-					strAppend(search, searchString, pos);
-					break;
+			char* search = getTString(strLen(searchString)+1); strClear(search);
+			for(;;) {
+				searchString = eatSpaces(searchString);
+				int pos = strFind(searchString, ' ');
+				if(pos != 0) {
+					strAppend(search, searchString, pos-1);
+					strAppend(search, ",");
+					searchString += pos-1;
+					continue;
 				}
 
-				curlRequestDataInitAdd(threadQueue, requestData, requestSearch(searchForChannels?"channel":"playlist", search, Search_Result_Count));
+				pos = strLen(searchString);
+				strAppend(search, searchString, pos);
+				break;
 			}
 
-			if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			curlRequestDataInitAdd(threadQueue, requestData, requestSearch(searchForChannels?"channel":"playlist", search, Search_Result_Count));
+		}
 
-				char* buffer = requestData->buffer;
-				JSonValue* object = jsonParseValue(&buffer);
+		if(downloadModeStep(modeData, &modeIndex, requestData)) {
 
-				JSonValue* items = jsonGetMember(object, "items");
-				for(int i = 0; i < items->size; i++) {
-					JSonValue* it = items->array + i;
+			char* buffer = requestData->buffer;
+			JSonValue* object = jsonParseValue(&buffer);
 
-					if(searchForChannels) strCpy(searchResults[i].id, jsonGetString(it, "id", "channelId"));
-					else strCpy(searchResults[i].id, jsonGetString(it, "id", "playlistId"));
+			JSonValue* items = jsonGetMember(object, "items");
+			for(int i = 0; i < items->size; i++) {
+				JSonValue* it = items->array + i;
 
-					strCpy(searchResults[i].title, jsonGetString(it, "snippet", "title"));
-				}
-				ad->searchResultCount = items->size;
+				if(searchForChannels) strCpy(searchResults[i].id, jsonGetString(it, "id", "channelId"));
+				else strCpy(searchResults[i].id, jsonGetString(it, "id", "playlistId"));
+
+				strCpy(searchResults[i].title, jsonGetString(it, "snippet", "title"));
+			}
+			ad->searchResultCount = items->size;
 
 				// Get count.
-				int count = ad->searchResultCount;
-				if(!searchForChannels) {
-					char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
-					for(int index = 0; index < count; index++) {
-						strAppend(idCollection, fillString("%s,", searchResults[index].id));
-					}
+			int count = ad->searchResultCount;
+			if(!searchForChannels) {
+				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
+				for(int index = 0; index < count; index++) {
+					strAppend(idCollection, fillString("%s,", searchResults[index].id));
+				}
 
-					curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", count));
-				} else {
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", count));
+			} else {
 					// downloadModeFinish(&modeData->downloadStep);
 
-					char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
-					for(int index = 0; index < count; index++) {
-						strAppend(idCollection, fillString("%s,", searchResults[index].id));
-					}
+				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
+				for(int index = 0; index < count; index++) {
+					strAppend(idCollection, fillString("%s,", searchResults[index].id));
+				}
 
 					// for(int i = 0; i < count; i++) ad->searchResults[i].count = 0;
 
 					// printf("%s", searchResults[0].id);
 
-					curlRequestDataInitAdd(threadQueue, requestData, requestChannel("id", idCollection, "contentDetails", count));
+				curlRequestDataInitAdd(threadQueue, requestData, requestChannel("id", idCollection, "contentDetails", count));
+			}
+
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+			char* buffer = requestData->buffer;
+			JSonValue* object = jsonParseValue(&buffer);
+			JSonValue* items = jsonGetMember(object, "items");
+
+			if(!searchForChannels) {
+				downloadModeFinish(modeData);
+				for(int i = 0; i < items->size; i++) {
+					searchResults[i].count = jsonGetInt(&items->array[i], "contentDetails", "itemCount");
 				}
-
-			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-
-				char* buffer = requestData->buffer;
-				JSonValue* object = jsonParseValue(&buffer);
-				JSonValue* items = jsonGetMember(object, "items");
-
-				if(!searchForChannels) {
-					downloadModeFinish(modeData);
-					for(int i = 0; i < items->size; i++) {
-						searchResults[i].count = jsonGetInt(&items->array[i], "contentDetails", "itemCount");
-					}
-				} else {
+			} else {
 					// downloadModeFinish(&modeData->downloadStep);
 
-					char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
-					int idCount = 0;
-					for(int si = 0; si < ad->searchResultCount; si++) {
-
-						for(int i = 0; i < items->size; i++) {
-							char* sId = jsonGetString(&items->array[i], "id");
-
-							if(strCompare(sId, searchResults[si].id)) {
-								char* s = jsonGetString(&items->array[i], "contentDetails", "relatedPlaylists", "uploads");
-								if(s) {
-									strAppend(idCollection, fillString("%s,", s));
-									idCount++;
-									strCpy(searchResults[si].allPlaylistId, s);
-								}
-								break;
-							}
-						}
-					}
-
-					curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", idCount));
-				}
-			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				downloadModeFinish(modeData);
-
-				for(int i = 0; i < ad->searchResultCount; i++) ad->searchResults[i].count = 0;
-
-				// Results are not sorted, search for id and compare.
-				char* buffer = requestData->buffer;
-				JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
+				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
+				int idCount = 0;
 				for(int si = 0; si < ad->searchResultCount; si++) {
-	
+
 					for(int i = 0; i < items->size; i++) {
 						char* sId = jsonGetString(&items->array[i], "id");
 
-						if(strCompare(sId, searchResults[si].allPlaylistId)) {
-							searchResults[si].count = jsonGetInt(&items->array[i], "contentDetails", "itemCount");
+						if(strCompare(sId, searchResults[si].id)) {
+							char* s = jsonGetString(&items->array[i], "contentDetails", "relatedPlaylists", "uploads");
+							if(s) {
+								strAppend(idCollection, fillString("%s,", s));
+								idCount++;
+								strCpy(searchResults[si].allPlaylistId, s);
+							}
 							break;
 						}
 					}
 				}
+
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", idCount));
+			}
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			downloadModeFinish(modeData);
+
+			for(int i = 0; i < ad->searchResultCount; i++) ad->searchResults[i].count = 0;
+
+				// Results are not sorted, search for id and compare.
+				char* buffer = requestData->buffer;
+			JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
+			for(int si = 0; si < ad->searchResultCount; si++) {
+
+				for(int i = 0; i < items->size; i++) {
+					char* sId = jsonGetString(&items->array[i], "id");
+
+					if(strCompare(sId, searchResults[si].allPlaylistId)) {
+						searchResults[si].count = jsonGetInt(&items->array[i], "contentDetails", "itemCount");
+						break;
+					}
+				}
 			}
 		}
+	}
 
 
 
-		if(mode == Download_Mode_ChannelPlaylists) {
-			SearchResult* playlists = ad->searchResults;
-			int* playlistCount = &ad->searchResultCount;
+	if(mode == Download_Mode_ChannelPlaylists) {
+		SearchResult* playlists = ad->searchResults;
+		int* playlistCount = &ad->searchResultCount;
 
-			char* channelId = ad->channelId;
-			int count = ad->playlistDownloadCount;
+		char* channelId = ad->channelId;
+		int count = ad->playlistDownloadCount;
 
-			char* buffer = requestData->buffer;
+		char* buffer = requestData->buffer;
 
-			static int i;
-			static char pageToken[Page_Token_Size];
+		static int i;
+		static char pageToken[Page_Token_Size];
 
-			downloadModeStep(modeData, &modeIndex, requestData);
+		downloadModeStep(modeData, &modeIndex, requestData);
 
-			if(downloadModeStep(modeData, &modeIndex, requestData)) {
+		if(downloadModeStep(modeData, &modeIndex, requestData)) {
 
 				// Get playlist count.
-				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "id", 1));
+			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "id", 1));
+		}
+
+		if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			JSonValue* object = jsonParseValue(&buffer);
+			ad->playlistDownloadCount = jsonGetInt(object, "pageInfo", "totalResults");
+			count = ad->playlistDownloadCount;
+
+
+
+			i = 0;
+			strClear(pageToken);
+
+			if(ad->playlists != 0) free(ad->playlists);
+			ad->playlists = mallocArray(YoutubePlaylist, count);
+
+			downloadModeProgress(modeData, 0, count);
+
+			*playlistCount = 0;
+		} 
+
+		if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
+			downloadModeProgress(modeData, i, count);
+
+			if(i >= count) {
+				*playlistCount = count;
+				downloadModeFinish(modeData);
 			}
 
-			if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				JSonValue* object = jsonParseValue(&buffer);
-				ad->playlistDownloadCount = jsonGetInt(object, "pageInfo", "totalResults");
-				count = ad->playlistDownloadCount;
+			int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
+			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "snippet", dCount, pageToken));
 
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
 
+			int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
 
-				i = 0;
-				strClear(pageToken);
-				
-				if(ad->playlists != 0) free(ad->playlists);
-				ad->playlists = mallocArray(YoutubePlaylist, count);
+			buffer = requestData->buffer;
+			JSonValue* object = jsonParseValue(&buffer);
+			JSonValue* items = jsonGetMember(object, "items");
 
-				downloadModeProgress(modeData, 0, count);
+			char* pageTokenStr = jsonGetString(object, "nextPageToken");
+			if(pageTokenStr) strCpy(pageToken, pageTokenStr);
 
-				*playlistCount = 0;
-			} 
-
-			if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
-				downloadModeProgress(modeData, i, count);
-
-				if(i >= count) {
-					*playlistCount = count;
-					downloadModeFinish(modeData);
-				}
-
-				int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
-				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "snippet", dCount, pageToken));
-
-					} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-
-				int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
-
-				buffer = requestData->buffer;
-				JSonValue* object = jsonParseValue(&buffer);
-				JSonValue* items = jsonGetMember(object, "items");
-
-				char* pageTokenStr = jsonGetString(object, "nextPageToken");
-				if(pageTokenStr) strCpy(pageToken, pageTokenStr);
-
-				int index = i;
-				For_JsonArray(items) {
-					strCpy(playlists[index].id, jsonGetString(it, "id"));
-					strCpy(playlists[index].title, jsonGetString(it, "snippet", "title"));
-					index++;
-				}
+			int index = i;
+			For_JsonArray(items) {
+				strCpy(playlists[index].id, jsonGetString(it, "id"));
+				strCpy(playlists[index].title, jsonGetString(it, "snippet", "title"));
+				index++;
+			}
 
 				// Get playlist video count.
-				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
-				int maxCount = dCount;
-				for(int index = 0; index < maxCount; index++) {
-					strAppend(idCollection, fillString("%s,", playlists[i+index].id));
+			char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
+			int maxCount = dCount;
+			for(int index = 0; index < maxCount; index++) {
+				strAppend(idCollection, fillString("%s,", playlists[i+index].id));
+			}
+
+			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", maxCount));
+
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+			JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
+			int index = i;
+			For_JsonArray(items) {
+				playlists[index].count = jsonGetInt(it, "contentDetails", "itemCount");
+				index++;
+			}
+
+			i += Max_Playlist_Download_Count;				
+			modeData->downloadStep -= 3;
+
+			*playlistCount = i;
+		}
+	}
+
+
+
+	if(mode == Download_Mode_Videos) {
+		DownloadVideosData* data = &modeData->videosModeData;
+
+		char* buffer = requestData->buffer;
+
+		downloadModeStep(modeData, &modeIndex, requestData);
+
+			// Get maxCount first.
+		if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(ad->downloadPlaylist.id, 1));
+		}
+
+		if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			JSonValue* object = jsonParseValue(&buffer);
+			zeroStruct(data, DownloadVideosData);
+			data->maxCount = jsonGetInt(object, "pageInfo", "totalResults");
+
+
+
+
+			YoutubePlaylist* downloadPlaylist = &ad->downloadPlaylist;
+
+
+			downloadPlaylist->count = data->maxCount;
+
+				// Create file if non-existent.
+			char* playlistFilePath = getPlaylistFilePath(downloadPlaylist->id);
+			bool playlistFileExists = fileExists(playlistFilePath);
+			if(!playlistFileExists) {
+				FILE* file = fopen(playlistFilePath, "wb");
+
+				PlaylistFileHeader fileHeader = {};
+				strCpy(fileHeader.title, downloadPlaylist->title);
+				strCpy(fileHeader.id, downloadPlaylist->id);
+				fileHeader.maxCount = data->maxCount;
+
+				fwrite(&fileHeader, sizeof(PlaylistFileHeader), 1, file);
+				fclose(file);
+			}
+
+			PlaylistFileHeader fileHeader = loadPlaylistHeaderFromFileX(downloadPlaylist->id);
+
+			strCpy(data->pageToken, fileHeader.pageToken);
+			data->count = downloadPlaylist->count;
+			data->lastCount = fileHeader.count;
+				// data->maxCount = fileHeader.maxCount;
+
+			bool skip = false;
+			if(ad->update) {
+					// data->count = clampIntMax(data->count, fileHeader.count);
+				data->count = clampMaxInt(data->count, data->maxCount);
+			} else {
+				if(data->maxCount == fileHeader.count) skip = true;
+				if(data->count + data->lastCount > data->maxCount) {
+					data->count = data->maxCount - data->lastCount;
+						// ad->downloadPlaylist.count = data->count;
 				}
+			}
+			if(data->count == 0) skip = true;
 
-				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", maxCount));
+			if(skip) downloadModeFinish(modeData);
+			else {
+				zeroMemory(data->vids, sizeof(YoutubeVideo)*Max_Download_Count);
 
-					} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+				downloadModeProgress(modeData, 0, data->count);
+				data->i = 0;
 
-				JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
-				int index = i;
-				For_JsonArray(items) {
-					playlists[index].count = jsonGetInt(it, "contentDetails", "itemCount");
-					index++;
-				}
-
-				i += Max_Playlist_Download_Count;				
-				modeData->downloadStep -= 3;
-
-				*playlistCount = i;
+				data->file = fopen(playlistFilePath, "rb+");
 			}
 		}
 
-
-
-		if(mode == Download_Mode_Videos) {
-			DownloadVideosData* data = &modeData->videosModeData;
-
-			char* buffer = requestData->buffer;
-
-			downloadModeStep(modeData, &modeIndex, requestData);
-
-			// Get maxCount first.
-			if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(ad->downloadPlaylist.id, 1));
+		if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
+			if(data->i >= data->count) {
+				modeData->downloadStep += 4;
 			}
 
-			if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				JSonValue* object = jsonParseValue(&buffer);
-				zeroStruct(data, DownloadVideosData);
-				data->maxCount = jsonGetInt(object, "pageInfo", "totalResults");
+			downloadModeProgress(modeData, min(data->i,data->count), data->count);
 
+			data->dCount = Max_Download_Count;
+			if(data->i + data->dCount > data->count) data->dCount = data->count - data->i;
 
-										
-
-				YoutubePlaylist* downloadPlaylist = &ad->downloadPlaylist;
-
-
-				downloadPlaylist->count = data->maxCount;
-
-				// Create file if non-existent.
-				char* playlistFilePath = getPlaylistFilePath(downloadPlaylist->id);
-				bool playlistFileExists = fileExists(playlistFilePath);
-				if(!playlistFileExists) {
-					FILE* file = fopen(playlistFilePath, "wb");
-
-					PlaylistFileHeader fileHeader = {};
-					strCpy(fileHeader.title, downloadPlaylist->title);
-					strCpy(fileHeader.id, downloadPlaylist->id);
-					fileHeader.maxCount = data->maxCount;
-
-					fwrite(&fileHeader, sizeof(PlaylistFileHeader), 1, file);
-					fclose(file);
-				}
-
-				PlaylistFileHeader fileHeader = loadPlaylistHeaderFromFileX(downloadPlaylist->id);
-
-				strCpy(data->pageToken, fileHeader.pageToken);
-				data->count = downloadPlaylist->count;
-				data->lastCount = fileHeader.count;
-				// data->maxCount = fileHeader.maxCount;
-
-				bool skip = false;
-				if(ad->update) {
-					// data->count = clampIntMax(data->count, fileHeader.count);
-					data->count = clampIntMax(data->count, data->maxCount);
-				} else {
-					if(data->maxCount == fileHeader.count) skip = true;
-					if(data->count + data->lastCount > data->maxCount) {
-						data->count = data->maxCount - data->lastCount;
-						// ad->downloadPlaylist.count = data->count;
-					}
-				}
-				if(data->count == 0) skip = true;
-
-				if(skip) downloadModeFinish(modeData);
-				else {
-					zeroMemory(data->vids, sizeof(YoutubeVideo)*Max_Download_Count);
-
-					downloadModeProgress(modeData, 0, data->count);
-					data->i = 0;
-
-					data->file = fopen(playlistFilePath, "rb+");
-				}
-			}
-
-			if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
-				if(data->i >= data->count) {
-					modeData->downloadStep += 4;
-				}
-
-				downloadModeProgress(modeData, min(data->i,data->count), data->count);
-
-				data->dCount = Max_Download_Count;
-				if(data->i + data->dCount > data->count) data->dCount = data->count - data->i;
-
-				{
-					char* playlistId = ad->downloadPlaylist.id;
+			{
+				char* playlistId = ad->downloadPlaylist.id;
 
 					// TIMER_BLOCK_NAMED("Request");
-					curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(playlistId, data->dCount, data->pageToken));
-				}
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(playlistId, data->dCount, data->pageToken));
+			}
 
-			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
 
-				JSonValue* object = jsonParseValue(&buffer);
-				JSonValue* items = jsonGetMember(object, "items");
+			JSonValue* object = jsonParseValue(&buffer);
+			JSonValue* items = jsonGetMember(object, "items");
 
-				char* pageTokenStr = jsonGetString(object, "nextPageToken");
-				if(pageTokenStr) strCpy(data->pageToken, pageTokenStr);
+			char* pageTokenStr = jsonGetString(object, "nextPageToken");
+			if(pageTokenStr) strCpy(data->pageToken, pageTokenStr);
 
-				int receivedCount;
+			int receivedCount;
 
 				// Get Video ids.
-				{
-					int index = 0;
-					int idCount = 0;
-					For_JsonArray(items) {
-						int reverseIndex = data->dCount-1 - index;
+			{
+				int index = 0;
+				int idCount = 0;
+				For_JsonArray(items) {
+					int reverseIndex = data->dCount-1 - index;
 
-						char* s = jsonGetString(it, "contentDetails", "videoId");
-						if(s) {
-							data->vids[reverseIndex] = {};
+					char* s = jsonGetString(it, "contentDetails", "videoId");
+					if(s) {
+						data->vids[reverseIndex] = {};
 
-							strCpy(data->vids[reverseIndex].id, s);
-							idCount++;
-						}
-
-						index++;
+						strCpy(data->vids[reverseIndex].id, s);
+						idCount++;
 					}
 
-					receivedCount = idCount;
+					index++;
 				}
-				
+
+				receivedCount = idCount;
+			}
+
 
 				// Get Duration.
-				{
-					char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-					for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
-						int reverseIndex = data->dCount-1 - videoIndex;
-						strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
-					}
-
-					curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "contentDetails"));
-				}
-
-			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				
-				JSonValue* object = jsonParseValue(&buffer);
-				JSonValue* items = jsonGetMember(object, "items");
-
-				int index = 0;
-				int advance = 0;
-				For_JsonArray(items) {
-					int reverseIndex = data->dCount-1 - index;
-
-					char* durationString = jsonGetString(it, "contentDetails", "duration");
-					data->vids[reverseIndex].duration = stringDurationToDate(durationString);;
-
-					index++;
-				}
-
-
-				// Get Statistics.
-				{
-					char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-					for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
-						int reverseIndex = data->dCount-1 - videoIndex;
-						strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
-					}
-
-					curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "statistics"));
-				}
-
-			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				
-				JSonValue* object = jsonParseValue(&buffer);
-				JSonValue* items = jsonGetMember(object, "items");
-
-				int index = 0;
-				int advance = 0;
-				For_JsonArray(items) {
-					int reverseIndex = data->dCount-1 - index;
-
-					JSonValue* statistics = jsonGetMember(it, "statistics");
-					if(statistics) {
-						data->vids[reverseIndex].viewCount = strToIntSave(jsonGetString(statistics, "viewCount"));
-						data->vids[reverseIndex].likeCount = strToIntSave(jsonGetString(statistics, "likeCount"));
-						data->vids[reverseIndex].dislikeCount = strToIntSave(jsonGetString(statistics, "dislikeCount"));
-						data->vids[reverseIndex].favoriteCount = strToIntSave(jsonGetString(statistics, "favoriteCount"));
-						data->vids[reverseIndex].commentCount = strToIntSave(jsonGetString(statistics, "commentCount"));
-					}
-
-					index++;
-				}
-
-				// Get title and thumbnail.
+			{
 				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
 				for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
 					int reverseIndex = data->dCount-1 - videoIndex;
 					strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
 				}
 
-				{
-					// TIMER_BLOCK_NAMED("Title Request");
-					curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "snippet"));
-				}
+				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "contentDetails"));
+			}
 
-			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+			JSonValue* object = jsonParseValue(&buffer);
+			JSonValue* items = jsonGetMember(object, "items");
+
+			int index = 0;
+			int advance = 0;
+			For_JsonArray(items) {
+				int reverseIndex = data->dCount-1 - index;
+
+				char* durationString = jsonGetString(it, "contentDetails", "duration");
+				data->vids[reverseIndex].duration = stringDurationToDate(durationString);;
+
+				index++;
+			}
+
+
+				// Get Statistics.
+			{
 				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-
-				JSonValue* object = jsonParseValue(&buffer);
-				JSonValue* items = jsonGetMember(object, "items");
-
-				int index = 0;
-				int advance = 0;
-				For_JsonArray(items) {
-					int reverseIndex = data->dCount-1 - index;
-		
-					JSonValue* snippet = jsonGetMember(it, "snippet");
-
-					char* s = jsonGetString(snippet, "publishedAt");
-					strCpy(data->vids[reverseIndex].dateString, s);
-					data->vids[reverseIndex].date = stringToDate(s);
-
-					strCpy(data->vids[reverseIndex].title, jsonGetString(snippet, "title"));
-					strCpy(data->vids[reverseIndex].thumbnail, jsonGetString(snippet, "thumbnails", "high", "url"));
-
-					index++;
+				for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
+					int reverseIndex = data->dCount-1 - videoIndex;
+					strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
 				}
 
+				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "statistics"));
+			}
+
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+			JSonValue* object = jsonParseValue(&buffer);
+			JSonValue* items = jsonGetMember(object, "items");
+
+			int index = 0;
+			int advance = 0;
+			For_JsonArray(items) {
+				int reverseIndex = data->dCount-1 - index;
+
+				JSonValue* statistics = jsonGetMember(it, "statistics");
+				if(statistics) {
+					data->vids[reverseIndex].viewCount = strToIntSave(jsonGetString(statistics, "viewCount"));
+					data->vids[reverseIndex].likeCount = strToIntSave(jsonGetString(statistics, "likeCount"));
+					data->vids[reverseIndex].dislikeCount = strToIntSave(jsonGetString(statistics, "dislikeCount"));
+					data->vids[reverseIndex].favoriteCount = strToIntSave(jsonGetString(statistics, "favoriteCount"));
+					data->vids[reverseIndex].commentCount = strToIntSave(jsonGetString(statistics, "commentCount"));
+				}
+
+				index++;
+			}
+
+				// Get title and thumbnail.
+			char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
+			for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
+				int reverseIndex = data->dCount-1 - videoIndex;
+				strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
+			}
+
+			{
+					// TIMER_BLOCK_NAMED("Title Request");
+				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "snippet"));
+			}
+
+		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
+
+			JSonValue* object = jsonParseValue(&buffer);
+			JSonValue* items = jsonGetMember(object, "items");
+
+			int index = 0;
+			int advance = 0;
+			For_JsonArray(items) {
+				int reverseIndex = data->dCount-1 - index;
+
+				JSonValue* snippet = jsonGetMember(it, "snippet");
+
+				char* s = jsonGetString(snippet, "publishedAt");
+				strCpy(data->vids[reverseIndex].dateString, s);
+				data->vids[reverseIndex].date = stringToDate(s);
+
+				strCpy(data->vids[reverseIndex].title, jsonGetString(snippet, "title"));
+				strCpy(data->vids[reverseIndex].thumbnail, jsonGetString(snippet, "thumbnails", "high", "url"));
+
+				index++;
+			}
+
+			{
 				{
-					{
-						FILE* file = data->file;
+					FILE* file = data->file;
 
-						fseek(file, 0, SEEK_SET);
-						fseek(file, memberSize(PlaylistFileHeader, title), SEEK_CUR);
-						fseek(file, memberSize(PlaylistFileHeader, id), SEEK_CUR);
-						if(!ad->update) {
-							int currentCount = data->i + data->dCount + data->lastCount;
-							fwrite(&currentCount, memberSize(PlaylistFileHeader, count), 1, file);
-							fwrite(&data->maxCount, memberSize(PlaylistFileHeader, maxCount), 1, file);
-							fwrite(data->pageToken, memberSize(PlaylistFileHeader, pageToken), 1, file);
-						} else {
-							fseek(file, memberSize(PlaylistFileHeader, count), SEEK_CUR);
-							fseek(file, memberSize(PlaylistFileHeader, maxCount), SEEK_CUR);
-							fseek(file, memberSize(PlaylistFileHeader, pageToken), SEEK_CUR);
-						}
-
-						int videoCount = data->count;
-						YoutubeVideo* videos = data->vids;
-
-						int fileVideoStart = (data->maxCount-data->i-data->dCount-data->lastCount);
-						fseek(file, fileVideoStart*sizeof(YoutubeVideo), SEEK_CUR);
-						fwrite(videos, data->dCount*sizeof(YoutubeVideo), 1, file);
+					fseek(file, 0, SEEK_SET);
+					fseek(file, memberSize(PlaylistFileHeader, title), SEEK_CUR);
+					fseek(file, memberSize(PlaylistFileHeader, id), SEEK_CUR);
+					if(!ad->update) {
+						int currentCount = data->i + data->dCount + data->lastCount;
+						fwrite(&currentCount, memberSize(PlaylistFileHeader, count), 1, file);
+						fwrite(&data->maxCount, memberSize(PlaylistFileHeader, maxCount), 1, file);
+						fwrite(data->pageToken, memberSize(PlaylistFileHeader, pageToken), 1, file);
+					} else {
+						fseek(file, memberSize(PlaylistFileHeader, count), SEEK_CUR);
+						fseek(file, memberSize(PlaylistFileHeader, maxCount), SEEK_CUR);
+						fseek(file, memberSize(PlaylistFileHeader, pageToken), SEEK_CUR);
 					}
 
+					int videoCount = data->count;
+					YoutubeVideo* videos = data->vids;
+
+					int fileVideoStart = (data->maxCount-data->i-data->dCount-data->lastCount);
+					fseek(file, fileVideoStart*sizeof(YoutubeVideo), SEEK_CUR);
+					fwrite(videos, data->dCount*sizeof(YoutubeVideo), 1, file);
 				}
 
-				data->i += Max_Download_Count;
-				modeData->downloadStep -= 5;
 			}
 
-			if(downloadModeStep(modeData, &modeIndex, requestData)) {
-				downloadModeFinish(modeData);
-				ad->startLoadFile = true;
-				memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
-
-				fclose(data->file);
-			}
+			data->i += Max_Download_Count;
+			modeData->downloadStep -= 5;
 		}
 
+		if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			downloadModeFinish(modeData);
+			ad->startLoadFile = true;
+			memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
+
+			fclose(data->file);
+		}
 	}
+
+}
 
 
 
 	// @Testing.
 	// if(input->keysPressed[KEYCODE_T]) 
-	if(false) 
-	{
-		char* channelId = "UCQvTDmHza8erxZqDkjQ4bQQ";
-		char* videoId = "FvHiLLkPhQE";
-		CurlRequestData* requestData = &ad->requestData;
-		char* part;
+if(false) 
+{
+	char* channelId = "UCQvTDmHza8erxZqDkjQ4bQQ";
+	char* videoId = "FvHiLLkPhQE";
+	CurlRequestData* requestData = &ad->requestData;
+	char* part;
 
-		char* channelParts[] = {"auditDetails","brandingSettings","contentDetails","contentOwnerDetails","id","invideoPromotion","localizations","snippet","statistics","status","topicDetails"};
-		char* videoParts[] = {"contentDetails", "fileDetails", "id", "liveStreamingDetails", "localizations", "player", "processingDetails", "recordingDetails", "snippet", "statistics", "status", "suggestions", "topicDetails"};
+	char* channelParts[] = {"auditDetails","brandingSettings","contentDetails","contentOwnerDetails","id","invideoPromotion","localizations","snippet","statistics","status","topicDetails"};
+	char* videoParts[] = {"contentDetails", "fileDetails", "id", "liveStreamingDetails", "localizations", "player", "processingDetails", "recordingDetails", "snippet", "statistics", "status", "suggestions", "topicDetails"};
 
 		// int count = arrayCount(channelParts);
-		int count = arrayCount(videoParts);
+	int count = arrayCount(videoParts);
 
-		for(int i = 0; i < count; i++) {
+	for(int i = 0; i < count; i++) {
 			// part = channelParts[i];
-			part = videoParts[i];
+		part = videoParts[i];
 
-			curlRequestDataInitAdd(threadQueue, requestData, requestVideos(videoId, part));
+		curlRequestDataInitAdd(threadQueue, requestData, requestVideos(videoId, part));
 			// curlRequestDataInitAdd(threadQueue, requestData, requestChannel("id", channelId, part, 1));
 
-			threadQueueComplete(threadQueue);
-			printf("======= %s ========= \n%s\n", part, requestData->buffer);
-		}
+		threadQueueComplete(threadQueue);
+		printf("======= %s ========= \n%s\n", part, requestData->buffer);
 	}
+}
 
 
 
 
-	if(init) {
-		TIMER_BLOCK_NAMED("App Init");
+if(init) {
+	TIMER_BLOCK_NAMED("App Init");
 
-		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+	loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 
-		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + ad->playlistFolderIndex;
-		memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
+	YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + ad->playlistFolderIndex;
+	memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
 
-		ad->startLoadFile = true;
-	}
+	ad->startLoadFile = true;
+}
 
 	// @Load File.
-	if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
-		TIMER_BLOCK_NAMED("LoadFile");
+if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
+	TIMER_BLOCK_NAMED("LoadFile");
 
-		TIMER_BLOCK_BEGIN_NAMED(filestart, "LoadFileStart");
+	TIMER_BLOCK_BEGIN_NAMED(filestart, "LoadFileStart");
 
-		ad->startLoadFile = false;
+	ad->startLoadFile = false;
 
-		YoutubePlaylist tempPlaylist;		
-		int maxCount = 1;
-		loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id), &maxCount);
-		memCpy(&ad->playlist, &tempPlaylist, sizeof(YoutubePlaylist));
+	YoutubePlaylist tempPlaylist;		
+	int maxCount = 1;
+	loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id), &maxCount);
+	memCpy(&ad->playlist, &tempPlaylist, sizeof(YoutubePlaylist));
 
-		pushTMemoryStack();
+	pushTMemoryStack();
 
-		int tempVidCount = tempPlaylist.count;
-		YoutubeVideo* tempVids = getTArray(YoutubeVideo, tempVidCount);
+	int tempVidCount = tempPlaylist.count;
+	YoutubeVideo* tempVids = getTArray(YoutubeVideo, tempVidCount);
 
-		bool foundFile = loadPlaylistFromFile(&tempPlaylist, tempVids, &tempVidCount);
+	bool foundFile = loadPlaylistFromFile(&tempPlaylist, tempVids, &tempVidCount);
 
-		TIMER_BLOCK_END(filestart);
+	TIMER_BLOCK_END(filestart);
 
-		if(foundFile) {
-			ad->downloadPlaylist.count = maxCount;
+	if(foundFile) {
+		ad->downloadPlaylist.count = maxCount;
 
 			// Filter videos.
+		{
+			TIMER_BLOCK_NAMED("Filtering");
+
+			int* filteredIndexes = getTArray(int, tempVidCount);
+			int filteredIndexesCount = 0;
+
+			char* inclusiveFilterStrings[10];
+			int inclusiveFilterStringCount = 0;
 			{
-				TIMER_BLOCK_NAMED("Filtering");
-
-				int* filteredIndexes = getTArray(int, tempVidCount);
-				int filteredIndexesCount = 0;
-
-				char* inclusiveFilterStrings[10];
-				int inclusiveFilterStringCount = 0;
-				{
-					char* searchString = ad->inclusiveFilter;
-					for(;;) {
-						searchString = eatSpaces(searchString);
-						int pos = strFind(searchString, ' ');
-						if(pos != 0) {
-							char* filter = getTString(pos-1 + 1);
-							strCpy(filter, searchString, pos-1);
-							inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
-
-							searchString += pos-1;
-							continue;
-						}
-
-						pos = strLen(searchString);
-						if(pos == 0) break;
-
-						char* filter = getTString(pos + 1);
-						strCpy(filter, searchString, pos);
+				char* searchString = ad->inclusiveFilter;
+				for(;;) {
+					searchString = eatSpaces(searchString);
+					int pos = strFind(searchString, ' ');
+					if(pos != 0) {
+						char* filter = getTString(pos-1 + 1);
+						strCpy(filter, searchString, pos-1);
 						inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
 
-						break;
+						searchString += pos-1;
+						continue;
 					}
+
+					pos = strLen(searchString);
+					if(pos == 0) break;
+
+					char* filter = getTString(pos + 1);
+					strCpy(filter, searchString, pos);
+					inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
+
+					break;
 				}
-				char* exclusiveFilterStrings[10];
-				int exclusiveFilterStringCount = 0;
-				{
-					char* searchString = ad->exclusiveFilter;
-					for(;;) {
-						searchString = eatSpaces(searchString);
-						int pos = strFind(searchString, ' ');
-						if(pos != 0) {
-							char* filter = getTString(pos-1 + 1);
-							strCpy(filter, searchString, pos-1);
-							exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
-
-							searchString += pos-1;
-							continue;
-						}
-
-						pos = strLen(searchString);
-						if(pos == 0) break;
-
-						char* filter = getTString(pos + 1);
-						strCpy(filter, searchString, pos);
+			}
+			char* exclusiveFilterStrings[10];
+			int exclusiveFilterStringCount = 0;
+			{
+				char* searchString = ad->exclusiveFilter;
+				for(;;) {
+					searchString = eatSpaces(searchString);
+					int pos = strFind(searchString, ' ');
+					if(pos != 0) {
+						char* filter = getTString(pos-1 + 1);
+						strCpy(filter, searchString, pos-1);
 						exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
 
-						break;
+						searchString += pos-1;
+						continue;
 					}
+
+					pos = strLen(searchString);
+					if(pos == 0) break;
+
+					char* filter = getTString(pos + 1);
+					strCpy(filter, searchString, pos);
+					exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
+
+					break;
 				}
+			}
 
 
-				{
-					TIMER_BLOCK_NAMED("ApplyFilter");
+			{
+				TIMER_BLOCK_NAMED("ApplyFilter");
 
-					bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
-					bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
+				bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
+				bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
 
-					bool notFiltered;
-					for(int i = 0; i < tempVidCount; i++) {
-						char* title = tempVids[i].title;
+				bool notFiltered;
+				for(int i = 0; i < tempVidCount; i++) {
+					char* title = tempVids[i].title;
 
-						bool inclusiveCorrect;
-						if(inclusiveFilterActive) {
-							inclusiveCorrect = true;
-							for(int fi = 0; fi < inclusiveFilterStringCount; fi++) {
-								char* filter = inclusiveFilterStrings[fi];
-								bool correct = (strFind(title, filter) != -1);
-								if(!correct) {
-									inclusiveCorrect = false;
-									break;
-								}
+					bool inclusiveCorrect;
+					if(inclusiveFilterActive) {
+						inclusiveCorrect = true;
+						for(int fi = 0; fi < inclusiveFilterStringCount; fi++) {
+							char* filter = inclusiveFilterStrings[fi];
+							bool correct = (strFind(title, filter) != -1);
+							if(!correct) {
+								inclusiveCorrect = false;
+								break;
 							}
 						}
+					}
 
-						bool exclusiveCorrect;
-						if(exclusiveFilterActive) {
-							exclusiveCorrect = true;
-							for(int fi = 0; fi < exclusiveFilterStringCount; fi++) {
-								char* filter = exclusiveFilterStrings[fi];
-								bool correct = (strFind(title, filter) == -1);
-								if(!correct) {
-									exclusiveCorrect = false;
-									break;
-								}
+					bool exclusiveCorrect;
+					if(exclusiveFilterActive) {
+						exclusiveCorrect = true;
+						for(int fi = 0; fi < exclusiveFilterStringCount; fi++) {
+							char* filter = exclusiveFilterStrings[fi];
+							bool correct = (strFind(title, filter) == -1);
+							if(!correct) {
+								exclusiveCorrect = false;
+								break;
 							}
 						}
-						
-						if(!inclusiveFilterActive) inclusiveCorrect = true;
-						if(!exclusiveFilterActive) exclusiveCorrect = true;
+					}
 
-						notFiltered = inclusiveCorrect && exclusiveCorrect;
+					if(!inclusiveFilterActive) inclusiveCorrect = true;
+					if(!exclusiveFilterActive) exclusiveCorrect = true;
+
+					notFiltered = inclusiveCorrect && exclusiveCorrect;
 
 						// Filter corrupted videos for now.
-						bool corrupted = false;
-						if(notFiltered)
-						{
-							YoutubeVideo* vid = tempVids + i;
-							if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
-							   vid->viewCount < 0 || vid->viewCount > 5000000000 ||
-							   vid->likeCount < 0 || vid->likeCount > 100000000 ||
-							   vid->dislikeCount < 0 || vid->dislikeCount > 100000000 ||
-							   vid->favoriteCount < 0)
-								corrupted = true;
+					bool corrupted = false;
+					if(notFiltered)
+					{
+						YoutubeVideo* vid = tempVids + i;
+						if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
+						   vid->viewCount < 0 || vid->viewCount > 5000000000 ||
+						   vid->likeCount < 0 || vid->likeCount > 100000000 ||
+						   vid->dislikeCount < 0 || vid->dislikeCount > 100000000 ||
+						   vid->favoriteCount < 0)
+							corrupted = true;
 
-							notFiltered = notFiltered && !corrupted;
+						notFiltered = notFiltered && !corrupted;
 
 							// if(!valueBetween(vid->viewCount, ad->clampFilter[0].min, ad->clampFilter[0].max)) notFiltered = false;
 							// if(!valueBetween(vid->viewCount, ad->clampFilter[1].min, ad->clampFilter[1].max)) notFiltered = false;
 							// if(!valueBetween(vid->viewCount, ad->clampFilter[2].min, ad->clampFilter[2].max)) notFiltered = false;
 							// if(!valueBetween(vid->viewCount, ad->clampFilter[3].min, ad->clampFilter[3].max)) notFiltered = false;
-						}
-
-						if(notFiltered) filteredIndexes[filteredIndexesCount++] = i;
-					}
-				}
-
-				ad->playlist.count = filteredIndexesCount;
-
-				{
-					TIMER_BLOCK_NAMED("Cpy Filtered");
-	
-					// Resize ad->videos if not big enough.
-					if(ad->maxVideoCount < filteredIndexesCount) {
-						free(ad->videos);
-						int count = filteredIndexesCount;
-						ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
-						ad->maxVideoCount = count;
 					}
 
-					for(int i = 0; i < filteredIndexesCount; i++) {
-						int index = filteredIndexes[i];
-						ad->videos[i] = tempVids[index];
-					}
+					if(notFiltered) filteredIndexes[filteredIndexesCount++] = i;
 				}
 			}
 
-			if(ad->playlist.count == 0) {
-				for(int i = 0; i < ad->camCount; i++) {
-					graphCamInit(&ad->cams[i], 0, 10000, 0, 1000);
+			ad->playlist.count = filteredIndexesCount;
+
+			{
+				TIMER_BLOCK_NAMED("Cpy Filtered");
+
+					// Resize ad->videos if not big enough.
+				if(ad->maxVideoCount < filteredIndexesCount) {
+					free(ad->videos);
+					int count = filteredIndexesCount;
+					ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
+					ad->maxVideoCount = count;
 				}
-			} else {
+
+				for(int i = 0; i < filteredIndexesCount; i++) {
+					int index = filteredIndexes[i];
+					ad->videos[i] = tempVids[index];
+				}
+			}
+		}
+
+		if(ad->playlist.count == 0) {
+			for(int i = 0; i < ad->camCount; i++) {
+				graphCamInit(&ad->cams[i], 0, 10000, 0, 1000);
+			}
+		} else {
 
 				// Sort videos.
-				{
-					TIMER_BLOCK_NAMED("Sorting");
+			{
+				TIMER_BLOCK_NAMED("Sorting");
 
-					YoutubeVideo* vids = ad->videos;
-					int size = ad->playlist.count;
+				YoutubeVideo* vids = ad->videos;
+				int size = ad->playlist.count;
 
-					struct SortNode {
-						i64 val;
-						int i;	
-					};
+				struct SortNode {
+					i64 val;
+					int i;	
+				};
 
-					SortNode* list = (SortNode*)malloc(sizeof(SortNode)*size);
-					SortNode* buffer = (SortNode*)malloc(sizeof(SortNode)*size);
-					uchar* bytes = (uchar*)malloc(sizeof(uchar)*size);
-					int stageCount = ad->sortByDate?6:4;
+				SortNode* list = (SortNode*)malloc(sizeof(SortNode)*size);
+				SortNode* buffer = (SortNode*)malloc(sizeof(SortNode)*size);
+				uchar* bytes = (uchar*)malloc(sizeof(uchar)*size);
+				int stageCount = ad->sortByDate?6:4;
 
-					TIMER_BLOCK_BEGIN_NAMED(pre, "pre");
+				TIMER_BLOCK_BEGIN_NAMED(pre, "pre");
 
-					if(ad->sortByDate)         for(int i = 0; i < size; i++) list[i].val = vids[i].date.n;
-					else if(ad->sortStat == 0) for(int i = 0; i < size; i++) list[i].val = vids[i].viewCount;
-					else if(ad->sortStat == 1) for(int i = 0; i < size; i++) list[i].val = vids[i].likeCount + vids[i].dislikeCount;
-					else if(ad->sortStat == 3) for(int i = 0; i < size; i++) list[i].val = vids[i].commentCount;
-					else if(ad->sortStat == 2) for(int i = 0; i < size; i++) {
-						float v = videoGetLikesDiff(&vids[i]);
-						list[i].val = *((i64*)(&v));
-					}
+				if(ad->sortByDate)         for(int i = 0; i < size; i++) list[i].val = vids[i].date.n;
+				else if(ad->sortStat == 0) for(int i = 0; i < size; i++) list[i].val = vids[i].viewCount;
+				else if(ad->sortStat == 1) for(int i = 0; i < size; i++) list[i].val = vids[i].likeCount + vids[i].dislikeCount;
+				else if(ad->sortStat == 3) for(int i = 0; i < size; i++) list[i].val = vids[i].commentCount;
+				else if(ad->sortStat == 2) for(int i = 0; i < size; i++) {
+					float v = videoGetLikesDiff(&vids[i]);
+					list[i].val = *((i64*)(&v));
+				}
 
-					for(int i = 0; i < size; i++) list[i].i = i;
+				for(int i = 0; i < size; i++) list[i].i = i;
 
 					TIMER_BLOCK_END(pre);
 
-					for(int stage = 0; stage < stageCount; stage++) {
-						SortNode* src = stage%2 == 0 ? list : buffer;
-						SortNode* dst = stage%2 == 0 ? buffer : list;
-						int bucket[257] = {};
-						int offset = 8*stage;
+				for(int stage = 0; stage < stageCount; stage++) {
+					SortNode* src = stage%2 == 0 ? list : buffer;
+					SortNode* dst = stage%2 == 0 ? buffer : list;
+					int bucket[257] = {};
+					int offset = 8*stage;
 
-						for(int i = 0; i < size; i++) bytes[i] = src[i].val >> offset;
+					for(int i = 0; i < size; i++) bytes[i] = src[i].val >> offset;
 						for(int i = 0; i < size; i++) bucket[bytes[i]+1]++;
-						for(int i = 0; i < 256-1; i++) bucket[i+1] += bucket[i];
+							for(int i = 0; i < 256-1; i++) bucket[i+1] += bucket[i];
 
-						TIMER_BLOCK_BEGIN_NAMED(asdf, "SortCpy");
+								TIMER_BLOCK_BEGIN_NAMED(asdf, "SortCpy");
 
-						for(int i = 0; i < size; i++) {
-							uchar byte = bytes[i];
-							dst[bucket[bytes[i]]] = src[i];
-							bucket[byte]++;
+							for(int i = 0; i < size; i++) {
+								uchar byte = bytes[i];
+								dst[bucket[bytes[i]]] = src[i];
+								bucket[byte]++;
+							}
+
+							TIMER_BLOCK_END(asdf);
 						}
 
-						TIMER_BLOCK_END(asdf);
+						TIMER_BLOCK_BEGIN_NAMED(post, "post");
+
+						for(int i = 0; i < size; i++) {
+							int index = list[i].i;
+							tempVids[i] = vids[index];
+						}
+
+						if(ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[i];
+						else if(!ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[size-i-1];
+
+						TIMER_BLOCK_END(post);
+
+						free(buffer);
+						free(bytes);
+						free(list);
+
 					}
 
-					TIMER_BLOCK_BEGIN_NAMED(post, "post");
+					Statistic statViews, statLikes, statLikesDiff, statDates, statComments;
+					{
+						TIMER_BLOCK_NAMED("Get Stats");
 
-					for(int i = 0; i < size; i++) {
-						int index = list[i].i;
-						tempVids[i] = vids[index];
-					}
+						beginStatistic(&statViews);
+						beginStatistic(&statLikes);
+						beginStatistic(&statDates);
+						beginStatistic(&statLikesDiff);
+						beginStatistic(&statComments);
 
-					if(ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[i];
-					else if(!ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[size-i-1];
+						for(int i = 0; i < ad->playlist.count; i++) {
+							YoutubeVideo* video = ad->videos + i;
 
-					TIMER_BLOCK_END(post);
+							updateStatistic(&statViews, video->viewCount);
+							updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
+							updateStatistic(&statLikesDiff, videoGetLikesDiff(video));
+							updateStatistic(&statComments, video->commentCount);
+							updateStatistic(&statDates, video->date.n);
+						}
 
-					free(buffer);
-					free(bytes);
-					free(list);
+						endStatistic(&statViews);
+						endStatistic(&statLikes);
+						endStatistic(&statLikesDiff);
+						endStatistic(&statDates);
+						endStatistic(&statComments);
 
-				}
-
-				Statistic statViews, statLikes, statLikesDiff, statDates, statComments;
-				{
-					TIMER_BLOCK_NAMED("Get Stats");
-
-					beginStatistic(&statViews);
-					beginStatistic(&statLikes);
-					beginStatistic(&statDates);
-					beginStatistic(&statLikesDiff);
-					beginStatistic(&statComments);
-
-					for(int i = 0; i < ad->playlist.count; i++) {
-						YoutubeVideo* video = ad->videos + i;
-
-						updateStatistic(&statViews, video->viewCount);
-						updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
-						updateStatistic(&statLikesDiff, videoGetLikesDiff(video));
-						updateStatistic(&statComments, video->commentCount);
-						updateStatistic(&statDates, video->date.n);
-					}
-
-					endStatistic(&statViews);
-					endStatistic(&statLikes);
-					endStatistic(&statLikesDiff);
-					endStatistic(&statDates);
-					endStatistic(&statComments);
-
-					ad->stats[0] = statViews;
-					ad->stats[1] = statLikes;
-					ad->stats[2] = statLikesDiff;
-					ad->stats[3] = statComments;
+						ad->stats[0] = statViews;
+						ad->stats[1] = statLikes;
+						ad->stats[2] = statLikesDiff;
+						ad->stats[3] = statComments;
 
 					// ad->clampFilter[0].min = ad->stats[0].min;
 					// ad->clampFilter[0].max = ad->stats[0].max;
@@ -4884,64 +5035,64 @@ extern "C" APPMAINFUNCTION(appMain) {
 					// ad->clampFilter[2].max = ad->stats[2].max;
 					// ad->clampFilter[3].min = ad->stats[3].min;
 					// ad->clampFilter[3].max = ad->stats[3].max;
-				}
-
-				// Init cam after loading.
-				{
-					double camLeft, camRight;
-
-					if(ad->sortByDate) {
-						if(statDates.max - statDates.min < Graph_Zoom_Min) {
-							i64 timeMid = statDates.min != statDates.max ? statDates.min + (statDates.max - statDates.min)/2 : statDates.min;
-							camLeft = timeMid - Graph_Zoom_Min/2;
-							camRight = timeMid + Graph_Zoom_Min/2;
-						} else {
-							camLeft = statDates.min;
-							camRight = statDates.max;
-						}
-					} else {
-						camLeft = 0;
-						camRight = ad->playlist.count-1;
 					}
 
-					graphCamInit(&ad->cams[0], camLeft, camRight, 0, statViews.max*1.1f);
-					graphCamInit(&ad->cams[1], camLeft, camRight, 0, statLikes.max*1.1f);
-					graphCamInit(&ad->cams[2], camLeft, camRight, 0, 1);
-					graphCamInit(&ad->cams[3], camLeft, camRight, 0, statComments.max*1.1f);
+				// Init cam after loading.
+					{
+						double camLeft, camRight;
+
+						if(ad->sortByDate) {
+							if(statDates.max - statDates.min < Graph_Zoom_Min) {
+								i64 timeMid = statDates.min != statDates.max ? statDates.min + (statDates.max - statDates.min)/2 : statDates.min;
+								camLeft = timeMid - Graph_Zoom_Min/2;
+								camRight = timeMid + Graph_Zoom_Min/2;
+							} else {
+								camLeft = statDates.min;
+								camRight = statDates.max;
+							}
+						} else {
+							camLeft = 0;
+							camRight = ad->playlist.count-1;
+						}
+
+						graphCamInit(&ad->cams[0], camLeft, camRight, 0, statViews.max*1.1f);
+						graphCamInit(&ad->cams[1], camLeft, camRight, 0, statLikes.max*1.1f);
+						graphCamInit(&ad->cams[2], camLeft, camRight, 0, 1);
+						graphCamInit(&ad->cams[3], camLeft, camRight, 0, statComments.max*1.1f);
+					}
+
+					calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
 				}
 
-				calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
-			}
+				ad->selectedVideo = -1;
+			} 
 
-			ad->selectedVideo = -1;
-		} 
-
-		popTMemoryStack();
-	}
+			popTMemoryStack();
+		}
 
 
 
-	{
-		TIMER_BLOCK_BEGIN_NAMED(appIntro, "appIntro");
+		{
+			TIMER_BLOCK_BEGIN_NAMED(appIntro, "appIntro");
 
 		// AppSettings* as = &ad->appSettings;
 
-		AppColors* ac = &ad->appColors;
-		AppSettings* as = &ad->appSettings;
+			AppColors* ac = &ad->appColors;
+			AppSettings* as = &ad->appSettings;
 
-		Font* font = ad->font;
-		int fontSize = font->height;
+			Font* font = ad->font;
+			int fontSize = font->height;
 
 		// Options.
-		float topBarHeightMod = as->heightMod;
-		float leftScaleOffset = 0;
-		float bottomScaleOffset = 0;
-		float windowBorderSize = as->windowBorder;
-		float windowTitleHeightMod = as->windowHeightMod;
+			float topBarHeightMod = as->heightMod;
+			float leftScaleOffset = 0;
+			float bottomScaleOffset = 0;
+			float windowBorderSize = as->windowBorder;
+			float windowTitleHeightMod = as->windowHeightMod;
 
 		// Colors.
-		Vec4 colorWindowBorder = ac->windowBorder;
-		Vec4 colorWindowClient = ac->background;
+			Vec4 colorWindowBorder = ac->windowBorder;
+			Vec4 colorWindowClient = ac->background;
 
 		//
 
@@ -4968,8 +5119,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		Layout* lFilters = layoutAdd(lLeft, layout(vec2(0,topBarHeight)));
 		Layout* lChart = layoutAdd(lLeft, layout(vec2(0,0), true, vec2i(-1,1)));
 		Layout* bottom = layoutAdd(lLeft, layout(vec2(0,bottomScaleHeight)));
-			layoutAdd(bottom, layout(vec2(leftScaleWidth,0)));
-			Layout* lBottom = layoutAdd(bottom, layout(vec2(0,0)));
+		layoutAdd(bottom, layout(vec2(leftScaleWidth,0)));
+		Layout* lBottom = layoutAdd(bottom, layout(vec2(0,0)));
 
 
 		Layout* lGraphs[Line_Graph_Count];
@@ -5052,7 +5203,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->gui->buttonSettings = ad->buttonSettings;
 
 		}
-	
+
 		drawRect(lMain->r, colorWindowClient);
 
 
@@ -5074,7 +5225,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			Layout* lay = layoutAlloc(layout(rFilters, false, vec2i(-1,0), vec2(as->padding,0), vec2(as->border)));
 			for(int i = 0; i < arrayCount(widths); i++) layoutAdd(lay, layout(vec2(widths[i], 0)));
-			layoutCalc(lay);
+				layoutCalc(lay);
 			Layout* l = lay->list;
 
 			if(newGuiQuickButton(gui, layoutInc(&l), labels[li++])) ad->panelActive = !ad->panelActive;
@@ -5153,13 +5304,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 			{
 				float z = 0;
 				if(newGuiGoButtonAction(ad->gui, rLeftText, z, Gui_Focus_MWheel)) 
-	    			graphCamScaleToPos(cam, 0, 0, 0, -input->mouseWheel, Graph_Zoom_Speed, camMinH, input->mousePosNegative);
+					graphCamScaleToPos(cam, 0, 0, 0, -input->mouseWheel, Graph_Zoom_Speed, camMinH, input->mousePosNegative);
 
-	    		if(i == 0) {
+				if(i == 0) {
 					if(newGuiGoButtonAction(ad->gui, rGraphs, z, Gui_Focus_MWheel)) {
 						graphCamScaleToPos(&ad->cams[i], -input->mouseWheel, Graph_Zoom_Speed, zoomMin, 0, 0, 0, input->mousePosNegative);
 					}
-	    		}
+				}
 			}
 
 			cam->x = ad->cams[0].x;
@@ -5173,10 +5324,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 				int event;
 
 				if(i == 0) {
-		    		event = newGuiGoDragAction(gui, rGraphs, z, Gui_Focus_MLeft);
-		    		if(event == 1) gui->mouseAnchor.x = -getMousePosS().x - graphCamCamToScreenSpaceX(cam, cam->x);
-		    		if(event > 0) {
-		    			double camX = graphCamScreenToCamSpaceX(cam, -getMousePosS().x - gui->mouseAnchor.x);
+					event = newGuiGoDragAction(gui, rGraphs, z, Gui_Focus_MLeft);
+					if(event == 1) gui->mouseAnchor.x = -getMousePosS().x - graphCamCamToScreenSpaceX(cam, cam->x);
+					if(event > 0) {
+						double camX = graphCamScreenToCamSpaceX(cam, -getMousePosS().x - gui->mouseAnchor.x);
 
 						for(int i = 0; i < ad->camCount; i++) {
 							ad->cams[i].x = camX;
@@ -5573,7 +5724,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 
 					double value;
-					     if(graphIndex == 0) value = vids[i].viewCount;
+					if(graphIndex == 0) value = vids[i].viewCount;
 					else if(graphIndex == 1) value = vids[i].likeCount + vids[i].dislikeCount;
 					else if(graphIndex == 2) value = vids[i].dislikeCount;
 					else if(graphIndex == 3) value = videoGetLikesDiff(&vids[i]);
@@ -5898,8 +6049,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				else drawRect(imageRect, rect(0.01,0,0.99,1), sn->thumbnailTexture.id);
 			}
 
-            drawText(sv->title, vec2(xMid, ld->pos.y), vec2i(0,1), width, boldLabelSettings);
-            newGuiLAdv(gui, getTextDim(sv->title, boldLabelSettings.font, vec2(xMid, ld->pos.y), width).y);
+			drawText(sv->title, vec2(xMid, ld->pos.y), vec2i(0,1), width, boldLabelSettings);
+			newGuiLAdv(gui, getTextDim(sv->title, boldLabelSettings.font, vec2(xMid, ld->pos.y), width).y);
 
 			{
 				Rect r = newGuiLRectAdv(gui);
@@ -5923,7 +6074,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				p = top - vec2(centerMargin/2, 0);
 				for(int i = 0; i < lineCount; i++) {
 					char* t = text[i];
-				
+
 					drawText(t, p, vec2i(1,1), gui->textSettings); 
 					p.y -= font->height;
 				}
@@ -5937,11 +6088,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 					                          sv->duration.h > 0 ? fillString("%ih ", sv->duration.h) : "", 
 					                          sv->duration.mins, 
 					                          sv->duration.secs);
-					if(i == 2) t = fillString("%i.", sv->viewCount);
+						if(i == 2) t = fillString("%i.", sv->viewCount);
 					if(i == 3) t = fillString("%i | %i", sv->likeCount, sv->dislikeCount);
 					if(i == 4) t = fillString("%i", sv->commentCount);
 					if(i == 5) t = fillString("%i", sv->favoriteCount);
-				
+
 					drawText(t, p, vec2i(-1,1), gui->textSettings); 
 					p.y -= font->height;
 				}
@@ -5961,211 +6112,211 @@ extern "C" APPMAINFUNCTION(appMain) {
 				ld->pos = scrollValues.pos;
 				newGuiScissorPush(gui, scrollValues.scissor);
 
-					float wrapWidth = ld->dim.w;
-					if(!(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 4)) {
-						for(int i = 0; i < sn->selectedCommentCount; i++) {
-							drawText(sn->selectedTopComments[i], ld->pos, vec2i(-1,1), wrapWidth, gui->textSettings);
-							ld->pos.y -= getTextDim(sn->selectedTopComments[i], font, vec2(xMid, ld->pos.y), wrapWidth).y;
-							
-							drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), ld->pos + vec2(ld->dim.w,0), vec2i(1,1), wrapWidth, darkerLabelSettings);
-							ld->pos.y -= font->height;
-						}
+				float wrapWidth = ld->dim.w;
+				if(!(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 4)) {
+					for(int i = 0; i < sn->selectedCommentCount; i++) {
+						drawText(sn->selectedTopComments[i], ld->pos, vec2i(-1,1), wrapWidth, gui->textSettings);
+						ld->pos.y -= getTextDim(sn->selectedTopComments[i], font, vec2(xMid, ld->pos.y), wrapWidth).y;
+
+						drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), ld->pos + vec2(ld->dim.w,0), vec2i(1,1), wrapWidth, darkerLabelSettings);
+						ld->pos.y -= font->height;
+					}
 						scrollHeight = scrollValues.pos.y - ld->pos.y + 4; // @Hack.
 					} else {
 						scrollHeight = rectH(r);
 						drawTriangle(rectCen(r), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
 					}
 
-				ld = newGuiLayoutPop(gui);
+					ld = newGuiLayoutPop(gui);
+					newGuiScissorPop(gui);
+					ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
+				}
+
 				newGuiScissorPop(gui);
-				ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
-			}
-
-			newGuiScissorPop(gui);
-			newGuiLayoutPop(gui);
-			scissorState(false);
+				newGuiLayoutPop(gui);
+				scissorState(false);
 
 
-			if(closePanel) {
-				ad->selectedVideo = -1;
-				if(ad->modeData.downloadMode == Download_Mode_Snippet) {
-					downloadModeAbort(&ad->modeData);
+				if(closePanel) {
+					ad->selectedVideo = -1;
+					if(ad->modeData.downloadMode == Download_Mode_Snippet) {
+						downloadModeAbort(&ad->modeData);
+					}
 				}
 			}
-		}
-		
+
 		// Draw Borders.
-		{
-			glLineWidth(0.5f);
-			drawRectOutline(rGraphs, ac->edge);
-			drawRectOutline(ad->clientRect, ac->edge);
+			{
+				glLineWidth(0.5f);
+				drawRectOutline(rGraphs, ac->edge);
+				drawRectOutline(ad->clientRect, ac->edge);
+			}
+
 		}
 
-	}
+		TIMER_BLOCK_END(appMain);
 
-	TIMER_BLOCK_END(appMain);
-
-	endOfMainLabel:
+		endOfMainLabel:
 
 
 
 
 	// Main Panel.
-	if(ad->panelActive) {
-		AppSettings as = ad->appSettings;
-		AppColors ac = ad->appColors;
+		if(ad->panelActive) {
+			AppSettings as = ad->appSettings;
+			AppColors ac = ad->appColors;
 
-		bool clampToWindow = true;
-		bool resizable = true;
-		bool resizableX = true;
-		bool resizableY = false;
+			bool clampToWindow = true;
+			bool resizable = true;
+			bool resizableX = true;
+			bool resizableY = false;
 		// bool resizableY = true;
-		bool movable = true;
+			bool movable = true;
 
-		Font* font = ad->font;
+			Font* font = ad->font;
 
-		float textMargin = as.textPaddingMod;
-		float textPadding = font->height * as.textPaddingMod;
+			float textMargin = as.textPaddingMod;
+			float textPadding = font->height * as.textPaddingMod;
 
-		float panelBorder = as.windowBorder;
-		float windowCornerGraphSize = panelBorder*4;
-		float roundedCorners = as.rounding;
-		float titleHeightMod = as.windowHeightMod;
-		char* titleText = "App";
-		float windowControlsPadding = 0.6f;
-		float windowControlsSize = 1.0f;
+			float panelBorder = as.windowBorder;
+			float windowCornerGraphSize = panelBorder*4;
+			float roundedCorners = as.rounding;
+			float titleHeightMod = as.windowHeightMod;
+			char* titleText = "App";
+			float windowControlsPadding = 0.6f;
+			float windowControlsSize = 1.0f;
 
 		// Vec2 clientBorder = vec2(as.border);
-		Vec2 clientBorder = vec2(textPadding);
-		float heightMod = as.heightMod;
-		float rowHeightNormal = font->height*heightMod;
-		float rowHeight = rowHeightNormal * 1.2f;
-		float rowHeightScrollElements = rowHeightNormal;
-		float padding = as.padding;
-		float rowOffset = padding;
+			Vec2 clientBorder = vec2(textPadding);
+			float heightMod = as.heightMod;
+			float rowHeightNormal = font->height*heightMod;
+			float rowHeight = rowHeightNormal * 1.2f;
+			float rowHeightScrollElements = rowHeightNormal;
+			float padding = as.padding;
+			float rowOffset = padding;
 
 
-		float sectionOffset = 20;
-		float listOffset = 1;
+			float sectionOffset = 20;
+			float listOffset = 1;
 
-		Vec4 fontColor = ac.font;
-		Vec4 fontShadowColor = ac.fontShadow;
-		Vec4 borderColor = ac.windowBorder;
-		Vec4 backgroundColor = ac.background;
-		Vec4 buttonColor = ac.button;
+			Vec4 fontColor = ac.font;
+			Vec4 fontShadowColor = ac.fontShadow;
+			Vec4 borderColor = ac.windowBorder;
+			Vec4 backgroundColor = ac.background;
+			Vec4 buttonColor = ac.button;
 
-		Vec4 editBackgroundColor = ac.uiBackground;
-		Vec4 editSelectionColor = ac.editSelection;
-		Vec4 editCursorColor = ac.editCursor;
+			Vec4 editBackgroundColor = ac.uiBackground;
+			Vec4 editSelectionColor = ac.editSelection;
+			Vec4 editCursorColor = ac.editCursor;
 
-		Vec4 scrollRegionColor = ac.uiBackground;
-		Vec4 scrollSliderColor = buttonColor;
+			Vec4 scrollRegionColor = ac.uiBackground;
+			Vec4 scrollSliderColor = buttonColor;
 
-		Vec4 windowControlsColor = buttonColor;
+			Vec4 windowControlsColor = buttonColor;
 
-		Vec4 progressLeft = ac.windowBorder;
+			Vec4 progressLeft = ac.windowBorder;
 
-		Vec4 edgeColor = ac.edge;
-
-
-
-		TextSettings boldLabelSettings = ad->gui->textSettings;
-		boldLabelSettings.font = boldLabelSettings.font->boldFont;
-
-		NewGui* gui = ad->gui;
-		float zLevel = 2;
-		gui->zLevel = zLevel;
-
-		GuiWindowSettings windowSettings = {panelBorder, windowCornerGraphSize, vec2(Panel_Min_X, Panel_Min_Y), vec2(0,0), ad->clientRect, movable, resizableX, resizableY, false};
-
-		ad->panelRect.bottom = ad->panelRect.top - ad->lastPanelHeight;
-
-		newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, zLevel);
-		newGuiWindowUpdate(gui, &ad->panelRect, zLevel, windowSettings);
-
-		drawRectRounded(ad->panelRect, borderColor, roundedCorners);
-
-		{
-			Rect insideRect = rectExpand(ad->panelRect, -panelBorder*2);
-			float titleHeight = font->height*titleHeightMod;
-
-			Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight);
-			newGuiQuickText(gui, titleRect, titleText, &boldLabelSettings);
-
-			Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
-
-			if(newGuiQuickButton(gui, rClose, "", vec2i(0,0), &ad->uiButtonSettings)) ad->panelActive = false;
-			drawCross(rectCen(rClose), rectW(rClose)/2 * windowControlsPadding, windowControlsSize, vec2(1,0), fontColor);
-
-			scissorTestScreen(titleRect);
-			if(downloadModeActive(&ad->modeData)) {
-				drawTriangle(rectL(titleRect) + vec2(rectH(titleRect)/2,0), rectH(titleRect)/3, rotateVec2(vec2(1,0), ad->time*2), fontColor);
-			}
-
-			insideRect.top -= titleHeight;
+			Vec4 edgeColor = ac.edge;
 
 
-			Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
-			Layout layTemp = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
-			Layout* l;
 
-			float modeTabHeight = rowHeightNormal;
-			Rect modeRect = rectSetB(insideRect, insideRect.top - modeTabHeight);
+			TextSettings boldLabelSettings = ad->gui->textSettings;
+			boldLabelSettings.font = boldLabelSettings.font->boldFont;
 
-			insideRect.top -= modeTabHeight;
-			drawRectOutlined(insideRect, backgroundColor, edgeColor);
+			NewGui* gui = ad->gui;
+			float zLevel = 2;
+			gui->zLevel = zLevel;
 
-			// Panel mode switches.
+			GuiWindowSettings windowSettings = {panelBorder, windowCornerGraphSize, vec2(Panel_Min_X, Panel_Min_Y), vec2(0,0), ad->clientRect, movable, resizableX, resizableY, false};
+
+			ad->panelRect.bottom = ad->panelRect.top - ad->lastPanelHeight;
+
+			newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, zLevel);
+			newGuiWindowUpdate(gui, &ad->panelRect, zLevel, windowSettings);
+
+			drawRectRounded(ad->panelRect, borderColor, roundedCorners);
+
 			{
-				float leftPadding = font->height;
-				char* labels[] = {"Main", "Settings"};
-				int li = 0;
-				float widths[] = {getTextDim(labels[li++], font).w+textPadding*2, getTextDim(labels[li++], font).w+textPadding*2};
-				li = 0;
+				Rect insideRect = rectExpand(ad->panelRect, -panelBorder*2);
+				float titleHeight = font->height*titleHeightMod;
 
-				scissorState();
-				Vec4 activeColorMod = gui->colorModActive;
-				gui->colorModActive = vec4(0,0);
+				Rect titleRect = rectSetB(insideRect, insideRect.top - titleHeight);
+				newGuiQuickText(gui, titleRect, titleText, &boldLabelSettings);
 
-				TextBoxSettings unselectedTabSet = textBoxSettings(gui->textSettings, boxSettings(ac.windowBorder));
-				TextBoxSettings selectedTabSet = ad->uiButtonSettings;
-				selectedTabSet.boxSettings.color = ac.background;
+				Rect rClose = rectSetL(titleRect, titleRect.right-rectH(titleRect));
 
-				modeRect.left += leftPadding;
-				Vec2 p = rectTL(modeRect);
+				if(newGuiQuickButton(gui, rClose, "", vec2i(0,0), &ad->uiButtonSettings)) ad->panelActive = false;
+				drawCross(rectCen(rClose), rectW(rClose)/2 * windowControlsPadding, windowControlsSize, vec2(1,0), fontColor);
 
-				for(int i = 0; i < arrayCount(labels); i++) {
-					Rect r = rectTLDim(p, vec2(widths[li++], rectH(modeRect))); 
-
-					if(ad->panelMode != i) {
-						if(newGuiQuickButton(gui, r, labels[i], &unselectedTabSet)) ad->panelMode = i;
-					} else {
-						r.bottom -= 1;
-						newGuiQuickTextBox(gui, r, labels[i], &selectedTabSet);
-						glLineWidth(2);
-						Vec2 off = vec2(0,0);
-						drawLine(rectBL(r) + off + vec2(0.75f,0), rectBR(r) + off - vec2(0.75f,0), selectedTabSet.boxSettings.color);
-					}
-
-					p += vec2(rectW(r), 0);
+				scissorTestScreen(titleRect);
+				if(downloadModeActive(&ad->modeData)) {
+					drawTriangle(rectL(titleRect) + vec2(rectH(titleRect)/2,0), rectH(titleRect)/3, rotateVec2(vec2(1,0), ad->time*2), fontColor);
 				}
 
-				gui->colorModActive = activeColorMod;
-				scissorState(false);
-			}
+				insideRect.top -= titleHeight;
+
+
+				Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
+				Layout layTemp = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
+				Layout* l;
+
+				float modeTabHeight = rowHeightNormal;
+				Rect modeRect = rectSetB(insideRect, insideRect.top - modeTabHeight);
+
+				insideRect.top -= modeTabHeight;
+				drawRectOutlined(insideRect, backgroundColor, edgeColor);
+
+			// Panel mode switches.
+				{
+					float leftPadding = font->height;
+					char* labels[] = {"Main", "Settings"};
+					int li = 0;
+					float widths[] = {getTextDim(labels[li++], font).w+textPadding*2, getTextDim(labels[li++], font).w+textPadding*2};
+					li = 0;
+
+					scissorState();
+					Vec4 activeColorMod = gui->colorModActive;
+					gui->colorModActive = vec4(0,0);
+
+					TextBoxSettings unselectedTabSet = textBoxSettings(gui->textSettings, boxSettings(ac.windowBorder));
+					TextBoxSettings selectedTabSet = ad->uiButtonSettings;
+					selectedTabSet.boxSettings.color = ac.background;
+
+					modeRect.left += leftPadding;
+					Vec2 p = rectTL(modeRect);
+
+					for(int i = 0; i < arrayCount(labels); i++) {
+						Rect r = rectTLDim(p, vec2(widths[li++], rectH(modeRect))); 
+
+						if(ad->panelMode != i) {
+							if(newGuiQuickButton(gui, r, labels[i], &unselectedTabSet)) ad->panelMode = i;
+						} else {
+							r.bottom -= 1;
+							newGuiQuickTextBox(gui, r, labels[i], &selectedTabSet);
+							glLineWidth(2);
+							Vec2 off = vec2(0,0);
+							drawLine(rectBL(r) + off + vec2(0.75f,0), rectBR(r) + off - vec2(0.75f,0), selectedTabSet.boxSettings.color);
+						}
+
+						p += vec2(rectW(r), 0);
+					}
+
+					gui->colorModActive = activeColorMod;
+					scissorState(false);
+				}
 
 
 
-			scissorState();
-			newGuiScissorPush(gui, insideRect);
-			newGuiLayoutPush(gui, layoutData(rectExpand(insideRect, -clientBorder*2), rowHeight, rowOffset, 0));
-			LayoutData* ld = gui->ld;
+				scissorState();
+				newGuiScissorPush(gui, insideRect);
+				newGuiLayoutPush(gui, layoutData(rectExpand(insideRect, -clientBorder*2), rowHeight, rowOffset, 0));
+				LayoutData* ld = gui->ld;
 
-			float yOffsetExtra = font->height * 0.5f;
-			Rect r;
+				float yOffsetExtra = font->height * 0.5f;
+				Rect r;
 
 
-			if(ad->panelMode == 1) {
+				if(ad->panelMode == 1) {
 
 				// float maxTextWidth = 0;
 				// StructInfo* info = Get_Struct_Info(AppColors);
@@ -6201,18 +6352,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 
-				float maxTextWidth = 0;
-				StructInfo* info = Get_Struct_Info(AppColorsRelative);
-				for(int i = 0; i < info->memberCount; i++) {
-					maxTextWidth = max(maxTextWidth, getTextDim(info->list[i].name, font).w);
-				}
-				maxTextWidth += 2;
+					float maxTextWidth = 0;
+					StructInfo* info = Get_Struct_Info(AppColorsRelative);
+					for(int i = 0; i < info->memberCount; i++) {
+						maxTextWidth = max(maxTextWidth, getTextDim(info->list[i].name, font).w);
+					}
+					maxTextWidth += 2;
 
-				const int memberCount = arrayCount(ad->appColors.e);
-				static int colorIndexes[memberCount] = {};
-				if(init || reload) {
-					for(int i = 0; i < memberCount; i++) colorIndexes[i] = -1;
-				}
+					const int memberCount = arrayCount(ad->appColors.e);
+					static int colorIndexes[memberCount] = {};
+					if(init || reload) {
+						for(int i = 0; i < memberCount; i++) colorIndexes[i] = -1;
+					}
 
 				gui->ld->defaultHeight = rowHeightNormal;
 				gui->ld->yPadding = 2;
@@ -6232,8 +6383,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 					newGuiQuickSlider(gui, layoutInc(&l), &rc->c.a, sliderRange.min, sliderRange.max);
 
 					int temp = rc->i;
-					newGuiQuickSlider(gui, layoutInc(&l), &temp, -1, memberCount-1);
-					if(newGuiWasActive(gui)) rc->i = temp;
+					if(newGuiQuickSlider(gui, layoutInc(&l), &temp, -1, memberCount-1)) {
+						rc->i = temp;
+						if(rc->i == i) rc->i--;
+					}
 				}
 
 				AppColorsRelative temp = ad->appColorsRelative;
@@ -6292,32 +6445,32 @@ extern "C" APPMAINFUNCTION(appMain) {
 					ld->yPadding = listOffset;
 					ld->defaultHeight = rowHeightScrollElements;
 
-						char* buttonText = "Del";
-						float buttonTextWidth = getTextDim(buttonText, font).w + textPadding*2;
+					char* buttonText = "Del";
+					float buttonTextWidth = getTextDim(buttonText, font).w + textPadding*2;
 
-						for(int i = 0; i < ad->playlistFolderCount; i++) {
-							YoutubePlaylist* playlist = ad->playlistFolder + i;
+					for(int i = 0; i < ad->playlistFolderCount; i++) {
+						YoutubePlaylist* playlist = ad->playlistFolder + i;
 
-							l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0, buttonTextWidth); 
-							char* maxCountText = playlist->count != playlist->maxCount ? fillString("|%i", playlist->maxCount) : "";
-							char* mainButtonText = fillString("%s - (%i%s)", playlist->title, playlist->count, maxCountText);
+						l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0, buttonTextWidth); 
+						char* maxCountText = playlist->count != playlist->maxCount ? fillString("|%i", playlist->maxCount) : "";
+						char* mainButtonText = fillString("%s - (%i%s)", playlist->title, playlist->count, maxCountText);
 
-							if(newGuiQuickButton(gui, layoutInc(&l), mainButtonText, vec2i(-1,0), &ad->scrollButtonSettings)) {
-								if(ad->modeData.downloadMode != Download_Mode_Videos) {
-									memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
-									ad->startLoadFile = true;
+						if(newGuiQuickButton(gui, layoutInc(&l), mainButtonText, vec2i(-1,0), &ad->scrollButtonSettings)) {
+							if(ad->modeData.downloadMode != Download_Mode_Videos) {
+								memCpy(&ad->playlist, ad->playlistFolder + i, sizeof(YoutubePlaylist));
+								ad->startLoadFile = true;
 
-									strCpy(ad->downloadPlaylist.title, ad->playlist.title);
-									strCpy(ad->downloadPlaylist.id, ad->playlist.id);
+								strCpy(ad->downloadPlaylist.title, ad->playlist.title);
+								strCpy(ad->downloadPlaylist.id, ad->playlist.id);
 
-									ad->playlistFolderIndex = i;
-								}
-							}
-
-							if(newGuiQuickButton(gui, layoutInc(&l), buttonText, vec2i(0,0), &ad->scrollButtonSettings)) {
-								removePlaylistFile(playlist);
+								ad->playlistFolderIndex = i;
 							}
 						}
+
+						if(newGuiQuickButton(gui, layoutInc(&l), buttonText, vec2i(0,0), &ad->scrollButtonSettings)) {
+							removePlaylistFile(playlist);
+						}
+					}
 
 					ld = newGuiLayoutPop(gui);
 					newGuiScissorPop(gui);
@@ -6383,42 +6536,42 @@ extern "C" APPMAINFUNCTION(appMain) {
 						ld->yPadding = listOffset;
 						ld->defaultHeight = rowHeightScrollElements;
 
-							gui->buttonSettings = ad->scrollButtonSettings;
-							for(int i = 0; i < ad->searchResultCount; i++) {
-								SearchResult* sResult = ad->searchResults + i;
+						gui->buttonSettings = ad->scrollButtonSettings;
+						for(int i = 0; i < ad->searchResultCount; i++) {
+							SearchResult* sResult = ad->searchResults + i;
 
-								if(ad->lastSearchMode == 0) {
-									char* buttonText = "Load playlists";
-									Layout* l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,getTextDim(buttonText, font).w + textPadding*2);
+							if(ad->lastSearchMode == 0) {
+								char* buttonText = "Load playlists";
+								Layout* l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,getTextDim(buttonText, font).w + textPadding*2);
 
-									if(newGuiQuickButton(gui, layoutInc(&l), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
+								if(newGuiQuickButton(gui, layoutInc(&l), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
 
-										strCpy(ad->downloadPlaylist.id, sResult->allPlaylistId);
-										strCpy(ad->downloadPlaylist.title, sResult->title);
-										ad->downloadPlaylist.count = sResult->count;
+									strCpy(ad->downloadPlaylist.id, sResult->allPlaylistId);
+									strCpy(ad->downloadPlaylist.title, sResult->title);
+									ad->downloadPlaylist.count = sResult->count;
 
-										downloadModeSet(&ad->modeData, Download_Mode_Videos);
-										ad->update = false;
-									}
-									if(newGuiQuickButton(gui, layoutInc(&l), buttonText)) {
-										strCpy(ad->channelId, sResult->id);
-										downloadModeSet(&ad->modeData, Download_Mode_ChannelPlaylists);
-										ad->lastSearchMode = 1;
-										ad->searchResultCount = 0;
-									}
-								} else {
-									if(newGuiQuickButton(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
+									downloadModeSet(&ad->modeData, Download_Mode_Videos);
+									ad->update = false;
+								}
+								if(newGuiQuickButton(gui, layoutInc(&l), buttonText)) {
+									strCpy(ad->channelId, sResult->id);
+									downloadModeSet(&ad->modeData, Download_Mode_ChannelPlaylists);
+									ad->lastSearchMode = 1;
+									ad->searchResultCount = 0;
+								}
+							} else {
+								if(newGuiQuickButton(gui, newGuiLRectAdv(gui), fillString("%s - (%i)", sResult->title, sResult->count), vec2i(-1,0))) {
 
-										strCpy(ad->downloadPlaylist.id, sResult->id);
-										strCpy(ad->downloadPlaylist.title, sResult->title);
-										ad->downloadPlaylist.count = sResult->count;
+									strCpy(ad->downloadPlaylist.id, sResult->id);
+									strCpy(ad->downloadPlaylist.title, sResult->title);
+									ad->downloadPlaylist.count = sResult->count;
 
-										downloadModeSet(&ad->modeData, Download_Mode_Videos);
-										ad->update = false;
-									}
+									downloadModeSet(&ad->modeData, Download_Mode_Videos);
+									ad->update = false;
 								}
 							}
-							gui->buttonSettings = ad->buttonSettings;
+						}
+						gui->buttonSettings = ad->buttonSettings;
 
 						ld = newGuiLayoutPop(gui);
 						newGuiScissorPop(gui);
@@ -6511,20 +6664,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 			// if((md->downloadMode == Download_Mode_Videos || md->downloadMode == Download_Mode_ChannelPlaylists)) {
 				// Nothing.
 			// } else {
-				if(md->downloadMode == Download_Mode_Videos) {
-					videoModeChange = true;
+			if(md->downloadMode == Download_Mode_Videos) {
+				videoModeChange = true;
 
-				}
-				md->downloadMode = md->newDownloadMode;
-				md->downloadStep = 0;
+			}
+			md->downloadMode = md->newDownloadMode;
+			md->downloadStep = 0;
 			// }
 		}
 
 		if(videoModeChange) {
 			// if(stepBeforeChange >= 0) {
-				ad->startLoadFile = true;
+			ad->startLoadFile = true;
 
-				strCpy(ad->playlist.id, ad->downloadPlaylist.id);
+			strCpy(ad->playlist.id, ad->downloadPlaylist.id);
 			// }
 			if(md->videosModeData.file) fclose(md->videosModeData.file);
 			loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
@@ -6589,7 +6742,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 		#if USE_SRGB 
-			glEnable(GL_FRAMEBUFFER_SRGB);
+		glEnable(GL_FRAMEBUFFER_SRGB);
 		#endif 
 
 		if(ad->screenShotMode) {
@@ -6631,7 +6784,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		#if USE_SRGB
-			glDisable(GL_FRAMEBUFFER_SRGB);
+		glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
 	}
 
@@ -6705,132 +6858,132 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 	glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 
 	ds->gInput = { input->mousePos, input->mouseWheel, input->mouseButtonPressed[0], input->mouseButtonDown[0], 
-					input->keysPressed[KEYCODE_ESCAPE], input->keysPressed[KEYCODE_RETURN], input->keysPressed[KEYCODE_SPACE], input->keysPressed[KEYCODE_BACKSPACE], input->keysPressed[KEYCODE_DEL], input->keysPressed[KEYCODE_HOME], input->keysPressed[KEYCODE_END], 
-					input->keysPressed[KEYCODE_LEFT], input->keysPressed[KEYCODE_RIGHT], input->keysPressed[KEYCODE_UP], input->keysPressed[KEYCODE_DOWN], 
-					input->keysDown[KEYCODE_SHIFT], input->keysDown[KEYCODE_CTRL], 
-					input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
-					input->inputCharacters, input->inputCharacterCount};
+		input->keysPressed[KEYCODE_ESCAPE], input->keysPressed[KEYCODE_RETURN], input->keysPressed[KEYCODE_SPACE], input->keysPressed[KEYCODE_BACKSPACE], input->keysPressed[KEYCODE_DEL], input->keysPressed[KEYCODE_HOME], input->keysPressed[KEYCODE_END], 
+		input->keysPressed[KEYCODE_LEFT], input->keysPressed[KEYCODE_RIGHT], input->keysPressed[KEYCODE_UP], input->keysPressed[KEYCODE_DOWN], 
+		input->keysDown[KEYCODE_SHIFT], input->keysDown[KEYCODE_CTRL], 
+		input->keysPressed[KEYCODE_X], input->keysPressed[KEYCODE_C], input->keysPressed[KEYCODE_V], 
+		input->inputCharacters, input->inputCharacterCount};
 
-	if(input->keysPressed[KEYCODE_F6]) ds->showMenu = !ds->showMenu;
-	if(input->keysPressed[KEYCODE_F7]) ds->showStats = !ds->showStats;
-	if(input->keysPressed[KEYCODE_F8]) ds->showHud = !ds->showHud;
+		if(input->keysPressed[KEYCODE_F6]) ds->showMenu = !ds->showMenu;
+		if(input->keysPressed[KEYCODE_F7]) ds->showStats = !ds->showStats;
+		if(input->keysPressed[KEYCODE_F8]) ds->showHud = !ds->showHud;
 
 	// Recording update.
-	{
-		if(ds->playbackSwapMemory) {
-			threadQueueComplete(threadQueue);
-			ds->playbackSwapMemory = false;
+		{
+			if(ds->playbackSwapMemory) {
+				threadQueueComplete(threadQueue);
+				ds->playbackSwapMemory = false;
 
-			pMemory->index = ds->snapShotCount-1;
-			pMemory->arrays[pMemory->index].index = ds->snapShotMemoryIndex;
+				pMemory->index = ds->snapShotCount-1;
+				pMemory->arrays[pMemory->index].index = ds->snapShotMemoryIndex;
 
-			for(int i = 0; i < ds->snapShotCount; i++) {
-				memCpy(pMemory->arrays[i].data, ds->snapShotMemory[i], pMemory->slotSize);
+				for(int i = 0; i < ds->snapShotCount; i++) {
+					memCpy(pMemory->arrays[i].data, ds->snapShotMemory[i], pMemory->slotSize);
+				}
 			}
 		}
-	}
 
 
 
 
-	ds->timer->timerInfoCount = __COUNTER__;
+		ds->timer->timerInfoCount = __COUNTER__;
 
-	int fontHeight = 18;
-	Timer* timer = ds->timer;
-	int cycleCount = arrayCount(ds->timings);
+		int fontHeight = 18;
+		Timer* timer = ds->timer;
+		int cycleCount = arrayCount(ds->timings);
 
-	bool threadsFinished = threadQueueFinished(threadQueue);
+		bool threadsFinished = threadQueueFinished(threadQueue);
 
-	int bufferIndex = timer->bufferIndex;
+		int bufferIndex = timer->bufferIndex;
 
 	// Save const strings from initialised timerinfos.
-	{
-		int timerCount = timer->timerInfoCount;
-		for(int i = 0; i < timerCount; i++) {
-			TimerInfo* info = timer->timerInfos + i;
+		{
+			int timerCount = timer->timerInfoCount;
+			for(int i = 0; i < timerCount; i++) {
+				TimerInfo* info = timer->timerInfos + i;
 
 			// Set colors.
-			float ss = i%(timerCount/2) / ((float)timerCount/2);
-			float h = i < timerCount/2 ? 0.1f : -0.1f;
-			Vec3 color = vec3(0,0,0);
-			hslToRgb(color.e, 360*ss, 0.5f, 0.5f+h);
+				float ss = i%(timerCount/2) / ((float)timerCount/2);
+				float h = i < timerCount/2 ? 0.1f : -0.1f;
+				Vec3 color = vec3(0,0,0);
+				hslToRgb(color.e, 360*ss, 0.5f, 0.5f+h);
 
-			vSet3(info->color, color.r, color.g, color.b);
+				vSet3(info->color, color.r, color.g, color.b);
 
 
-			if(!info->initialised || info->stringsSaved) continue;
-			char* s;
-			
-			s = info->file;
-			info->file = getPStringDebug(strLen(s) + 1);
-			strCpy(info->file, s);
+				if(!info->initialised || info->stringsSaved) continue;
+				char* s;
 
-			s = info->function;
-			info->function = getPStringDebug(strLen(s) + 1);
-			strCpy(info->function, s);
+				s = info->file;
+				info->file = getPStringDebug(strLen(s) + 1);
+				strCpy(info->file, s);
 
-			s = info->name;
-			info->name = getPStringDebug(strLen(s) + 1);
-			strCpy(info->name, s);
+				s = info->function;
+				info->function = getPStringDebug(strLen(s) + 1);
+				strCpy(info->function, s);
 
-			info->stringsSaved = true;
+				s = info->name;
+				info->name = getPStringDebug(strLen(s) + 1);
+				strCpy(info->name, s);
+
+				info->stringsSaved = true;
+			}
 		}
-	}
 
-	if(ds->setPause) {
-		ds->lastCycleIndex = ds->cycleIndex;
-		ds->cycleIndex = mod(ds->cycleIndex-1, arrayCount(ds->timings));
+		if(ds->setPause) {
+			ds->lastCycleIndex = ds->cycleIndex;
+			ds->cycleIndex = mod(ds->cycleIndex-1, arrayCount(ds->timings));
 
-		ds->timelineCamSize = -1;
-		ds->timelineCamPos = -1;
+			ds->timelineCamSize = -1;
+			ds->timelineCamPos = -1;
 
-		ds->setPause = false;
-	}
-	if(ds->setPlay) {
-		ds->cycleIndex = ds->lastCycleIndex;
-		ds->setPlay = false;
-	}
+			ds->setPause = false;
+		}
+		if(ds->setPlay) {
+			ds->cycleIndex = ds->lastCycleIndex;
+			ds->setPlay = false;
+		}
 
-	Timings* timings = ds->timings[ds->cycleIndex];
-	Statistic* statistics = ds->statistics[ds->cycleIndex];
+		Timings* timings = ds->timings[ds->cycleIndex];
+		Statistic* statistics = ds->statistics[ds->cycleIndex];
 
-	int cycleIndex = ds->cycleIndex;
-	int newCycleIndex = (ds->cycleIndex + 1)%cycleCount;
+		int cycleIndex = ds->cycleIndex;
+		int newCycleIndex = (ds->cycleIndex + 1)%cycleCount;
 
 	// Timer update.
-	{
-		if(!ds->noCollating) {
-			zeroMemory(timings, timer->timerInfoCount*sizeof(Timings));
-			zeroMemory(statistics, timer->timerInfoCount*sizeof(Statistic));
+		{
+			if(!ds->noCollating) {
+				zeroMemory(timings, timer->timerInfoCount*sizeof(Timings));
+				zeroMemory(statistics, timer->timerInfoCount*sizeof(Statistic));
 
-			ds->cycleIndex = newCycleIndex;
+				ds->cycleIndex = newCycleIndex;
 
 			// Collate timing buffer.
 
 			// for(int threadIndex = 0; threadIndex < threadQueue->threadCount; threadIndex++) 
-			{
+				{
 				// GraphSlot* graphSlots = ds->graphSlots[threadIndex];
 				// int index = ds->graphSlotCount[threadIndex];
 
-				for(int i = ds->lastBufferIndex; i < bufferIndex; ++i) {
-					TimerSlot* slot = timer->timerBuffer + i;
-					
-					int threadIndex = threadIdToIndex(threadQueue, slot->threadId);
+					for(int i = ds->lastBufferIndex; i < bufferIndex; ++i) {
+						TimerSlot* slot = timer->timerBuffer + i;
 
-					if(slot->type == TIMER_TYPE_BEGIN) {
-						int index = ds->graphSlotCount[threadIndex];
+						int threadIndex = threadIdToIndex(threadQueue, slot->threadId);
 
-						GraphSlot graphSlot;
-						graphSlot.threadIndex = threadIndex;
-						graphSlot.timerIndex = slot->timerIndex;
-						graphSlot.stackIndex = index;
-						graphSlot.cycles = slot->cycles;
-						ds->graphSlots[threadIndex][index] = graphSlot;
+						if(slot->type == TIMER_TYPE_BEGIN) {
+							int index = ds->graphSlotCount[threadIndex];
 
-						ds->graphSlotCount[threadIndex]++;
-					} else {
-						ds->graphSlotCount[threadIndex]--;
-						int index = ds->graphSlotCount[threadIndex];
+							GraphSlot graphSlot;
+							graphSlot.threadIndex = threadIndex;
+							graphSlot.timerIndex = slot->timerIndex;
+							graphSlot.stackIndex = index;
+							graphSlot.cycles = slot->cycles;
+							ds->graphSlots[threadIndex][index] = graphSlot;
+
+							ds->graphSlotCount[threadIndex]++;
+						} else {
+							ds->graphSlotCount[threadIndex]--;
+							int index = ds->graphSlotCount[threadIndex];
 						if(index < 0) index = 0; // @Hack, to keep things running.
 
 						ds->graphSlots[threadIndex][index].size = slot->cycles - ds->graphSlots[threadIndex][index].cycles;
@@ -6876,7 +7029,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 	if(threadsFinished) {
 		timer->bufferIndex = 0;
-	ds->lastBufferIndex = 0;
+		ds->lastBufferIndex = 0;
 	}
 
 	assert(timer->bufferIndex < timer->bufferSize);
@@ -6953,16 +7106,16 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 			{
 				for(int i = 0; i < infoCount+1; i++) sortList[i].index = i;
 
-		   			 if(abs(ds->graphSortingIndex) == 3) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].cycles;
-		   		else if(abs(ds->graphSortingIndex) == 4) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].hits;
-		   		else if(abs(ds->graphSortingIndex) == 5) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].cyclesOverHits;
-		   		else if(abs(ds->graphSortingIndex) == 6) for(int i = 0; i < infoCount+1; i++) sortList[i].key = statistics[i].avg;
-		   		else if(abs(ds->graphSortingIndex) == 7) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].cycles/cyclesPerFrame;
+					if(abs(ds->graphSortingIndex) == 3) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].cycles;
+				else if(abs(ds->graphSortingIndex) == 4) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].hits;
+				else if(abs(ds->graphSortingIndex) == 5) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].cyclesOverHits;
+				else if(abs(ds->graphSortingIndex) == 6) for(int i = 0; i < infoCount+1; i++) sortList[i].key = statistics[i].avg;
+				else if(abs(ds->graphSortingIndex) == 7) for(int i = 0; i < infoCount+1; i++) sortList[i].key = timings[i].cycles/cyclesPerFrame;
 
-		   		bool sortDirection = true;
-		   		if(ds->graphSortingIndex < 0) sortDirection = false;
+				bool sortDirection = true;
+				if(ds->graphSortingIndex < 0) sortDirection = false;
 
-		   		if(valueBetween(abs(ds->graphSortingIndex), 3, 7)) 
+				if(valueBetween(abs(ds->graphSortingIndex), 3, 7)) 
 					bubbleSort(sortList, infoCount, sortDirection);
 			}
 

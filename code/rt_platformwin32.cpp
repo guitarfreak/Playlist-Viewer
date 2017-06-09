@@ -93,6 +93,9 @@ struct Input {
 	bool mouseButtonDown[8];
 	bool mouseButtonReleased[8];
 
+	bool doubleClick;
+	Vec2 doubleClickPos;
+
 	bool keysDown[KEYCODE_COUNT];
 	bool keysPressed[KEYCODE_COUNT];
 	char inputCharacters[32];
@@ -360,7 +363,9 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	ws->res = vec2i(ww, wh);
 
     WNDCLASS windowClass = {};
-    windowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
+    // windowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
+    windowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW|CS_DBLCLKS;
+     
     // windowClass.style = CS_OWNDC;
 
     // windowClass.style = CS_HREDRAW|CS_VREDRAW;
@@ -511,6 +516,7 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 
     input->mouseDeltaX = 0;
     input->mouseDeltaY = 0;
+    input->doubleClick = false;
 
     bool killedFocus = false;
 
@@ -597,6 +603,11 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
             // 	} break;
             // } break;
 
+            case WM_LBUTTONDBLCLK: {
+            	input->doubleClick = true;
+				input->doubleClickPos = getMousePos(windowHandle, true);
+            } break;
+
             case WM_DESTROY: {
                 *isRunning = false;
             } break;
@@ -611,7 +622,7 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 
             case WM_KILLFOCUS: {
             	killedFocus = true;
-            }
+            } break;
 
             default: {
                 TranslateMessage(&message); 
@@ -634,9 +645,6 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
 
     input->mouseDelta = input->mousePos - input->lastMousePos;
     input->lastMousePos = input->mousePos;
-
-    // input->mouseDelta = vec2(point.x-input->lastMousePos.x, point.y-input->lastMousePos.y);
-    // input->lastMousePos = vec2(point.x, point.y);
 
     input->firstFrame = false;
 }

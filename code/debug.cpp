@@ -721,6 +721,14 @@ void addDebugNote(char* string, float duration = DEBUG_NOTE_DURATION) {
 	ds->notificationCount++;
 }
 
+void addDebugNote (int v)   { return addDebugNote(fillString("%i", v)); }
+void addDebugNote (float v) { return addDebugNote(fillString("%f", v)); }
+void addDebugNote (Vec2i v) { return addDebugNote(fillString("{%i, %i}", v.x, v.y)); }
+void addDebugNote (Vec2 v)  { return addDebugNote(fillString("{%f, %f}", v.x, v.y)); }
+void addDebugNote (Vec3 v)  { return addDebugNote(fillString("{%f, %f, %f}", v.x, v.y, v.z)); }
+void addDebugNote (Vec4 v)  { return addDebugNote(fillString("{%f, %f, %f, %f}", v.r, v.g, v.g, v.a)); }
+void addDebugNote (Rect r)  { return addDebugNote(fillString("{%f, %f, %f, %f}", PRECT(r))); }
+
 void addDebugInfo(char* string) {
 	DebugState* ds = globalDebugState;
 
@@ -728,13 +736,13 @@ void addDebugInfo(char* string) {
 	ds->infoStack[ds->infoStackCount++] = string;
 }
 
-void addDebugInfoInt  (int v)   { addDebugInfo(fillString("%i", v)); }
-void addDebugInfoFloat(float v) { addDebugInfo(fillString("%f", v)); }
-void addDebugInfoVec2i(Vec2i v) { addDebugInfo(fillString("{%i, %i}", v.x, v.y)); }
-void addDebugInfoVec2 (Vec2 v)  { addDebugInfo(fillString("{%f, %f}", v.x, v.y)); }
-void addDebugInfoVec3 (Vec3 v)  { addDebugInfo(fillString("{%f, %f, %f}", v.x, v.y, v.z)); }
-void addDebugInfoVec4 (Vec4 v)  { addDebugInfo(fillString("{%f, %f, %f, %f}", v.r, v.g, v.g, v.a)); }
-void addDebugInfoRect (Rect r)  { addDebugInfo(fillString("{%f, %f, %f, %f}", PRECT(r))); }
+void addDebugInfo (int v)   { return addDebugInfo(fillString("%i", v)); }
+void addDebugInfo (float v) { return addDebugInfo(fillString("%f", v)); }
+void addDebugInfo (Vec2i v) { return addDebugInfo(fillString("{%i, %i}", v.x, v.y)); }
+void addDebugInfo (Vec2 v)  { return addDebugInfo(fillString("{%f, %f}", v.x, v.y)); }
+void addDebugInfo (Vec3 v)  { return addDebugInfo(fillString("{%f, %f, %f}", v.x, v.y, v.z)); }
+void addDebugInfo (Vec4 v)  { return addDebugInfo(fillString("{%f, %f, %f, %f}", v.r, v.g, v.g, v.a)); }
+void addDebugInfo (Rect r)  { return addDebugInfo(fillString("{%f, %f, %f, %f}", PRECT(r))); }
 
 
 

@@ -17,6 +17,8 @@
 #define PVEC4(v) v.x, v.y, v.z, v.w
 #define PRECT(r) r.left, r.bottom, r.right, r.top
 
+#define Void_Dref(type, ptr) (*((type*)ptr))
+
 int myAssert(bool check) {
 	if(!check) {
 
