@@ -22,11 +22,12 @@
 	- Runs poorly when aero is enabled.
 	- Finish color panel.
 	- Total cleanup of the code.
-	- Align rects to int boundaries to make edges more sharp.
+	- Align rects to int boundaries to make edges more sharp. Cursor as well.
 
 	- Slider dir keys steps, double click edit box, 
 	- Combo Box
 	- Slider snap back.
+	- Rect shadow draw function.
 
 
 	Done Today: 
@@ -991,6 +992,26 @@ struct LayoutData {
 	float yPaddingExtra;
 };
 
+enum Popup_Type {
+	POPUP_TYPE_COMBO_BOX = 0,
+};
+
+struct PopupData {
+	int type;
+	int id;
+	char name[20];
+	Rect r;
+	BoxSettings settings;
+	Vec2 border;
+};
+
+struct ComboBoxData {
+	int index;
+	char** strings;
+	int count;
+	bool finished;
+};
+
 struct NewGui {
 	int id;
 
@@ -1020,6 +1041,11 @@ struct NewGui {
 
 	TextEditVars editVars;
 
+	PopupData popupStack[10];
+	int popupStackCount;
+
+	ComboBoxData comboBoxData;
+
 	//
 
 	int zLevel;
@@ -1032,6 +1058,9 @@ struct NewGui {
 	SliderSettings sliderSettings;
 	ScrollRegionSettings scrollSettings;
 
+	BoxSettings popupSettings;
+	TextBoxSettings comboBoxSettings;
+
 	Rect scissor;
 	Rect scissorStack[10];
 	int scissorStackIndex;
@@ -1040,6 +1069,13 @@ struct NewGui {
 	LayoutData layoutStack[10];
 	int layoutStackIndex;
 };
+
+void newGuiPopupPush(NewGui* gui, PopupData data) {
+	gui->popupStack[gui->popupStackCount++] = data;
+}
+void newGuiPopupPop(NewGui* gui) {
+	gui->popupStackCount--;
+}
 
 void newGuiBegin(NewGui* gui, Input* input = 0) {
 	gui->id = 1;
@@ -1055,18 +1091,21 @@ void newGuiBegin(NewGui* gui, Input* input = 0) {
 		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = 0;
 	}
 
-gui->colorModHot = vec4(0.08f, 0);
-gui->colorModActive = vec4(0.17f, 0);
+	gui->colorModHot = vec4(0.08f, 0);
+	gui->colorModActive = vec4(0.17f, 0);
 
-gui->input = input;
+	gui->input = input;
 
-gui->scissor = rectCenDim(0,0,10000000,10000000);
-gui->scissorStack[0] = gui->scissor;
-gui->scissorStackIndex = 0;
-gui->layoutStackIndex = 0;
+	gui->scissor = rectCenDim(0,0,10000000,10000000);
+	gui->scissorStack[0] = gui->scissor;
+	gui->scissorStackIndex = 0;
+	gui->layoutStackIndex = 0;
 }
 
+void newGuiUpdatePopups(NewGui* gui);
 void newGuiEnd(NewGui* gui) {
+	newGuiUpdatePopups(gui);
+
 	for(int i = 0; i < Gui_Focus_Size; i++) {
 		gui->hotId[i] = gui->contenderId[i];
 	}
@@ -1279,6 +1318,73 @@ Vec4 newGuiColorModB(NewGui* gui, int focus = 0) {
 
 
 
+// @GuiAutomation
+
+LayoutData layoutData(Rect region, Vec2 pos, float defaultHeight, float yPadding, float yPaddingExtra) {
+	LayoutData ld = {region, pos, rectDim(region), defaultHeight, yPadding, yPaddingExtra};
+	return ld;
+}
+LayoutData layoutData(Rect region, float defaultHeight, float yPadding, float yPaddingExtra) {
+	LayoutData ld = {region, rectTL(region), rectDim(region), defaultHeight, yPadding, yPaddingExtra};
+	return ld;
+}
+
+Rect newGuiLRectAdv(NewGui* gui, float height) {
+	Rect r = rectTLDim(gui->ld->pos, vec2(gui->ld->dim.w, height));
+	gui->ld->pos.y -= height + gui->ld->yPadding;
+	return r;
+}
+Rect newGuiLRectAdv(NewGui* gui) { 
+	return newGuiLRectAdv(gui, gui->ld->defaultHeight); 
+}
+void newGuiLAdv(NewGui* gui, float height) { 
+	gui->ld->pos.y -= height + gui->ld->yPadding;
+}
+
+LayoutData* newGuiLayoutPush(NewGui* gui, LayoutData ld) {
+	gui->layoutStackIndex++;
+	gui->layoutStack[gui->layoutStackIndex] = ld;
+	gui->ld = &gui->layoutStack[gui->layoutStackIndex];
+	return gui->ld;
+}
+LayoutData* newGuiLayoutPush(NewGui* gui, Rect region) {
+	LayoutData newLd = *gui->ld;
+	newLd.region = region;
+	newLd.pos = rectTL(newLd.region);
+	newLd.dim = rectDim(region);
+	return newGuiLayoutPush(gui, newLd);
+}
+LayoutData* newGuiLayoutPop(NewGui* gui) {
+	gui->layoutStackIndex--;
+	gui->ld = &gui->layoutStack[gui->layoutStackIndex];
+	return gui->ld;
+}
+
+void newGuiScissorPush(NewGui* gui, Rect scissor) {
+	gui->scissor = rectIntersect(gui->scissor, scissor);
+	gui->scissorStack[gui->scissorStackIndex+1] = gui->scissor;
+	gui->scissorStackIndex++;
+
+	scissorTestScreen(gui->scissor);
+}
+void newGuiScissorPop(NewGui* gui) {
+	gui->scissorStackIndex--;
+	gui->scissor = gui->scissorStack[gui->scissorStackIndex];
+
+	scissorTestScreen(gui->scissor);
+}
+
+void newGuiScissorLayoutPush(NewGui* gui, Rect scissor, LayoutData ld) {
+	newGuiScissorPush(gui, scissor);
+	newGuiLayoutPush(gui, ld);
+}
+
+void newGuiScissorLayoutPop(NewGui* gui) {
+	newGuiScissorPop(gui);
+	newGuiLayoutPop(gui);
+}
+
+
 
 
 
@@ -1489,6 +1595,8 @@ void drawText(Rect r, char* text, Vec2i align, Rect scissor, TextSettings settin
 }
 
 void drawBox(Rect r, Rect scissor, BoxSettings settings) {
+	scissorTestScreen(scissor);
+
 	if(settings.color.a != 0) {
 		drawRectRounded(r, settings.color, settings.roundedCorner);
 	}
@@ -1499,7 +1607,7 @@ void drawBox(Rect r, Rect scissor, BoxSettings settings) {
 }
 
 void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
-	scissorTestScreen(scissor);
+	// scissorTestScreen(scissor);
 	drawBox(r, scissor, settings.boxSettings);
 	// drawText(r, text, align, scissor, settings.textSettings);
 
@@ -1651,6 +1759,10 @@ bool newGuiQuickButton(NewGui* gui, Rect r, char* text, Vec2i align, TextBoxSett
 bool newGuiQuickButton(NewGui* gui, Rect r, char* text, TextBoxSettings* settings = 0) {
 	return newGuiQuickButton(gui, r, text, vec2i(0,0), settings);
 }
+bool newGuiQuickButton(NewGui* gui, Rect r, TextBoxSettings* settings = 0) {
+	return newGuiQuickButton(gui, r, "", vec2i(0,0), settings);
+}
+
 
 bool newGuiQuickTextEditAllVars(NewGui* gui, Rect r, void* data, int varType, int maxSize, TextEditSettings* editSettings = 0) {
 	Rect intersect = getRectScissor(gui->scissor, r);
@@ -1726,7 +1838,9 @@ bool newGuiQuickSlider(NewGui* gui, Rect r, int type, void* val, void* min, void
 		int event;
 		flagSet(&edSet.flags, ESETTINGS_START_RIGHT);
 		event = newGuiGoTextEdit(gui, intersect, gui->zLevel, val, typeIsInt?EDIT_MODE_INT:EDIT_MODE_FLOAT, edSet, &gui->editVars, 0, true);
-
+		// if(event == 1) {
+			// gui->editVars.cursorIndex = 
+		// }
 		if(event != 0) {
 			drawTextEditBox(val, typeIsInt?EDIT_MODE_INT:EDIT_MODE_FLOAT, r, event > 0, gui->scissor, gui->editVars, edSet);
 			editMode = true;
@@ -1901,6 +2015,116 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-3)));
 }
+
+#define COMBO_BOX_TRIANGLE_SIZE_MOD (1.0f/4.0f)
+#define COMBO_BOX_TRIANGLE_OFFSET_MOD 0.25f
+
+float newGuiGetComboBoxWidth(char* text, TextSettings settings) {
+	float textWidth = getTextDim(text, settings.font).w;
+	float triangleWidth = settings.font->height * COMBO_BOX_TRIANGLE_SIZE_MOD;
+	float triangleOffset = settings.font->height * COMBO_BOX_TRIANGLE_OFFSET_MOD;
+
+	float result = textWidth + triangleOffset + triangleWidth;
+	return result;
+}
+
+bool newGuiQuickComboBox(NewGui* gui, Rect r, ComboBoxData cData, TextBoxSettings* settings = 0) {
+
+	Rect intersection = getRectScissor(gui->scissor, r);
+	bool active = newGuiGoButtonAction(gui, intersection, gui->zLevel);
+	if(rectEmpty(intersection)) return false;
+
+	TextBoxSettings set = settings == 0 ? gui->comboBoxSettings : *settings;
+	set.boxSettings.color += newGuiColorModB(gui);
+
+	bool updated = false;
+
+	// Mouse Wheel / Arrow Keys.
+	{
+		Input* input = gui->input;
+		bool mod = false;
+		bool neg = false;
+		if(newGuiGoButtonAction(gui, r, gui->zLevel, Gui_Focus_MWheel)) {
+			mod = true;
+			neg = -input->mouseWheel < 0;
+		}
+		bool keys = input->keysPressed[KEYCODE_LEFT] || input->keysPressed[KEYCODE_RIGHT] || input->keysPressed[KEYCODE_UP] || input->keysPressed[KEYCODE_DOWN];
+		if(newGuiGoButtonAction(gui, r, gui->zLevel, keys, Gui_Focus_ArrowKeys)) {
+			mod = true;
+			neg = input->keysPressed[KEYCODE_LEFT] || input->keysPressed[KEYCODE_UP];
+		}
+		if(mod) {
+			cData.index += neg?-1:1;
+			clampInt(&cData.index, 0, cData.count-1);
+			gui->comboBoxData.index = cData.index;
+			updated = true;
+		}
+	}
+
+	if(active) {
+		PopupData pd = {};
+		pd.type = POPUP_TYPE_COMBO_BOX;
+		pd.id = newGuiCurrentId(gui);
+		pd.r = rectTLDim(rectBL(r), vec2(rectW(r), set.textSettings.font->height*cData.count));
+		pd.settings = gui->boxSettings;
+		pd.border = vec2(5,5);
+
+		newGuiPopupPush(gui, pd);
+
+		gui->comboBoxData = cData;
+	}
+
+	// Check if popup is active.
+	bool popupActive = false;
+	for(int i = 0; i < gui->popupStackCount; i++) {
+		if(newGuiCurrentId(gui) == gui->popupStack[i].id) {
+			popupActive = true;
+			break;
+		}
+	}
+
+	if(gui->comboBoxData.finished && popupActive) {
+		gui->comboBoxData.finished = false;
+		newGuiPopupPop(gui);
+		updated = true;
+	}
+
+	drawBox(r, gui->scissor, set.boxSettings);
+
+	{
+		Rect mainRect = rectExpand(r, vec2(-set.sideAlignPadding*2,0));
+		float fontHeight = set.textSettings.font->height;
+
+		float triangleSize = fontHeight * COMBO_BOX_TRIANGLE_SIZE_MOD;
+		float triangleOffset = fontHeight * COMBO_BOX_TRIANGLE_OFFSET_MOD;
+		float triangleRectWidth = fontHeight * 0.5f;
+
+		char* text = cData.strings[cData.index];
+
+		#if 0
+		// float textWidth = getTextDim(text, set.textSettings.font).w+4;
+		// float fullWidth = textWidth + triangleRectWidth + triangleOffset;
+		// if(rectW(mainRect) > fullWidth) rectSetW(&mainRect, fullWidth);
+		#endif 
+
+		float textRectWidth = rectW(mainRect)-triangleRectWidth-triangleOffset;
+
+		Rect textRect = rectRSetR(mainRect, textRectWidth);
+		Rect triangleRect = rectRSetL(mainRect, triangleRectWidth);
+
+		newGuiScissorPush(gui, rectExpand(r,vec2(-2)));
+
+		drawText(textRect, text, vec2i(-1,0), gui->scissor, set.textSettings);
+
+		Vec2 dir = popupActive ? vec2(0,-1) : vec2(1,0);
+		drawTriangle(rectCen(triangleRect), triangleSize, dir, set.textSettings.color);
+
+		newGuiScissorPop(gui);
+	}
+
+	return updated;
+}
+
 
 TextEditSettings textEditSettings(TextBoxSettings textSettings, Vec4 defaultTextColor, char* textBuffer, int flags, float cursorWidth, float cursorHeightMod, Vec4 colorSelection, Vec4 colorCursor, float textOffset) {
 	return {textSettings, defaultTextColor, textBuffer, flags, cursorWidth, cursorHeightMod, "", colorSelection, colorCursor, textOffset};
@@ -2324,61 +2548,95 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
 	return false;
 }
 
-// @GuiAutomation
 
-LayoutData layoutData(Rect region, Vec2 pos, float defaultHeight, float yPadding, float yPaddingExtra) {
-	LayoutData ld = {region, pos, rectDim(region), defaultHeight, yPadding, yPaddingExtra};
-	return ld;
-}
-LayoutData layoutData(Rect region, float defaultHeight, float yPadding, float yPaddingExtra) {
-	LayoutData ld = {region, rectTL(region), rectDim(region), defaultHeight, yPadding, yPaddingExtra};
-	return ld;
+#define POPUP_MIN_WIDTH 80
+#define POPUP_MAX_WIDTH 300
+
+void newGuiUpdatePopups(NewGui* gui) {
+	float z = 5;
+
+	float oldz = gui->zLevel;
+	gui->zLevel = z;
+
+	if(gui->popupStackCount > 0) {
+
+		TextBoxSettings s = gui->textBoxSettings;
+		s.boxSettings.color.a = 0;
+		if(newGuiQuickButton(gui, getScreenRect(gui->windowSettings), &s)) {
+			gui->popupStackCount = 0;
+		}
+
+		// Capture all mouse clicks.
+		int id = newGuiIncrementId(gui);
+		newGuiSetHotAll(gui, id, gui->zLevel);
+		int focus[] = {Gui_Focus_MLeft, Gui_Focus_MRight, Gui_Focus_MMiddle};
+		for(int i = 0; i < arrayCount(focus); i++) {
+			newGuiSetActive(gui, id, newGuiInputFromFocus(gui->input, focus[i]), focus[i]);
+			newGuiSetNotActiveWhenActive(gui, id);			
+		}
+
+		if(newGuiGotActive(gui, id)) {
+			gui->popupStackCount = 0;
+		} else {
+
+			TextBoxSettings savedSettings = gui->buttonSettings;
+			TextBoxSettings bs = gui->buttonSettings;
+			bs.boxSettings.roundedCorner = 0;
+			bs.boxSettings.borderColor = vec4(0,0);
+			bs.boxSettings.color = gui->popupSettings.color;
+
+			gui->buttonSettings = bs;
+
+			for(int i = 0; i < gui->popupStackCount; i++) {
+				PopupData pd = gui->popupStack[i];
+				float fontHeight = gui->textSettings.font->height;
+				ComboBoxData cData = gui->comboBoxData;
+
+				float maxWidth = 0;
+				for(int i = 0; i < cData.count; i++) {
+					float w = getTextDim(cData.strings[i], bs.textSettings.font).w;
+					maxWidth = max(maxWidth, w);
+				}
+				maxWidth += 10;
+				clamp(&maxWidth, POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
+
+				// Rect r = rectTDim(rectT(pd.r), vec2(maxWidth, (fontHeight+1) * cData.count));
+				float popupWidth = rectW(pd.r);
+				clampMin(&popupWidth, POPUP_MIN_WIDTH);
+				Rect r = rectTDim(rectT(pd.r), vec2(popupWidth, (fontHeight+1) * cData.count));
+
+
+				newGuiSetHotAllMouseOver(gui, r, gui->zLevel);
+				drawBox(r, gui->scissor, gui->popupSettings);
+
+				scissorState();
+				float padding = gui->comboBoxSettings.sideAlignPadding;
+				Rect layoutRect = rectExpand(r, vec2(-padding*2,-2));
+				newGuiScissorLayoutPush(gui, layoutRect, layoutData(layoutRect, gui->textSettings.font->height, 0, 0));
+
+				gui->comboBoxSettings.sideAlignPadding = 0;
+
+				for(int i = 0; i < cData.count; i++) {
+					if(newGuiQuickButton(gui, newGuiLRectAdv(gui), cData.strings[i], vec2i(-1,0))) {
+						gui->comboBoxData.index = i;
+						gui->comboBoxData.finished = true;
+						// newGuiPopupPop(gui);
+					}
+				}
+
+				newGuiScissorLayoutPop(gui);
+				scissorState(false);
+			}
+
+			gui->buttonSettings = savedSettings;
+		}
+	}
+
+	gui->zLevel = oldz;
 }
 
-Rect newGuiLRectAdv(NewGui* gui, float height) {
-	Rect r = rectTLDim(gui->ld->pos, vec2(gui->ld->dim.w, height));
-	gui->ld->pos.y -= height + gui->ld->yPadding;
-	return r;
-}
-Rect newGuiLRectAdv(NewGui* gui) { 
-	return newGuiLRectAdv(gui, gui->ld->defaultHeight); 
-}
-void newGuiLAdv(NewGui* gui, float height) { 
-	gui->ld->pos.y -= height + gui->ld->yPadding;
-}
 
-LayoutData* newGuiLayoutPush(NewGui* gui, LayoutData ld) {
-	gui->layoutStackIndex++;
-	gui->layoutStack[gui->layoutStackIndex] = ld;
-	gui->ld = &gui->layoutStack[gui->layoutStackIndex];
-	return gui->ld;
-}
-LayoutData* newGuiLayoutPush(NewGui* gui, Rect region) {
-	LayoutData newLd = *gui->ld;
-	newLd.region = region;
-	newLd.pos = rectTL(newLd.region);
-	newLd.dim = rectDim(region);
-	return newGuiLayoutPush(gui, newLd);
-}
-LayoutData* newGuiLayoutPop(NewGui* gui) {
-	gui->layoutStackIndex--;
-	gui->ld = &gui->layoutStack[gui->layoutStackIndex];
-	return gui->ld;
-}
 
-void newGuiScissorPush(NewGui* gui, Rect scissor) {
-	gui->scissor = rectIntersect(gui->scissor, scissor);
-	gui->scissorStack[gui->scissorStackIndex+1] = gui->scissor;
-	gui->scissorStackIndex++;
-
-	scissorTestScreen(gui->scissor);
-}
-void newGuiScissorPop(NewGui* gui) {
-	gui->scissorStackIndex--;
-	gui->scissor = gui->scissorStack[gui->scissorStackIndex];
-
-	scissorTestScreen(gui->scissor);
-}
 
 
 
@@ -2871,470 +3129,471 @@ char* jsonGetString(JSonValue* object, char* name, char* name2 = 0, char* name3 
 #define For_Layout(layout) \
 for(Layout* l = layout->list; l != 0; l = l->next)
 
-	struct Layout {
-		Vec2i align;
-		Rect r;
+struct Layout {
+	Vec2i align;
+	Rect r;
 
-		Layout* next;
-		Layout* list;
+	Layout* next;
+	Layout* list;
 
-		Vec2 minDim;
-		Vec2 maxDim;
-		Vec2 dim;
+	Vec2 minDim;
+	Vec2 maxDim;
+	Vec2 dim;
 
-		Vec2 finalDim;
+	Vec2 finalDim;
 
-		Vec2 padding;
-		Vec2 borderPadding;
-		bool vAxis;
-	};
+	Vec2 padding;
+	Vec2 borderPadding;
+	bool vAxis;
+};
 
-	Layout* layoutAlloc(Layout node) {
-		Layout* newNode = getTStruct(Layout);
-		*newNode = node;
+Layout* layoutAlloc(Layout node) {
+	Layout* newNode = getTStruct(Layout);
+	*newNode = node;
 
-		return newNode;
+	return newNode;
+}
+
+Layout layout(Vec2 dim, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+	Layout node = {};
+	node.dim = dim;
+	node.align = align;
+	node.vAxis = vAxis;
+	node.borderPadding = borderPadding;
+	node.padding = padding;
+
+	return node;
+}
+
+Layout layout(Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+	Layout node = {};
+	node.r = region;
+	node.align = align;
+	node.vAxis = vAxis;
+	node.borderPadding = borderPadding;
+	node.padding = padding;
+
+	return node;
+}
+void layout(Layout* node, Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
+	*node = layout(region, vAxis, align, padding, borderPadding);
+}
+
+Rect layoutGetRect(Layout* node) {
+	return rectExpand(node->r, -node->borderPadding*2);
+}
+
+Vec2 layoutGetDim(Layout* node) {
+	return rectDim(layoutGetRect(node));
+}
+
+Rect layoutInc(Layout** node) {
+	if((*node)) {
+		Rect r = (*node)->r;
+		(*node) = (*node)->next;
+		return r;
 	}
+	return rect(0,0,0,0);
+}
 
-	Layout layout(Vec2 dim, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
-		Layout node = {};
-		node.dim = dim;
-		node.align = align;
-		node.vAxis = vAxis;
-		node.borderPadding = borderPadding;
-		node.padding = padding;
+void layoutAdd(Layout* node, Layout* newNode, bool addEnd = true) {
+	Layout* list = node->list;
 
-		return node;
-	}
-
-	Layout layout(Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
-		Layout node = {};
-		node.r = region;
-		node.align = align;
-		node.vAxis = vAxis;
-		node.borderPadding = borderPadding;
-		node.padding = padding;
-
-		return node;
-	}
-	void layout(Layout* node, Rect region, bool vAxis = false, Vec2i align = vec2i(0,0), Vec2 padding = vec2(0,0), Vec2 borderPadding = vec2(0,0)) {
-		*node = layout(region, vAxis, align, padding, borderPadding);
-	}
-
-	Rect layoutGetRect(Layout* node) {
-		return rectExpand(node->r, -node->borderPadding*2);
-	}
-
-	Vec2 layoutGetDim(Layout* node) {
-		return rectDim(layoutGetRect(node));
-	}
-
-	Rect layoutInc(Layout** node) {
-		if((*node)) {
-			Rect r = (*node)->r;
-			(*node) = (*node)->next;
-			return r;
+	if(list == 0) node->list = newNode;
+	else {
+		if(addEnd) {
+			while(list->next != 0) list = list->next;
+			list->next = newNode;
+		} else {
+			newNode->next = list;
+			node->list = newNode;
 		}
-		return rect(0,0,0,0);
+	}
+}
+
+Layout* layoutAdd(Layout* node, Layout nn, bool addEnd = true) {
+	Layout* newNode = getTStruct(Layout);
+	*newNode = nn;
+
+	layoutAdd(node, newNode, addEnd);
+	return newNode;
+}
+
+void layoutCalcSizes(Layout* mainNode) {
+	Layout* n;
+	bool vAxis = mainNode->vAxis;
+	Rect mainRect = layoutGetRect(mainNode);
+
+	if(rectZero(mainRect)) return;
+
+	int size = 0;
+	n = mainNode->list;
+	while(n != 0) {
+		size++;
+		n = n->next;
 	}
 
-	void layoutAdd(Layout* node, Layout* newNode, bool addEnd = true) {
-		Layout* list = node->list;
+	float dim = vAxis==0? rectW(mainRect) : rectH(mainRect);
+	float dim2 = vAxis==1? rectW(mainRect) : rectH(mainRect);
+	float offset = mainNode->padding.e[vAxis];
+	float totalWidth = dim - offset*(size-1);
 
-		if(list == 0) node->list = newNode;
-		else {
-			if(addEnd) {
-				while(list->next != 0) list = list->next;
-				list->next = newNode;
-			} else {
-				newNode->next = list;
-				node->list = newNode;
-			}
-		}
+	float dynamicSum = 0;
+	int flowCount = 0;
+	float staticSum = 0;
+	int staticCount = 0;
+
+	float widthWithoutFloats = 0;
+
+	n = mainNode->list;
+	while(n != 0) {
+		float val = n->dim.e[vAxis];
+		
+		if(val < 0) {}
+			else if(val == 0) flowCount++;
+		else if(val <= 1) widthWithoutFloats += val*totalWidth;
+		else widthWithoutFloats += val;
+
+		val = n->dim.e[(vAxis+1)%2];
+		if(val == 0) n->dim.e[(vAxis+1)%2] = dim2;
+		else if(val <= 1) n->dim.e[(vAxis+1)%2] = val * dim2;
+
+		n = n->next;
 	}
 
-	Layout* layoutAdd(Layout* node, Layout nn, bool addEnd = true) {
-		Layout* newNode = getTStruct(Layout);
-		*newNode = nn;
 
-		layoutAdd(node, newNode, addEnd);
-		return newNode;
+	float flowVal = flowCount>0 ? (totalWidth-widthWithoutFloats)/flowCount : 0;
+	flowVal = clampMin(flowVal, 0);
+	n = mainNode->list;
+	while(n != 0) {
+		n->finalDim = n->dim;
+
+		float val = n->dim.e[vAxis];
+
+		if(val < 0) n->finalDim.e[vAxis] = 0;
+		else if(val == 0) n->finalDim.e[vAxis] = flowVal;
+		else if(val <= 1) n->finalDim.e[vAxis] = val*totalWidth;
+
+		clampMin(&n->finalDim.e[vAxis], 0);
+
+		if(n->minDim.x != 0) clampMin(&n->finalDim.x, n->minDim.x);
+		if(n->maxDim.x != 0) clampMax(&n->finalDim.x, n->maxDim.x);
+		if(n->minDim.y != 0) clampMin(&n->finalDim.y, n->minDim.y);
+		if(n->maxDim.y != 0) clampMax(&n->finalDim.y, n->maxDim.y);
+
+		n = n->next;
 	}
 
-	void layoutCalcSizes(Layout* mainNode) {
-		Layout* n;
-		bool vAxis = mainNode->vAxis;
-		Rect mainRect = layoutGetRect(mainNode);
+}
 
-		if(rectZero(mainRect)) return;
+void layoutCalcRects(Layout* mainNode) {
+	Rect mainRect = layoutGetRect(mainNode);
+	if(rectZero(mainRect)) return;
 
-		int size = 0;
-		n = mainNode->list;
-		while(n != 0) {
-			size++;
-			n = n->next;
-		}
+	bool vAxis = mainNode->vAxis;
+	Layout* node;
 
-		float dim = vAxis==0? rectW(mainRect) : rectH(mainRect);
-		float dim2 = vAxis==1? rectW(mainRect) : rectH(mainRect);
-		float offset = mainNode->padding.e[vAxis];
-		float totalWidth = dim - offset*(size-1);
+	Vec2 boundingDim = vec2(0,0);
+	node = mainNode->list;
+	while(node != 0) {
+		boundingDim.e[vAxis] += node->finalDim.e[vAxis] + mainNode->padding.e[vAxis];
+		boundingDim.e[(vAxis+1)%2] = max(boundingDim.e[(vAxis+1)%2], node->finalDim.e[(vAxis+1)%2]);
 
-		float dynamicSum = 0;
-		int flowCount = 0;
-		float staticSum = 0;
-		int staticCount = 0;
-
-		float widthWithoutFloats = 0;
-
-		n = mainNode->list;
-		while(n != 0) {
-			float val = n->dim.e[vAxis];
-			
-			if(val < 0) {}
-				else if(val == 0) flowCount++;
-			else if(val <= 1) widthWithoutFloats += val*totalWidth;
-			else widthWithoutFloats += val;
-
-			val = n->dim.e[(vAxis+1)%2];
-			if(val == 0) n->dim.e[(vAxis+1)%2] = dim2;
-			else if(val <= 1) n->dim.e[(vAxis+1)%2] = val * dim2;
-
-			n = n->next;
-		}
-
-
-		float flowVal = flowCount>0 ? (totalWidth-widthWithoutFloats)/flowCount : 0;
-		flowVal = clampMin(flowVal, 0);
-		n = mainNode->list;
-		while(n != 0) {
-			n->finalDim = n->dim;
-
-			float val = n->dim.e[vAxis];
-
-			if(val < 0) n->finalDim.e[vAxis] = 0;
-			else if(val == 0) n->finalDim.e[vAxis] = flowVal;
-			else if(val <= 1) n->finalDim.e[vAxis] = val*totalWidth;
-
-			clampMin(&n->finalDim.e[vAxis], 0);
-
-			if(n->minDim.x != 0) clampMin(&n->finalDim.x, n->minDim.x);
-			if(n->maxDim.x != 0) clampMax(&n->finalDim.x, n->maxDim.x);
-			if(n->minDim.y != 0) clampMin(&n->finalDim.y, n->minDim.y);
-			if(n->maxDim.y != 0) clampMax(&n->finalDim.y, n->maxDim.y);
-
-			n = n->next;
-		}
-
+		node = node->next;
 	}
+	boundingDim.e[vAxis] -= mainNode->padding.e[vAxis];
 
-	void layoutCalcRects(Layout* mainNode) {
-		Rect mainRect = layoutGetRect(mainNode);
-		if(rectZero(mainRect)) return;
+	Vec2i align = mainNode->align;
+	Vec2 currentPos = rectAlign(mainRect, align);
 
-		bool vAxis = mainNode->vAxis;
-		Layout* node;
+	if(vAxis == false) {
+		currentPos.x -= boundingDim.x * (align.x+1)/2;
+		currentPos.y += boundingDim.y * (-align.y)/2;
 
-		Vec2 boundingDim = vec2(0,0);
 		node = mainNode->list;
 		while(node != 0) {
-			boundingDim.e[vAxis] += node->finalDim.e[vAxis] + mainNode->padding.e[vAxis];
-			boundingDim.e[(vAxis+1)%2] = max(boundingDim.e[(vAxis+1)%2], node->finalDim.e[(vAxis+1)%2]);
+			Vec2 p = currentPos;
+			p.y -= node->finalDim.y/2;
+
+			node->r = rectBLDim(p, node->finalDim);
+			currentPos.x += node->finalDim.x + mainNode->padding.x;
 
 			node = node->next;
 		}
-		boundingDim.e[vAxis] -= mainNode->padding.e[vAxis];
+	} else {
+		currentPos.y -= boundingDim.y * (align.y-1)/2;
+		currentPos.x += boundingDim.x * (-align.x)/2;
 
-		Vec2i align = mainNode->align;
-		Vec2 currentPos = rectAlign(mainRect, align);
+		node = mainNode->list;
+		while(node != 0) {
+			Vec2 p = currentPos;
+			p.x -= node->finalDim.x/2;
 
-		if(vAxis == false) {
-			currentPos.x -= boundingDim.x * (align.x+1)/2;
-			currentPos.y += boundingDim.y * (-align.y)/2;
+			node->r = rectTLDim(p, node->finalDim);
+			currentPos.y -= node->finalDim.y + mainNode->padding.y;
 
-			node = mainNode->list;
-			while(node != 0) {
-				Vec2 p = currentPos;
-				p.y -= node->finalDim.y/2;
-
-				node->r = rectBLDim(p, node->finalDim);
-				currentPos.x += node->finalDim.x + mainNode->padding.x;
-
-				node = node->next;
-			}
-		} else {
-			currentPos.y -= boundingDim.y * (align.y-1)/2;
-			currentPos.x += boundingDim.x * (-align.x)/2;
-
-			node = mainNode->list;
-			while(node != 0) {
-				Vec2 p = currentPos;
-				p.x -= node->finalDim.x/2;
-
-				node->r = rectTLDim(p, node->finalDim);
-				currentPos.y -= node->finalDim.y + mainNode->padding.y;
-
-				node = node->next;
-			}
-		}
-
-	}
-
-	void layoutCalc(Layout* mainNode, bool recursive = true) {
-		layoutCalcSizes(mainNode);
-		layoutCalcRects(mainNode);
-
-		if(recursive) {
-			Layout* node = mainNode->list;
-			while(node != 0) {
-				if(node->list != 0) {
-					layoutCalc(node, true);			
-				}
-
-				node = node->next;
-			}
+			node = node->next;
 		}
 	}
 
-	Layout* layoutQuickRow(Layout* node, Rect region, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
-		node->r = region;
-		node->list = 0;
-		layoutAdd(node, layout(!node->vAxis ? vec2(s1,0) : vec2(0,s1)));
-		if(s2 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s2,0) : vec2(0,s2)));
-		if(s3 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s3,0) : vec2(0,s3)));
-		if(s4 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s4,0) : vec2(0,s4)));
+}
 
-		layoutCalc(node);
+void layoutCalc(Layout* mainNode, bool recursive = true) {
+	layoutCalcSizes(mainNode);
+	layoutCalcRects(mainNode);
 
-		return node->list;
-	}
+	if(recursive) {
+		Layout* node = mainNode->list;
+		while(node != 0) {
+			if(node->list != 0) {
+				layoutCalc(node, true);			
+			}
 
-	Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
-		node->r = region;
-		node->list = 0;
-
-		for(int i = 0; i < count; i++) {
-			layoutAdd(node, layout(!node->vAxis ? vec2(s[i],0) : vec2(0,s[i])));
+			node = node->next;
 		}
+	}
+}
 
-		layoutCalc(node);
+Layout* layoutQuickRow(Layout* node, Rect region, float s1, float s2 = -1, float s3 = -1, float s4 = -1) {
+	node->r = region;
+	node->list = 0;
+	layoutAdd(node, layout(!node->vAxis ? vec2(s1,0) : vec2(0,s1)));
+	if(s2 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s2,0) : vec2(0,s2)));
+	if(s3 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s3,0) : vec2(0,s3)));
+	if(s4 != -1) layoutAdd(node, layout(!node->vAxis ? vec2(s4,0) : vec2(0,s4)));
 
-		return node->list;
+	layoutCalc(node);
+
+	return node->list;
+}
+
+Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
+	node->r = region;
+	node->list = 0;
+
+	for(int i = 0; i < count; i++) {
+		layoutAdd(node, layout(!node->vAxis ? vec2(s[i],0) : vec2(0,s[i])));
 	}
 
+	layoutCalc(node);
+
+	return node->list;
+}
 
 
 
-	struct AppData {
-	// General.
 
-		SystemData systemData;
-		Input input;
-		WindowSettings wSettings;
-		GraphicsState graphicsState;
+struct AppData {
+// General.
 
-		f64 dt;
-		f64 time;
-		int frameCount;
-		i64 swapTime;
+	SystemData systemData;
+	Input input;
+	WindowSettings wSettings;
+	GraphicsState graphicsState;
 
-		bool updateFrameBuffers;
+	f64 dt;
+	f64 time;
+	int frameCount;
+	i64 swapTime;
 
-		int msaaSamples;
+	bool updateFrameBuffers;
 
-	// Window.
+	int msaaSamples;
 
-		Rect clientRect;
-		Vec2i frameBufferSize;
-		bool screenShotMode;
+// Window.
 
-	// App.
+	Rect clientRect;
+	Vec2i frameBufferSize;
+	bool screenShotMode;
 
-		bool reloadSettings;
-		FILETIME settingsFileLastWriteTime;
+// App.
 
-		AppColors appColors;
-		AppColorsRelative appColorsRelative;
-		AppSettings appSettings;
+	bool reloadSettings;
+	FILETIME settingsFileLastWriteTime;
 
-		bool appIsBusy;
+	AppColors appColors;
+	AppColorsRelative appColorsRelative;
+	AppSettings appSettings;
 
-		Font* font;
-		Font* fontTitle;
+	bool appIsBusy;
 
-		CURL* curlHandle;
-		HMODULE curlDll;
+	Font* font;
+	Font* fontTitle;
 
-		GraphCam cams[10];
-		int camCount;
+	CURL* curlHandle;
+	HMODULE curlDll;
 
-		int heightMoveMode;
-		bool widthMove;
+	GraphCam cams[10];
+	int camCount;
 
-		float leftTextWidth;
+	int heightMoveMode;
+	bool widthMove;
 
-		float graphOffsets[Line_Graph_Count+1];
-		float sidePanelWidth;
-		float sidePanelMax;
+	float leftTextWidth;
 
-	//
+	float graphOffsets[Line_Graph_Count+1];
+	float sidePanelWidth;
+	float sidePanelMax;
 
-		DownloadInfo dInfo;
-		CurlRequestData requestData;
-		DownloadModeData modeData;
+//
 
-	//
+	DownloadInfo dInfo;
+	CurlRequestData requestData;
+	DownloadModeData modeData;
 
-		NewGui newGui;
-		NewGui* gui;
+//
 
-		Rect panelRect;
-		bool panelActive;
-		int panelMode;
-		float lastPanelHeight;
+	NewGui newGui;
+	NewGui* gui;
 
-		TextBoxSettings labelSettings;
-		TextBoxSettings buttonSettings;
-		TextBoxSettings uiButtonSettings;
-		TextBoxSettings scrollButtonSettings;
-		TextEditSettings editSettings;
-		SliderSettings sliderSettings;
-		ScrollRegionSettings scrollSettings;
-		ScrollRegionSettings commentScrollSettings;
+	Rect panelRect;
+	bool panelActive;
+	int panelMode;
+	float lastPanelHeight;
 
-	//
+	TextBoxSettings labelSettings;
+	TextBoxSettings buttonSettings;
+	TextBoxSettings uiButtonSettings;
+	TextBoxSettings scrollButtonSettings;
+	TextEditSettings editSettings;
+	SliderSettings sliderSettings;
+	ScrollRegionSettings scrollSettings;
+	ScrollRegionSettings commentScrollSettings;
 
-		int playlistFolderIndex;
-		YoutubePlaylist playlist;
-		YoutubeVideo* videos;
-		int maxVideoCount;
+	TextBoxSettings comboBoxSettings;
+//
 
-		VideoSnippet videoSnippet;
-		Vec2 hoveredPoint;
-		int hoveredVideo;
-		float hoveredVideoStat;
-		float commentScrollValue;
+	int playlistFolderIndex;
+	YoutubePlaylist playlist;
+	YoutubeVideo* videos;
+	int maxVideoCount;
 
-		Vec2 selectedPoint;
-		int selectedVideo;
+	VideoSnippet videoSnippet;
+	Vec2 hoveredPoint;
+	int hoveredVideo;
+	float hoveredVideoStat;
+	float commentScrollValue;
 
-		YoutubePlaylist downloadPlaylist;
+	Vec2 selectedPoint;
+	int selectedVideo;
 
-		bool startScreenShot;
-		char screenShotFilePath[50];
-		Vec2i screenShotDim;
+	YoutubePlaylist downloadPlaylist;
 
-		char* searchString;
-		char* searchStringPlaylists;
-		char* searchStringChannels;
+	bool startScreenShot;
+	char screenShotFilePath[50];
+	Vec2i screenShotDim;
 
-		bool startDownload;
-		bool update;
-		bool startLoadFile;
+	char* searchString;
+	char* searchStringPlaylists;
+	char* searchStringChannels;
 
-		char* userName;
-		char* channelId;
-		int playlistDownloadCount;
+	bool startDownload;
+	bool update;
+	bool startLoadFile;
 
-		YoutubePlaylist* playlists;
-		int playlistCount;
+	char* userName;
+	char* channelId;
+	int playlistDownloadCount;
 
-		SearchResult* searchResults;
-		int searchResultCount;
-		int searchResultMaxCount;
+	YoutubePlaylist* playlists;
+	int playlistCount;
 
-		int lastSearchMode;
+	SearchResult* searchResults;
+	int searchResultCount;
+	int searchResultMaxCount;
 
-		YoutubePlaylist playlistFolder[50];
-		int playlistFolderCount;
+	int lastSearchMode;
 
-		float statTimeSpan;
-		float statWidth;
+	YoutubePlaylist playlistFolder[50];
+	int playlistFolderCount;
 
-		Statistic stats[Line_Graph_Count];
-		LineGraph averagesLineGraph;
-		LineGraph releaseCountLineGraph;
+	float statTimeSpan;
+	float statWidth;
 
-		char exclusiveFilter[50];
-		char inclusiveFilter[50];
+	Statistic stats[Line_Graph_Count];
+	LineGraph averagesLineGraph;
+	LineGraph releaseCountLineGraph;
 
-		int graphDrawMode;
+	char exclusiveFilter[50];
+	char inclusiveFilter[50];
 
-		bool sortByDate;
-		int sortStat;
+	int graphDrawMode;
 
-		Vec2 clampFilter[Line_Graph_Count];
-	};
+	bool sortByDate;
+	int sortStat;
+
+	Vec2 clampFilter[Line_Graph_Count];
+};
 
 
 
-	void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
+void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
 
 // #pragma optimize( "", off )
 #pragma optimize( "", on )
-	extern "C" APPMAINFUNCTION(appMain) {
+extern "C" APPMAINFUNCTION(appMain) {
 
-		i64 startupTimer = timerInit();
+	i64 startupTimer = timerInit();
 
-		if(init) {
+	if(init) {
 
 		// Init memory.
 
-			SYSTEM_INFO info;
-			GetSystemInfo(&info);
+		SYSTEM_INFO info;
+		GetSystemInfo(&info);
 
-			char* baseAddress = (char*)gigaBytes(8);
-			VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
+		char* baseAddress = (char*)gigaBytes(8);
+		VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
 
-			ExtendibleMemoryArray* pMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
-			initExtendibleMemoryArray(pMemory, megaBytes(50), info.dwAllocationGranularity, baseAddress);
+		ExtendibleMemoryArray* pMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
+		initExtendibleMemoryArray(pMemory, megaBytes(50), info.dwAllocationGranularity, baseAddress);
 
-			ExtendibleBucketMemory* dMemory = &appMemory->extendibleBucketMemories[appMemory->extendibleBucketMemoryCount++];
-			initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
+		ExtendibleBucketMemory* dMemory = &appMemory->extendibleBucketMemories[appMemory->extendibleBucketMemoryCount++];
+		initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
 
-			MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-			initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
+		MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+		initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
 
 
 
-			MemoryArray* pDebugMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-			initMemoryArray(pDebugMemory, megaBytes(50), 0);
+		MemoryArray* pDebugMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+		initMemoryArray(pDebugMemory, megaBytes(50), 0);
 
-			MemoryArray* tMemoryDebug = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-			initMemoryArray(tMemoryDebug, megaBytes(30), 0);
+		MemoryArray* tMemoryDebug = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+		initMemoryArray(tMemoryDebug, megaBytes(30), 0);
 
-			ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
-			initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
-		}
+		ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
+		initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
+	}
 
-	// Setup memory and globals.
+		// Setup memory and globals.
 
-		MemoryBlock gMemory = {};
-		gMemory.pMemory = &appMemory->extendibleMemoryArrays[0];
-		gMemory.tMemory = &appMemory->memoryArrays[0];
-		gMemory.dMemory = &appMemory->extendibleBucketMemories[0];
-		gMemory.pDebugMemory = &appMemory->memoryArrays[1];
-		gMemory.tMemoryDebug = &appMemory->memoryArrays[2];
-		gMemory.debugMemory = &appMemory->extendibleMemoryArrays[1];
-		globalMemory = &gMemory;
+	MemoryBlock gMemory = {};
+	gMemory.pMemory = &appMemory->extendibleMemoryArrays[0];
+	gMemory.tMemory = &appMemory->memoryArrays[0];
+	gMemory.dMemory = &appMemory->extendibleBucketMemories[0];
+	gMemory.pDebugMemory = &appMemory->memoryArrays[1];
+	gMemory.tMemoryDebug = &appMemory->memoryArrays[2];
+	gMemory.debugMemory = &appMemory->extendibleMemoryArrays[1];
+	globalMemory = &gMemory;
 
-		DebugState* ds = (DebugState*)getBaseMemoryArray(gMemory.pDebugMemory);
-		AppData* ad = (AppData*)getBaseExtendibleMemoryArray(gMemory.pMemory);
-		GraphicsState* gs = &ad->graphicsState;
+	DebugState* ds = (DebugState*)getBaseMemoryArray(gMemory.pDebugMemory);
+	AppData* ad = (AppData*)getBaseExtendibleMemoryArray(gMemory.pMemory);
+	GraphicsState* gs = &ad->graphicsState;
 
-		Input* input = &ad->input;
-		SystemData* systemData = &ad->systemData;
-		HWND windowHandle = systemData->windowHandle;
-		WindowSettings* ws = &ad->wSettings;
+	Input* input = &ad->input;
+	SystemData* systemData = &ad->systemData;
+	HWND windowHandle = systemData->windowHandle;
+	WindowSettings* ws = &ad->wSettings;
 
-		globalThreadQueue = threadQueue;
-		globalGraphicsState = &ad->graphicsState;
-		globalDebugState = ds;
-		globalTimer = ds->timer;
+	globalThreadQueue = threadQueue;
+	globalGraphicsState = &ad->graphicsState;
+	globalDebugState = ds;
+	globalTimer = ds->timer;
 
 	// Init.
 
-		if(init) {
+	if(init) {
 
 		// @AppInit.
 
@@ -3342,111 +3601,111 @@ for(Layout* l = layout->list; l != 0; l = l->next)
 		// DebugState.
 		//
 
-			getPMemoryDebug(sizeof(DebugState));
+		getPMemoryDebug(sizeof(DebugState));
 
-			*ds = {};
+		*ds = {};
 		// ds->assets = getPArrayDebug(Asset, 100);
 
-		#ifndef RELEASE_BUILD
-			ds->inputCapacity = 600;
-			ds->recordedInput = (Input*)getPMemoryDebug(sizeof(Input) * ds->inputCapacity);
+	#ifndef RELEASE_BUILD
+		ds->inputCapacity = 600;
+		ds->recordedInput = (Input*)getPMemoryDebug(sizeof(Input) * ds->inputCapacity);
 
-			ds->timer = getPStructDebug(Timer);
-			globalTimer = ds->timer;
-			int timerSlots = 50000;
-			ds->timer->bufferSize = timerSlots;
-			ds->timer->timerBuffer = (TimerSlot*)getPMemoryDebug(sizeof(TimerSlot) * timerSlots);
+		ds->timer = getPStructDebug(Timer);
+		globalTimer = ds->timer;
+		int timerSlots = 50000;
+		ds->timer->bufferSize = timerSlots;
+		ds->timer->timerBuffer = (TimerSlot*)getPMemoryDebug(sizeof(TimerSlot) * timerSlots);
 
-			ds->savedBufferMax = 20000;
-			ds->savedBufferIndex = 0;
-			ds->savedBufferCount = 0;
-			ds->savedBuffer = (GraphSlot*)getPMemoryDebug(sizeof(GraphSlot) * ds->savedBufferMax);
-		#else 
-			ds->timer = getPStructDebug(Timer);
-			ds->timer->bufferSize = 1;
-			globalTimer = ds->timer;
-		#endif
+		ds->savedBufferMax = 20000;
+		ds->savedBufferIndex = 0;
+		ds->savedBufferCount = 0;
+		ds->savedBuffer = (GraphSlot*)getPMemoryDebug(sizeof(GraphSlot) * ds->savedBufferMax);
+	#else 
+		ds->timer = getPStructDebug(Timer);
+		ds->timer->bufferSize = 1;
+		globalTimer = ds->timer;
+	#endif
 
-			TIMER_BLOCK_NAMED("Init");
+		TIMER_BLOCK_NAMED("Init");
 
-			ds->gui = getPStructDebug(Gui);
+		ds->gui = getPStructDebug(Gui);
 		// gui->init(rectCenDim(vec2(0,1), vec2(300,800)));
 		// gui->init(rectCenDim(vec2(1300,1), vec2(300,500)));
-			ds->gui->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 0);
+		ds->gui->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 0);
 
 		// ds->gui->cornerPos = 
 
-			ds->gui2 = getPStructDebug(Gui);
+		ds->gui2 = getPStructDebug(Gui);
 		// ds->gui->init(rectCenDim(vec2(1300,1), vec2(400, ws->currentRes.h)), -1);
-			ds->gui2->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 3);
+		ds->gui2->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 3);
 
-			ds->input = getPStructDebug(Input);
+		ds->input = getPStructDebug(Input);
 		// ds->showMenu = true;
-			ds->showMenu = false;
-			ds->showStats = false;
-			ds->showConsole = false;
-			ds->showHud = true;
+		ds->showMenu = false;
+		ds->showStats = false;
+		ds->showConsole = false;
+		ds->showHud = true;
 		// ds->guiAlpha = 0.95f;
-			ds->guiAlpha = 1;
-			ds->noCollating = true;
+		ds->guiAlpha = 1;
+		ds->noCollating = true;
 
-		#ifdef RELEASE_BUILD
-			ds->noCollating = true;
-		#else 
-			ds->noCollating = false;
-		#endif
+	#ifdef RELEASE_BUILD
+		ds->noCollating = true;
+	#else 
+		ds->noCollating = false;
+	#endif
 
-			for(int i = 0; i < arrayCount(ds->notificationStack); i++) {
-				ds->notificationStack[i] = getPStringDebug(DEBUG_NOTE_LENGTH+1);
-			}
+		for(int i = 0; i < arrayCount(ds->notificationStack); i++) {
+			ds->notificationStack[i] = getPStringDebug(DEBUG_NOTE_LENGTH+1);
+		}
 
 		//
 		// AppData.
 		//
 
-			TIMER_BLOCK_BEGIN_NAMED(initAppData, "Init AppData");
+		TIMER_BLOCK_BEGIN_NAMED(initAppData, "Init AppData");
 
-			getPMemory(sizeof(AppData));
-			*ad = {};
+		getPMemory(sizeof(AppData));
+		*ad = {};
 
-			initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, false, 1);
-			windowHandle = systemData->windowHandle;
+		initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, false, 1);
+		windowHandle = systemData->windowHandle;
 
-			printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
+		printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
 
-			loadFunctions();
+		loadFunctions();
 
-			const char* extensions = wglGetExtensionsStringEXT();
+		const char* extensions = wglGetExtensionsStringEXT();
 
-			wglSwapIntervalEXT(1);
-			int fps = wglGetSwapIntervalEXT();
+		wglSwapIntervalEXT(1);
+		int fps = wglGetSwapIntervalEXT();
 
-			initInput(&ad->input);
+		initInput(&ad->input);
 
 		// Init curl.
 
-			ad->curlDll = LoadLibraryA("libcurl.dll");
-			loadCurlFunctions(ad->curlDll);
+		ad->curlDll = LoadLibraryA("libcurl.dll");
+		loadCurlFunctions(ad->curlDll);
 
-			updateResolution(windowHandle, ws);
-			gs->screenRes = ws->currentRes;
+		updateResolution(windowHandle, ws);
+		gs->screenRes = ws->currentRes;
 
-			TIMER_BLOCK_END(initAppData);
+		TIMER_BLOCK_END(initAppData);
 
 
 		//
 		// Setup Textures.
 		//
 
-			TIMER_BLOCK_BEGIN_NAMED(initGraphics, "Init Graphics");
+		TIMER_BLOCK_BEGIN_NAMED(initGraphics, "Init Graphics");
 
-			for(int i = 0; i < TEXTURE_SIZE; i++) {
-				Texture tex;
-				uchar buffer [] = {255,255,255,255 ,255,255,255,255 ,255,255,255,255, 255,255,255,255};
-				loadTexture(&tex, buffer, 2,2, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+		for(int i = 0; i < TEXTURE_SIZE; i++) {
+			Texture tex;
+			uchar buffer [] = {255,255,255,255 ,255,255,255,255 ,255,255,255,255, 255,255,255,255};
+			loadTexture(&tex, buffer, 2,2, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
 
-				addTexture(tex);
-			}
+			addTexture(tex);
+		}
 
 		// for(int i = 0; i < TEXTURE_SIZE; i++) {
 		// 	Texture tex;
@@ -3458,305 +3717,305 @@ for(Layout* l = layout->list; l != 0; l = l->next)
 		// Setup Meshs.
 		//
 
-			uint vao = 0;
-			glCreateVertexArrays(1, &vao);
-			glBindVertexArray(vao);
+		uint vao = 0;
+		glCreateVertexArrays(1, &vao);
+		glBindVertexArray(vao);
 
 		// 
 		// Samplers.
 		//
 
-			gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR);
+		gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR);
 		// gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_NEAREST, GL_NEAREST_MIPMAP_NEAREST);
 
 		//
 		//
 		//
 
-			ad->msaaSamples = 4;
-			ad->dt = 1/(float)60;
+		ad->msaaSamples = 4;
+		ad->dt = 1/(float)60;
 
-			ad->graphicsState.zOrder = 0;
+		ad->graphicsState.zOrder = 0;
 
 		//
 		// FrameBuffers.
 		//
 
-			{
-				for(int i = 0; i < FRAMEBUFFER_SIZE; i++) {
-					FrameBuffer* fb = getFrameBuffer(i);
-					initFrameBuffer(fb);
-				}
-
-				attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0, ad->msaaSamples);
-				attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_DEPTH, GL_DEPTH_COMPONENT32F, 0, 0, ad->msaaSamples);
-				attachToFrameBuffer(FRAMEBUFFER_2dNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0);
-
-				attachToFrameBuffer(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0, ad->msaaSamples);
-				attachToFrameBuffer(FRAMEBUFFER_DebugNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
-
-			// attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8_ALPHA8, 0, 0);
-				attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8, 0, 0);
-
-				ad->updateFrameBuffers = true;
-
-
-
-			// ad->frameBufferSize = vec2i(2560, 1440);
-				ad->frameBufferSize = ws->biggestMonitorSize;
-				Vec2i fRes = ad->frameBufferSize;
-
-				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, fRes.w, fRes.h);
-				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, fRes.w, fRes.h);
-				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, fRes.w, fRes.h);
-				setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, fRes.w, fRes.h);
-
-			// setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, fRes.w, fRes.h);
-			}
-
-			TIMER_BLOCK_END(initGraphics);
-
-		//
-
-			TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
-
-
-			HANDLE fileChangeHandle  = FindFirstChangeNotification(App_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
-			if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
-			systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
-			ad->settingsFileLastWriteTime = getLastWriteTime(App_Settings_File);
-
-		// fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
-			fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
-			if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
-			systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
-
-
-			globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(App_Font_Folder);
-			globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(Windows_Font_Folder);
-
-
-			ad->curlHandle = curl_easy_initX();
-
-			int maxVideoCount = 5000;
-			ad->maxVideoCount = maxVideoCount;
-			ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*maxVideoCount);
-			ad->videoSnippet.thumbnailTexture.id = -1;
-			ad->selectedVideo = -1;
-
-			ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
-			ad->userName = (char*)getPMemory(100); strClear(ad->userName);
-			ad->searchString = (char*)getPMemory(100); strClear(ad->searchString);
-			ad->searchStringPlaylists = (char*)getPMemory(100); strClear(ad->searchStringPlaylists);
-			ad->searchStringChannels = (char*)getPMemory(100); strClear(ad->searchStringChannels);
-
-			ad->statTimeSpan = 3.0f;
-			ad->statWidth = 1.0f;
-
-			strClear(ad->screenShotFilePath);
-			strCpy(ad->screenShotFilePath, Screenshot_File);
-			ad->screenShotDim = vec2i(5000, 1000);
-
-			ad->leftTextWidth = 0;
-			ad->camCount = 4;
-
-			ad->graphOffsets[0] = 0.0f;
-			ad->graphOffsets[1] = 0.4f;
-			ad->graphOffsets[2] = 0.6f;
-			ad->graphOffsets[3] = 0.8f;
-			ad->graphOffsets[4] = 1.0f;
-
-			ad->sidePanelWidth = ws->currentRes.w*0.25f;
-			ad->sidePanelMax = 0.5f;
-
-		// Make test file.
-			if(false) 
-			{
-			// int count = 10000;
-				int count = 100000;
-			// int count = 1000;
-
-				YoutubePlaylist playlist = {"PLAYLIST_ID", "PLAYLIST_TITLE", count};
-
-				Date d = {5, 1, 1, 0, 0, 0, 0};
-				dateEncode(&d);
-
-				clearTMemory();
-			// YoutubeVideo* videos = getTArray(YoutubeVideo, count);
-				YoutubeVideo* videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
-				for(int i = 0; i < count; i++) {
-				// d.n += randomInt(20*60*60,50*60*60);
-					d.n += randomInt(20*60,2*60*60);
-					dateDecode(&d);
-
-					char* dateString = fillString("%i %i %i %i:%i:%i", (int)d.y, (int)d.m, (int)d.d, (int)d.h, (int)d.mins, (int)d.secs);
-				// char* dateString = "";
-
-					videos[i] = {"Video_Id", "Video_Title", "Video_Thumbnail_Url", "", 
-					d, 
-					randomInt(5000,15000), 
-					randomInt(100,2000), 
-					randomInt(10,200), 
-					randomInt(10,100), 
-					randomInt(10,100) };
-
-					strCpy(videos[i].dateString, dateString);
-				}
-
-				savePlaylistToFile(&playlist, videos, count, count, 0, "PageToken");
-
-				free(videos);
-			}
-
-			ad->graphDrawMode = 0;
-			ad->sortByDate = true;
-			ad->sortStat = -1;
-
-			ad->requestData.curlHandle = ad->curlHandle;
-			ad->requestData.maxSize = megaBytes(1);
-			ad->requestData.buffer = (char*)getPMemory(ad->requestData.maxSize);
-
-			TIMER_BLOCK_END(initRest);
-
-			ad->panelActive = false;
-
-			ad->searchResultMaxCount = 300;
-			ad->searchResults = getPArray(SearchResult, ad->searchResultMaxCount);
-
-
-
-		// ad->panelActive = true;
-		// strCpy(ad->downloadPlaylist.title, "Royal Beef");
-		// strCpy(ad->downloadPlaylist.id, "PLsksxTH4pR3IX9CL91UVp-6S9mFBmnlgF");
-		// ad->downloadPlaylist.count = 18;
-
-		// strCpy(ad->downloadPlaylist.title, "Rocket Beans TV");
-		// strCpy(ad->downloadPlaylist.id, "UUQvTDmHza8erxZqDkjQ4bQQ");
-		// ad->downloadPlaylist.count = 6438;
-
-
-		// char* filePath = fillString("%s\\%s.playlist", Playlist_Folder, ad->downloadPlaylist.id);
-		// remove(filePath);
-		}
-
-
-
-	// @AppStart.
-
-		TIMER_BLOCK_BEGIN_NAMED(reload, "Reload");
-
-		if(reload) {
-			loadFunctions();
-			SetWindowLongPtr(systemData->windowHandle, GWLP_WNDPROC, (LONG_PTR)mainWindowCallBack);
-
-			gs->screenRes = ws->currentRes;
-
-			loadCurlFunctions(ad->curlDll);
-		}
-
-		TIMER_BLOCK_END(reload);
-
-	// Update timer.
 		{
+			for(int i = 0; i < FRAMEBUFFER_SIZE; i++) {
+				FrameBuffer* fb = getFrameBuffer(i);
+				initFrameBuffer(fb);
+			}
+
+			attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0, ad->msaaSamples);
+			attachToFrameBuffer(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_SLOT_DEPTH, GL_DEPTH_COMPONENT32F, 0, 0, ad->msaaSamples);
+			attachToFrameBuffer(FRAMEBUFFER_2dNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA16F, 0, 0);
+
+			attachToFrameBuffer(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0, ad->msaaSamples);
+			attachToFrameBuffer(FRAMEBUFFER_DebugNoMsaa, FRAMEBUFFER_SLOT_COLOR, GL_RGBA8, 0, 0);
+
+		// attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8_ALPHA8, 0, 0);
+			attachToFrameBuffer(FRAMEBUFFER_ScreenShot, FRAMEBUFFER_SLOT_COLOR, GL_SRGB8, 0, 0);
+
+			ad->updateFrameBuffers = true;
+
+
+
+		// ad->frameBufferSize = vec2i(2560, 1440);
+			ad->frameBufferSize = ws->biggestMonitorSize;
+			Vec2i fRes = ad->frameBufferSize;
+
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dMsaa, fRes.w, fRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_2dNoMsaa, fRes.w, fRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugMsaa, fRes.w, fRes.h);
+			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_DebugNoMsaa, fRes.w, fRes.h);
+
+		// setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, fRes.w, fRes.h);
+		}
+
+		TIMER_BLOCK_END(initGraphics);
+
+	//
+
+		TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
+
+
+		HANDLE fileChangeHandle  = FindFirstChangeNotification(App_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
+		if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
+		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
+		ad->settingsFileLastWriteTime = getLastWriteTime(App_Settings_File);
+
+	// fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
+		fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
+		if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
+		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
+
+
+		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(App_Font_Folder);
+		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(Windows_Font_Folder);
+
+
+		ad->curlHandle = curl_easy_initX();
+
+		int maxVideoCount = 5000;
+		ad->maxVideoCount = maxVideoCount;
+		ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*maxVideoCount);
+		ad->videoSnippet.thumbnailTexture.id = -1;
+		ad->selectedVideo = -1;
+
+		ad->channelId = (char*)getPMemory(100); strClear(ad->channelId);
+		ad->userName = (char*)getPMemory(100); strClear(ad->userName);
+		ad->searchString = (char*)getPMemory(100); strClear(ad->searchString);
+		ad->searchStringPlaylists = (char*)getPMemory(100); strClear(ad->searchStringPlaylists);
+		ad->searchStringChannels = (char*)getPMemory(100); strClear(ad->searchStringChannels);
+
+		ad->statTimeSpan = 3.0f;
+		ad->statWidth = 1.0f;
+
+		strClear(ad->screenShotFilePath);
+		strCpy(ad->screenShotFilePath, Screenshot_File);
+		ad->screenShotDim = vec2i(5000, 1000);
+
+		ad->leftTextWidth = 0;
+		ad->camCount = 4;
+
+		ad->graphOffsets[0] = 0.0f;
+		ad->graphOffsets[1] = 0.4f;
+		ad->graphOffsets[2] = 0.6f;
+		ad->graphOffsets[3] = 0.8f;
+		ad->graphOffsets[4] = 1.0f;
+
+		ad->sidePanelWidth = ws->currentRes.w*0.25f;
+		ad->sidePanelMax = 0.5f;
+
+	// Make test file.
+		if(false) 
+		{
+		// int count = 10000;
+			int count = 100000;
+		// int count = 1000;
+
+			YoutubePlaylist playlist = {"PLAYLIST_ID", "PLAYLIST_TITLE", count};
+
+			Date d = {5, 1, 1, 0, 0, 0, 0};
+			dateEncode(&d);
+
+			clearTMemory();
+		// YoutubeVideo* videos = getTArray(YoutubeVideo, count);
+			YoutubeVideo* videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
+			for(int i = 0; i < count; i++) {
+			// d.n += randomInt(20*60*60,50*60*60);
+				d.n += randomInt(20*60,2*60*60);
+				dateDecode(&d);
+
+				char* dateString = fillString("%i %i %i %i:%i:%i", (int)d.y, (int)d.m, (int)d.d, (int)d.h, (int)d.mins, (int)d.secs);
+			// char* dateString = "";
+
+				videos[i] = {"Video_Id", "Video_Title", "Video_Thumbnail_Url", "", 
+				d, 
+				randomInt(5000,15000), 
+				randomInt(100,2000), 
+				randomInt(10,200), 
+				randomInt(10,100), 
+				randomInt(10,100) };
+
+				strCpy(videos[i].dateString, dateString);
+			}
+
+			savePlaylistToFile(&playlist, videos, count, count, 0, "PageToken");
+
+			free(videos);
+		}
+
+		ad->graphDrawMode = 0;
+		ad->sortByDate = true;
+		ad->sortStat = -1;
+
+		ad->requestData.curlHandle = ad->curlHandle;
+		ad->requestData.maxSize = megaBytes(1);
+		ad->requestData.buffer = (char*)getPMemory(ad->requestData.maxSize);
+
+		TIMER_BLOCK_END(initRest);
+
+		ad->panelActive = false;
+
+		ad->searchResultMaxCount = 300;
+		ad->searchResults = getPArray(SearchResult, ad->searchResultMaxCount);
+
+
+
+	// ad->panelActive = true;
+	// strCpy(ad->downloadPlaylist.title, "Royal Beef");
+	// strCpy(ad->downloadPlaylist.id, "PLsksxTH4pR3IX9CL91UVp-6S9mFBmnlgF");
+	// ad->downloadPlaylist.count = 18;
+
+	// strCpy(ad->downloadPlaylist.title, "Rocket Beans TV");
+	// strCpy(ad->downloadPlaylist.id, "UUQvTDmHza8erxZqDkjQ4bQQ");
+	// ad->downloadPlaylist.count = 6438;
+
+
+	// char* filePath = fillString("%s\\%s.playlist", Playlist_Folder, ad->downloadPlaylist.id);
+	// remove(filePath);
+	}
+
+
+
+// @AppStart.
+
+	TIMER_BLOCK_BEGIN_NAMED(reload, "Reload");
+
+	if(reload) {
+		loadFunctions();
+		SetWindowLongPtr(systemData->windowHandle, GWLP_WNDPROC, (LONG_PTR)mainWindowCallBack);
+
+		gs->screenRes = ws->currentRes;
+
+		loadCurlFunctions(ad->curlDll);
+	}
+
+	TIMER_BLOCK_END(reload);
+
+// Update timer.
+	{
+		if(init) {
+			ds->lastTimeStamp = timerInit();
+			ds->dt = 1/(float)60;
+		} else {
+			ds->dt = timerUpdate(ds->lastTimeStamp, &ds->lastTimeStamp);
+			ds->time += ds->dt;
+		}
+	}
+
+	clearTMemory();
+
+// Update input. (And other stuff.)
+	{
+		TIMER_BLOCK_NAMED("Input");
+
+		int inputWaitMask = 0;
+		int waitTimeout = 0;
+	#ifdef RELEASE_BUILD
+		inputWaitMask = QS_ALLINPUT;
+		waitTimeout = INFINITE;
+	#endif
+
+		int message = -1;
+		if(!ad->appIsBusy) message = MsgWaitForMultipleObjects(systemData->folderHandleCount, systemData->folderHandles, false, waitTimeout, inputWaitMask);
+
+		if(message == WAIT_OBJECT_0 + WATCH_FOLDER_APP) {
+			FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_APP]);
+
+			FILETIME newWriteTime = getLastWriteTime(App_Settings_File);
+
+			if(CompareFileTime(&newWriteTime, &ad->settingsFileLastWriteTime) != 0) {
+				ad->reloadSettings = true;
+				ad->settingsFileLastWriteTime = newWriteTime;
+			}
+		} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_PLAYLISTS) {
+			FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_PLAYLISTS]);
+
+			loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+		} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_SIZE) {
+		// Input happened.
+		}
+
+		updateInput(ds->input, isRunning, windowHandle);
+
+		ad->appIsBusy = false;
+
+		ad->input = *ds->input;
+
+		if(ds->console.isActive) {
+			memSet(ad->input.keysPressed, 0, sizeof(ad->input.keysPressed));
+			memSet(ad->input.keysDown, 0, sizeof(ad->input.keysDown));
+		}
+
+		if(input->mouseButtonPressed[0]) {
+			ad->appIsBusy = true;
+		}
+
+		ad->dt = ds->dt;
+		ad->time = ds->time;
+
+		ad->frameCount++;
+
+		ad->gui = &ad->newGui;
+		newGuiBegin(ad->gui, input);
+		ad->gui->windowSettings = ws;
+
+		if(!ws->customCursor) {
+			SetCursor(LoadCursor(0, IDC_ARROW));
+		}
+		ws->customCursor = false;
+
+		if(init || ad->reloadSettings) {
+	// if(init || ad->reloadSettings || reload) {
+
+		// if(!fileExists(App_Settings_File)) {
 			if(init) {
-				ds->lastTimeStamp = timerInit();
-				ds->dt = 1/(float)60;
-			} else {
-				ds->dt = timerUpdate(ds->lastTimeStamp, &ds->lastTimeStamp);
-				ds->time += ds->dt;
-			}
-		}
+				AppSettings as;
+				AppColors ac;
+				AppColorsRelative rac;
 
-		clearTMemory();
+				{
+					as.font = "OpenSans-Regular.ttf";
+					as.fontBold = "OpenSans-Bold.ttf";
+					as.fontItalic = "OpenSans-Italic.ttf";
+					as.fontHeight = 20;
+					as.fontShadow = 0;
 
-	// Update input. (And other stuff.)
-		{
-			TIMER_BLOCK_NAMED("Input");
+					as.graphTitleFontHeight = 30;
+					as.graphFontShadow = 1;
 
-			int inputWaitMask = 0;
-			int waitTimeout = 0;
-		#ifdef RELEASE_BUILD
-			inputWaitMask = QS_ALLINPUT;
-			waitTimeout = INFINITE;
-		#endif
+					as.windowHeightMod = 1.0f;
+					as.windowBorder = 4;
+					as.border = 4;
+					as.padding = 4;
+					as.heightMod = 1.2f;
 
-			int message = -1;
-			if(!ad->appIsBusy) message = MsgWaitForMultipleObjects(systemData->folderHandleCount, systemData->folderHandles, false, waitTimeout, inputWaitMask);
+					as.textPaddingMod = 0.5f;
 
-			if(message == WAIT_OBJECT_0 + WATCH_FOLDER_APP) {
-				FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_APP]);
-
-				FILETIME newWriteTime = getLastWriteTime(App_Settings_File);
-
-				if(CompareFileTime(&newWriteTime, &ad->settingsFileLastWriteTime) != 0) {
-					ad->reloadSettings = true;
-					ad->settingsFileLastWriteTime = newWriteTime;
-				}
-			} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_PLAYLISTS) {
-				FindNextChangeNotification(systemData->folderHandles[WATCH_FOLDER_PLAYLISTS]);
-
-				loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
-			} else if(message == WAIT_OBJECT_0 + WATCH_FOLDER_SIZE) {
-			// Input happened.
-			}
-
-			updateInput(ds->input, isRunning, windowHandle);
-
-			ad->appIsBusy = false;
-
-			ad->input = *ds->input;
-
-			if(ds->console.isActive) {
-				memSet(ad->input.keysPressed, 0, sizeof(ad->input.keysPressed));
-				memSet(ad->input.keysDown, 0, sizeof(ad->input.keysDown));
-			}
-
-			if(input->mouseButtonPressed[0]) {
-				ad->appIsBusy = true;
-			}
-
-			ad->dt = ds->dt;
-			ad->time = ds->time;
-
-			ad->frameCount++;
-
-			ad->gui = &ad->newGui;
-			newGuiBegin(ad->gui, input);
-			ad->gui->windowSettings = ws;
-
-			if(!ws->customCursor) {
-				SetCursor(LoadCursor(0, IDC_ARROW));
-			}
-			ws->customCursor = false;
-
-			if(init || ad->reloadSettings) {
-		// if(init || ad->reloadSettings || reload) {
-
-			// if(!fileExists(App_Settings_File)) {
-				if(init) {
-					AppSettings as;
-					AppColors ac;
-					AppColorsRelative rac;
-
-					{
-						as.font = "OpenSans-Regular.ttf";
-						as.fontBold = "OpenSans-Bold.ttf";
-						as.fontItalic = "OpenSans-Italic.ttf";
-						as.fontHeight = 20;
-						as.fontShadow = 0;
-
-						as.graphTitleFontHeight = 30;
-						as.graphFontShadow = 1;
-
-						as.windowHeightMod = 1.0f;
-						as.windowBorder = 4;
-						as.border = 4;
-						as.padding = 4;
-						as.heightMod = 1.2f;
-
-						as.textPaddingMod = 0.5f;
-
-						as.rounding = 5;
+					as.rounding = 5;
 
 
 
@@ -3923,6 +4182,10 @@ for(Layout* l = layout->list; l != 0; l = l->next)
 			ad->commentScrollSettings = ad->scrollSettings;
 			ad->commentScrollSettings.border = vec2(textPadding, 0);
 			flagRemove(&ad->commentScrollSettings.flags, SCROLL_DYNAMIC_HEIGHT);
+
+			ad->comboBoxSettings = ad->buttonSettings;
+			ad->comboBoxSettings.sideAlignPadding = textPadding;
+			// ad->comboBoxSettings.boxSettings.color = ad->editSettings.textBoxSettings.boxSettings.color;
 		}
 
 		{
@@ -3935,6 +4198,10 @@ for(Layout* l = layout->list; l != 0; l = l->next)
 			gui->editSettings = ad->editSettings;
 			gui->sliderSettings = ad->sliderSettings;
 			gui->scrollSettings = ad->scrollSettings;
+
+			gui->popupSettings = ad->uiButtonSettings.boxSettings;
+			gui->popupSettings.color = ad->appColors.background;
+			gui->comboBoxSettings = ad->comboBoxSettings;
 
 			gui->zLevel = 2;
 
@@ -5211,10 +5478,12 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		{
 			TIMER_BLOCK_NAMED("Filters Gui");
 
-			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Draw Mode:", "Stat config:", "0.000", "0.000", "Filter Inclusive", "Filter Exclusive"};
+			char* drawModeStrings[] = {"Draw Lines", "Draw Points", "Draw Bars"};
+
+			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Stat config:", "0.000", "0.000", "Filter Inclusive", "Filter Exclusive"};
 			int li = 0;
 			float bp = font->height * as->textPaddingMod * 2;
-			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, getTextDim(labels[li++], font).x+bp, 80, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp};
+			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, 130, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp};
 			li = 0;
 
 
@@ -5240,8 +5509,12 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			layoutInc(&l);
 
-			newGuiQuickTextBox(gui, layoutInc(&l), labels[li++]);
-			newGuiQuickSlider(gui, layoutInc(&l), &ad->graphDrawMode, 0, 2);
+			{
+				ComboBoxData cData = {ad->graphDrawMode, drawModeStrings, arrayCount(drawModeStrings)};
+				if(newGuiQuickComboBox(gui, layoutInc(&l), cData)) {
+					ad->graphDrawMode = gui->comboBoxData.index;
+				}				
+			}
 
 			newGuiQuickTextBox(gui, layoutInc(&l), labels[li++]);
 
@@ -6370,7 +6643,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 				AppColors* cs = &ad->appColors;
 				for(int i = 0; i < info->memberCount; i++) {
-					float widths[] = {maxTextWidth, 0, 0, 0, 0, 0};
+					float widths[] = {maxTextWidth, 0, 0, 0, 0, 0, 0};
 					l = layoutQuickRowArray(&lay, newGuiLRectAdv(gui), widths, arrayCount(widths));
 					newGuiQuickTextBox(gui, layoutInc(&l), info->list[i].name, vec2i(1,0));
 
@@ -6386,6 +6659,15 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 					if(newGuiQuickSlider(gui, layoutInc(&l), &temp, -1, memberCount-1)) {
 						rc->i = temp;
 						if(rc->i == i) rc->i--;
+					}
+
+					// newGuiQuickButton(gui, layoutInc(&l), "test");
+
+					static int comboIndex = 0;
+					char* comboStrings[] = {"sadf", "3", "grt"};
+					ComboBoxData cData = {comboIndex, comboStrings, arrayCount(comboStrings)};
+					if(newGuiQuickComboBox(gui, layoutInc(&l), cData)) {
+						comboIndex = gui->comboBoxData.index;
 					}
 				}
 

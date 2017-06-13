@@ -528,6 +528,11 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
                 input->mouseWheel = wheelDelta / WHEEL_DELTA;
             } break;
 
+	        case WM_LBUTTONDBLCLK: {
+	        	input->doubleClick = true;
+				input->doubleClickPos = getMousePos(windowHandle, true);
+	        } 
+	        // break;
             case WM_LBUTTONDOWN: { 
             	SetCapture(windowHandle);
             	input->mouseButtonPressed[0] = true; 
@@ -602,11 +607,6 @@ void updateInput(Input* input, bool* isRunning, HWND windowHandle) {
             // 	    input->mouseDeltaY = -yPosRelative;
             // 	} break;
             // } break;
-
-            case WM_LBUTTONDBLCLK: {
-            	input->doubleClick = true;
-				input->doubleClickPos = getMousePos(windowHandle, true);
-            } break;
 
             case WM_DESTROY: {
                 *isRunning = false;

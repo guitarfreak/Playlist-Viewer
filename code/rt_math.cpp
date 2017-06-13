@@ -2490,6 +2490,8 @@ inline Vec2  rectB      (Rect r)            { return vec2(rectCen(r).x, r.bottom
 
 inline Rect  rectSetCen (Rect r, Vec2 p)    { return rectCenDim(p, rectDim(r)); }
 inline Rect  rectSetDim (Rect r, Vec2 d)    { return rectCenDim(rectCen(r), d); }
+inline Rect  rectSetW   (Rect r, float p)   { return rectCenDim(rectCen(r), vec2(p, rectH(r))); }
+inline Rect  rectSetH   (Rect r, float p)   { return rectCenDim(rectCen(r), vec2(rectW(r), p)); }
 inline Rect  rectSetBL  (Rect r, Vec2 p)    { r.min = p; return r; }
 inline Rect  rectSetTL  (Rect r, Vec2 p)    { r.left = p.x; r.top = p.y; return r; }
 inline Rect  rectSetTR  (Rect r, Vec2 p)    { r.max = p; return r; }
@@ -2498,6 +2500,11 @@ inline Rect  rectSetL   (Rect r, float p)   { r.left = p; return r; }
 inline Rect  rectSetT   (Rect r, float p)   { r.top = p; return r; }
 inline Rect  rectSetR   (Rect r, float p)   { r.right = p; return r; }
 inline Rect  rectSetB   (Rect r, float p)   { r.bottom = p; return r; }
+
+inline Rect  rectRSetL   (Rect r, float p)   { r.left = r.right - p; return r; }
+inline Rect  rectRSetT   (Rect r, float p)   { r.top = r.bottom + p; return r; }
+inline Rect  rectRSetR   (Rect r, float p)   { r.right = r.left + p; return r; }
+inline Rect  rectRSetB   (Rect r, float p)   { r.bottom = r.top - p; return r; }
 
 inline Rect  rectExpand (Rect r, Vec2 dim)  { return rect(r.min-dim/2, r.max+dim/2); }
 inline Rect  rectExpand (Rect r, float s)   { return rect(r.min-vec2(s,s)/2, r.max+vec2(s,s)/2); }
@@ -2513,6 +2520,8 @@ inline Rect  rectAddB   (Rect r, float p)   { r.bottom += p; return r; }
 
 inline void  rectSetCen (Rect* r, Vec2 p)   { *r = rectCenDim(p, rectDim(*r)); }
 inline void  rectSetDim (Rect* r, Vec2 d)   { *r = rectCenDim(rectCen(*r), d); }
+inline void  rectSetW   (Rect* r, float p)  { *r = rectCenDim(rectCen(*r), vec2(p, rectH(*r))); }
+inline void  rectSetH   (Rect* r, float p)  { *r = rectCenDim(rectCen(*r), vec2(rectW(*r), p)); }
 inline void  rectSetBL  (Rect* r, Vec2 p)   { r->min = p; }
 inline void  rectSetTL  (Rect* r, Vec2 p)   { r->left = p.x; r->top = p.y; }
 inline void  rectSetTR  (Rect* r, Vec2 p)   { r->max = p; }
@@ -2521,6 +2530,11 @@ inline void  rectSetL   (Rect* r, float p)  { r->left = p; }
 inline void  rectSetT   (Rect* r, float p)  { r->top = p; }
 inline void  rectSetR   (Rect* r, float p)  { r->right = p; }
 inline void  rectSetB   (Rect* r, float p)  { r->bottom = p; }
+
+inline void  rectRSetL  (Rect* r, float p)   { r->left = r->right - p; }
+inline void  rectRSetT  (Rect* r, float p)   { r->top = r->bottom + p; }
+inline void  rectRSetR  (Rect* r, float p)   { r->right = r->left + p; }
+inline void  rectRSetB  (Rect* r, float p)   { r->bottom = r->top - p; }
 
 inline void  rectExpand (Rect* r, Vec2 dim) { r->min -= dim/2; r->max += dim/2; }
 inline void  rectExpand (Rect* r, float s)  { r->min -= vec2(s,s)/2; r->max += vec2(s,s)/2; }
