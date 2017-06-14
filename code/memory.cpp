@@ -13,16 +13,16 @@ struct MemoryBlock {
 	ExtendibleMemoryArray* debugMemory;
 };
 
-extern MemoryBlock* globalMemory;
+extern MemoryBlock* globalMefmory;
 
 #define getPStruct(type) 		(type*)(getPMemoryMain(sizeof(type)))
-#define getPArray(type, count) 	(type*)(getPMemoryMain(sizeof(type) * count))
-#define getPString(count) 	(char*)(getPMemoryMain(count))
+#define getPArray(type, count) 	(type*)(getPMemoryMain(sizeof(type) * (count)))
+#define getPString(count) 	    (char*)(getPMemoryMain((count)))
 #define getTStruct(type) 		(type*)(getTMemoryMain(sizeof(type)))
-#define getTArray(type, count) 	(type*)(getTMemoryMain(sizeof(type) * count))
+#define getTArray(type, count) 	(type*)(getTMemoryMain(sizeof(type) * (count)))
 #define getTString(size) 		(char*)(getTMemoryMain(size)) 
 #define getDStruct(type) 		(type*)(getDMemoryMain(sizeof(type)))
-#define getDArray(type, count) 	(type*)(getDMemoryMain(sizeof(type) * count))
+#define getDArray(type, count) 	(type*)(getDMemoryMain(sizeof(type) * (count)))
 
 // void* getPMemory(int size, MemoryBlock * memory = 0);
 // void* getTMemory(int size, MemoryBlock * memory = 0);
@@ -87,10 +87,10 @@ inline char* getTStringClr(int size) {
 
 
 #define getPStructDebug(type) 		(type*)(getPMemoryDebug(sizeof(type)))
-#define getPArrayDebug(type, count) 	(type*)(getPMemoryDebug(sizeof(type) * count))
-#define getPStringDebug(count) (char*)(getPMemoryDebug(count))
+#define getPArrayDebug(type, count) (type*)(getPMemoryDebug(sizeof(type) * (count)))
+#define getPStringDebug(count)      (char*)(getPMemoryDebug((count)))
 #define getTStructDebug(type) 		(type*)(getTMemoryDebug(sizeof(type)))
-#define getTArrayDebug(type, count) 	(type*)(getTMemoryDebug(sizeof(type) * count))
+#define getTArrayDebug(type, count) (type*)(getTMemoryDebug(sizeof(type) * (count)))
 #define getTStringDebug(size) 		(char*)(getTMemoryDebug(size)) 
 // #define getDStructDebug(type) 		(type*)(getDMemoryDebug(sizeof(type)))
 // #define getDArrayDebug(type, count) 	(type*)(getDMemoryDebug(sizeof(type) * count))
@@ -151,10 +151,10 @@ void freeDMemory(void* address, MemoryBlock * memory = 0) {
 // Choose right function according to memory mode thats set globally.
 
 #define getPStructX(type) 		(type*)(getPMemory(sizeof(type)))
-#define getPArrayX(type, count) 	(type*)(getPMemory(sizeof(type) * count))
-#define getPStringX(count) 	(char*)(getPMemory(count))
+#define getPArrayX(type, count) (type*)(getPMemory(sizeof(type) * (count)))
+#define getPStringX(count) 	    (char*)(getPMemory((count)))
 #define getTStructX(type) 		(type*)(getTMemory(sizeof(type)))
-#define getTArrayX(type, count) 	(type*)(getTMemory(sizeof(type) * count))
+#define getTArrayX(type, count) (type*)(getTMemory(sizeof(type) * (count)))
 #define getTStringX(size) 		(char*)(getTMemory(size)) 
 
 void *getPMemory(int size, MemoryBlock * memory = 0) {

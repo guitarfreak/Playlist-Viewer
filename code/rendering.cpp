@@ -720,6 +720,7 @@ void drawRectOutline(Rect r, Vec4 color, int offset = -1) {
 }
 
 void drawRectOutlined(Rect r, Vec4 color, Vec4 colorOutline, int offset = -1) {	
+
 	drawRect(r, color);
 	drawRectOutline(r, colorOutline, offset);
 }

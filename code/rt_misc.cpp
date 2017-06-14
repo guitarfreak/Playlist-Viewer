@@ -4,11 +4,11 @@
 #include <stdio.h>
 
 #define arrayCount(array) (sizeof(array) / sizeof((array)[0]))
-#define addPointer(ptr, int) ptr = (char*)ptr + int
+#define addPointer(ptr, int) ptr = (char*)ptr + (int)
 #define memberSize(type, member) sizeof(((type *)0)->member)
-#define mallocArray(type, count) (type*)malloc(sizeof(type)*count)
+#define mallocArray(type, count) (type*)malloc(sizeof(type)*(count))
 #define mallocStruct(type) (type*)malloc(sizeof(type))
-#define mallocString(count) (char*)malloc(sizeof(char) * count)
+#define mallocString(count) (char*)malloc(sizeof(char)*(count))
 
 #define zeroStruct(s, structType) zeroMemory(s, sizeof(structType));
 

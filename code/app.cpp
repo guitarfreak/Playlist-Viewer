@@ -1,5 +1,5 @@
 /*
-====================================================================
+=================================================================================
 
 	ToDo:
 	- Filter -> percentage of views.
@@ -24,17 +24,20 @@
 	- Total cleanup of the code.
 	- Align rects to int boundaries to make edges more sharp. Cursor as well.
 
-	- Slider dir keys steps, double click edit box, 
-	- Combo Box
 	- Slider snap back.
 	- Rect shadow draw function.
+	- Json stuff should check for errors.
 
 
 	Done Today: 
-
+	- Caught bug: When using a macro with a number as argument always put parantheses around it.
+	- Combo box.
+	- Color settings menu.
 
 	Bugs:
 
+
+=================================================================================
 */
 
 
@@ -195,36 +198,66 @@ struct AppSettings {
 	int padding;
 };
 
-
-
 #include "debug.cpp"
 
 
+void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppColorsRelative* appColorsRelative) {
+	char* buffer, *temp;
+	buffer = getTString(kiloBytes(10));
+	temp = buffer;
 
-void relativeToAbsoluteColors(Vec4* ac, RelativeColor* rc, int count) {
+	strCpyInc(&temp, "\\\\ Notes: \r\n");
+	strCpyInc(&temp, "\\\\ - Settings are hotloaded. \r\n");
+	strCpyInc(&temp, "\\\\ - App and windows font folders are checked for fonts. \r\n");
+	strCpyInc(&temp, "\r\n");
+
+	strCpyInc(&temp, "\\\\ ==================== App Settings. ==================== \\\\\r\n\r\n");
+	writeTypeSimple(&temp, STRUCTTYPE_AppSettings, appSettings);
+	strCpyInc(&temp, "\r\n");
+
+	strCpyInc(&temp, "\\\\ ==================== App Colors. ==================== \\\\\r\n\r\n");
+	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelative);
+
+	writeBufferToFile(buffer, settingsFile);
+}
+
+
+bool relativeToAbsoluteColors(Vec4* ac, RelativeColor* rc, int count) {
 	int* indexes = getTArray(int, count);
 	for(int i = 0; i < count; i++) indexes[i] = rc[i].i;
 
-		for(;;) {
-			bool unresolvedValues = false;
+	bool infiniteLoop = false;
+	int counter = 0;
+	for(;;) {
+		bool unresolvedValues = false;
 
-			for(int i = 0; i < count; i++) {
-				if(indexes[i] != -1) {
-					int index = indexes[i];
-					if(indexes[index] == -1) {
-						rc[i].c += rc[index].c;
-						indexes[i] = -1;
-					} else {
-						unresolvedValues = true;
-					}
+		for(int i = 0; i < count; i++) {
+			if(indexes[i] != -1) {
+				int index = indexes[i];
+				if(indexes[index] == -1) {
+					rc[i].c += rc[index].c;
+					indexes[i] = -1;
+				} else {
+					unresolvedValues = true;
 				}
 			}
-
-			if(!unresolvedValues) break;
 		}
 
-		for(int i = 0; i < count; i++) ac[i] = vec4(hslToRgbFloat(rc[i].c.rgb), rc[i].c.a);
+		if(!unresolvedValues) break;
+		counter++;
+		if(counter > 10) {
+			infiniteLoop = true;
+			break;
+		}
 	}
+
+	if(!infiniteLoop) {
+		for(int i = 0; i < count; i++) ac[i] = vec4(hslToRgbFloat(rc[i].c.rgb), rc[i].c.a);
+		return true;
+	} else {
+		return false;
+	}
+}
 
 
 
@@ -934,6 +967,9 @@ struct SliderSettings {
 
 	int mouseWheelModInt;
 	float mouseWheelModFloat;
+
+	bool useDefaultValue;
+	float defaultvalue;
 };
 
 SliderSettings sliderSettings(TextBoxSettings textBoxSettings, float size, float minSize, float lineWidth, float rounding, float heightOffset, Vec4 color, Vec4 lineColor) {
@@ -1023,6 +1059,9 @@ struct NewGui {
 	int contenderId[Gui_Focus_Size];
 	int contenderIdZ[Gui_Focus_Size];
 
+	int storedIds[10];
+	int storedIdCount;
+
 	Input* input;
 	WindowSettings* windowSettings;
 
@@ -1070,13 +1109,6 @@ struct NewGui {
 	int layoutStackIndex;
 };
 
-void newGuiPopupPush(NewGui* gui, PopupData data) {
-	gui->popupStack[gui->popupStackCount++] = data;
-}
-void newGuiPopupPop(NewGui* gui) {
-	gui->popupStackCount--;
-}
-
 void newGuiBegin(NewGui* gui, Input* input = 0) {
 	gui->id = 1;
 	gui->gotActiveId = 0;
@@ -1111,8 +1143,29 @@ void newGuiEnd(NewGui* gui) {
 	}
 }
 
-int newGuiIncrementId(NewGui* gui) {
+int newGuiAdvanceId(NewGui* gui) {
 	return gui->id++;
+}
+
+// "Increment" doesn't make sense anymore, but too lazy to change the name.
+int newGuiIncrementId(NewGui* gui) {
+	if(gui->storedIdCount) {
+		int storedId = gui->storedIds[gui->storedIdCount-1];
+		gui->storedIdCount--;
+
+		return storedId;
+	} else {
+		return newGuiAdvanceId(gui);
+	}
+}
+
+void newGuiStoreIds(NewGui* gui, int count) {
+	for(int i = 0; i < count; i++) 
+		gui->storedIds[gui->storedIdCount++] = newGuiAdvanceId(gui);
+}
+
+void newGuiClearStoredIds(NewGui* gui) {
+	gui->storedIdCount = 0;
 }
 
 int newGuiCurrentId(NewGui* gui) {
@@ -1308,13 +1361,19 @@ Vec4 newGuiColorModId(NewGui* gui, int id, int focus = 0) {
 Vec4 newGuiColorModBId(NewGui* gui, int id, int focus = 0) {
 	return newGuiHotActiveColorMod(newGuiIsHot(gui, id, focus), newGuiGotActive(gui, id));
 }
+// Vec4 newGuiColorModPId(NewGui* gui, int id, int focus = 0) {
+// 	return newGuiHotActiveColorMod(newGuiIsHot(gui, id, focus), newGuiGotActive(gui, id));
+// }
+
 Vec4 newGuiColorMod(NewGui* gui, int focus = 0) {
 	return newGuiColorModId(gui, newGuiCurrentId(gui), focus);
 }
 Vec4 newGuiColorModB(NewGui* gui, int focus = 0) {
 	return newGuiColorModBId(gui, newGuiCurrentId(gui), focus);
 }
-
+// Vec4 newGuiColorModP(NewGui* gui, int focus = 0) {
+// 	return newGuiColorModPId(gui, newGuiCurrentId(gui), focus);
+// }
 
 
 
@@ -1354,8 +1413,17 @@ LayoutData* newGuiLayoutPush(NewGui* gui, Rect region) {
 	newLd.dim = rectDim(region);
 	return newGuiLayoutPush(gui, newLd);
 }
-LayoutData* newGuiLayoutPop(NewGui* gui) {
+LayoutData* newGuiLayoutPush(NewGui* gui) {
+	return newGuiLayoutPush(gui, *gui->ld);
+}
+
+LayoutData* newGuiLayoutPop(NewGui* gui, bool updateY = true) {
+	if(updateY) {
+		gui->layoutStack[gui->layoutStackIndex-1].pos.y = gui->layoutStack[gui->layoutStackIndex].pos.y;
+	}
+
 	gui->layoutStackIndex--;
+
 	gui->ld = &gui->layoutStack[gui->layoutStackIndex];
 	return gui->ld;
 }
@@ -1384,7 +1452,12 @@ void newGuiScissorLayoutPop(NewGui* gui) {
 	newGuiLayoutPop(gui);
 }
 
-
+void newGuiPopupPush(NewGui* gui, PopupData data) {
+	gui->popupStack[gui->popupStackCount++] = data;
+}
+void newGuiPopupPop(NewGui* gui) {
+	gui->popupStackCount--;
+}
 
 
 
@@ -1744,23 +1817,36 @@ void newGuiQuickTextBox(NewGui* gui, Rect r, char* t, TextBoxSettings* settings 
 	return newGuiQuickTextBox(gui, r, t, vec2i(0,0), settings);
 }
 
-bool newGuiQuickButton(NewGui* gui, Rect r, char* text, Vec2i align, TextBoxSettings* settings = 0) {
-
+bool _newGuiQuickButton(NewGui* gui, Rect r, char* text, Vec2i align, TextBoxSettings* settings, bool highlightOnActive) {
 	Rect intersection = getRectScissor(gui->scissor, r);
 	bool active = newGuiGoButtonAction(gui, intersection, gui->zLevel);
 	if(rectEmpty(intersection)) return false;
 
 	TextBoxSettings set = settings == 0 ? gui->buttonSettings : *settings;
-	set.boxSettings.color += newGuiColorModB(gui);
+	set.boxSettings.color += highlightOnActive?newGuiColorModB(gui):newGuiColorMod(gui);
 	drawTextBox(r, text, align, gui->scissor, set);
 
 	return active;
+}
+
+bool newGuiQuickButton(NewGui* gui, Rect r, char* text, Vec2i align, TextBoxSettings* settings = 0) {
+	return _newGuiQuickButton(gui, r, text, align, settings == 0 ? &gui->buttonSettings : settings, true);
 }
 bool newGuiQuickButton(NewGui* gui, Rect r, char* text, TextBoxSettings* settings = 0) {
 	return newGuiQuickButton(gui, r, text, vec2i(0,0), settings);
 }
 bool newGuiQuickButton(NewGui* gui, Rect r, TextBoxSettings* settings = 0) {
 	return newGuiQuickButton(gui, r, "", vec2i(0,0), settings);
+}
+
+bool newGuiQuickPButton(NewGui* gui, Rect r, char* text, Vec2i align, TextBoxSettings* settings = 0) {
+	return _newGuiQuickButton(gui, r, text, align, settings == 0 ? &gui->buttonSettings : settings, false);
+}
+bool newGuiQuickPButton(NewGui* gui, Rect r, char* text, TextBoxSettings* settings = 0) {
+	return newGuiQuickPButton(gui, r, text, vec2i(0,0), settings);
+}
+bool newGuiQuickPButton(NewGui* gui, Rect r, TextBoxSettings* settings = 0) {
+	return newGuiQuickPButton(gui, r, "", vec2i(0,0), settings);
 }
 
 
@@ -1804,9 +1890,9 @@ bool newGuiQuickTextEdit(NewGui* gui, Rect r, float* data, TextEditSettings* edi
 }
 
 
-float sliderGetMod(NewGui* gui, int type, SliderSettings* settings, bool neg = false) {
+float sliderGetMod(NewGui* gui, int type, SliderSettings* settings, int mod) {
 	Input* input = gui->input;
-	float modifier = (neg?-1:1);
+	float modifier = mod;
 	if(input->keysDown[KEYCODE_SHIFT] && input->keysDown[KEYCODE_CTRL]) modifier *= 100;
 	else if(input->keysDown[KEYCODE_SHIFT]) modifier *= 10;
 	else if(input->keysDown[KEYCODE_CTRL]) modifier /= 10;
@@ -1851,21 +1937,18 @@ bool newGuiQuickSlider(NewGui* gui, Rect r, int type, void* val, void* min, void
 	// Mouse Wheel / Arrow Keys.
 	{
 		Input* input = gui->input;
-		bool mod = false;
-		bool neg = false;
+		int mod = 0;
 		if(newGuiGoButtonAction(gui, r, gui->zLevel, Gui_Focus_MWheel)) {
-			mod = true;
-			neg = input->mouseWheel < 0;
+			mod = input->mouseWheel;
 		}
 		if(newGuiGoButtonAction(gui, r, gui->zLevel, input->keysPressed[KEYCODE_LEFT] || input->keysPressed[KEYCODE_RIGHT], Gui_Focus_ArrowKeys)) {
-			mod = true;
-			neg = input->keysPressed[KEYCODE_LEFT];
+			mod = input->keysPressed[KEYCODE_LEFT]?-1:1;
 		}
 
 		if(mod) {
-			float mod = sliderGetMod(gui, type, &set, neg);
-			if(typeIsInt) Void_Dref(int, val) += roundInt(mod);
-			else Void_Dref(float, val) += mod;
+			float modValue = sliderGetMod(gui, type, &set, mod);
+			if(typeIsInt) Void_Dref(int, val) += roundInt(modValue);
+			else Void_Dref(float, val) += modValue;
 			result = true;
 		}
 	}
@@ -1892,16 +1975,24 @@ bool newGuiQuickSlider(NewGui* gui, Rect r, int type, void* val, void* min, void
 	int event = newGuiGoDragAction(gui, slider, gui->zLevel);
 	if(rectEmpty(getRectScissor(gui->scissor, r))) return false;
 
-	if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
-	if(event > 0) {
-		floatVal = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, sliderSize, floatMin, floatMax, true);
+	if(event == 1 && set.useDefaultValue && gui->input->doubleClick) {
+		newGuiSetNotActive(gui, newGuiCurrentId(gui));
+		result = true;
 
-		if(typeIsInt) floatVal = roundInt(floatVal);
-		slider = newGuiCalcSlider(floatVal, r, sliderSize, floatMin, floatMax, true);
+		if(typeIsInt) Void_Dref(int, val) = roundInt(set.defaultvalue);
+		else Void_Dref(float, val) = set.defaultvalue;
+	} else {
+		if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
+		if(event > 0) {
+			floatVal = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, sliderSize, floatMin, floatMax, true);
+
+			if(typeIsInt) floatVal = roundInt(floatVal);
+			slider = newGuiCalcSlider(floatVal, r, sliderSize, floatMin, floatMax, true);
+		}
+
+		if(typeIsInt) Void_Dref(int, val) = floatVal;
+		else Void_Dref(float, val) = floatVal;
 	}
-
-	if(typeIsInt) Void_Dref(int, val) = floatVal;
-	else Void_Dref(float, val) = floatVal;
 
 	set.color += newGuiColorMod(gui);
 	if(!editMode) drawSlider(val, type, r, slider, gui->scissor, set);
@@ -1960,6 +2051,8 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 	if(sliderSize == 0) sliderSize = (rectH(scrollBarRegion) / (rectH(scrollRegion)+itemsHeight)) * rectH(scrollBarRegion);
 	clampMin(&sliderSize, set.sliderSizeMin);
 
+	newGuiStoreIds(gui, 3);
+
 	if(hasScrollbar) {
 		// Scroll with mousewheel.
 		{
@@ -2002,6 +2095,8 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 		if(hasScrollbar) drawRectRounded(slider, set.sliderColor + newGuiColorModId(gui, sliderId), set.sliderRounding);
 	}
 
+	newGuiClearStoredIds(gui);
+
 	set.border.x = clampMin(set.border.x, 1);
 	set.border.y = clampMin(set.border.y, 1);
 
@@ -2035,26 +2130,23 @@ bool newGuiQuickComboBox(NewGui* gui, Rect r, ComboBoxData cData, TextBoxSetting
 	if(rectEmpty(intersection)) return false;
 
 	TextBoxSettings set = settings == 0 ? gui->comboBoxSettings : *settings;
-	set.boxSettings.color += newGuiColorModB(gui);
+	set.boxSettings.color += newGuiColorMod(gui);
 
 	bool updated = false;
 
 	// Mouse Wheel / Arrow Keys.
 	{
 		Input* input = gui->input;
-		bool mod = false;
-		bool neg = false;
+		int mod = 0;
 		if(newGuiGoButtonAction(gui, r, gui->zLevel, Gui_Focus_MWheel)) {
-			mod = true;
-			neg = -input->mouseWheel < 0;
+			mod = -input->mouseWheel;
 		}
 		bool keys = input->keysPressed[KEYCODE_LEFT] || input->keysPressed[KEYCODE_RIGHT] || input->keysPressed[KEYCODE_UP] || input->keysPressed[KEYCODE_DOWN];
 		if(newGuiGoButtonAction(gui, r, gui->zLevel, keys, Gui_Focus_ArrowKeys)) {
-			mod = true;
-			neg = input->keysPressed[KEYCODE_LEFT] || input->keysPressed[KEYCODE_UP];
+			mod = (input->keysPressed[KEYCODE_LEFT] || input->keysPressed[KEYCODE_UP])?-1:1;
 		}
 		if(mod) {
-			cData.index += neg?-1:1;
+			cData.index += mod;
 			clampInt(&cData.index, 0, cData.count-1);
 			gui->comboBoxData.index = cData.index;
 			updated = true;
@@ -2089,9 +2181,10 @@ bool newGuiQuickComboBox(NewGui* gui, Rect r, ComboBoxData cData, TextBoxSetting
 		updated = true;
 	}
 
-	drawBox(r, gui->scissor, set.boxSettings);
 
 	{
+		drawBox(r, gui->scissor, set.boxSettings);
+
 		Rect mainRect = rectExpand(r, vec2(-set.sideAlignPadding*2,0));
 		float fontHeight = set.textSettings.font->height;
 
@@ -2592,32 +2685,39 @@ void newGuiUpdatePopups(NewGui* gui) {
 				float fontHeight = gui->textSettings.font->height;
 				ComboBoxData cData = gui->comboBoxData;
 
+				float padding = gui->comboBoxSettings.sideAlignPadding;
+
 				float maxWidth = 0;
 				for(int i = 0; i < cData.count; i++) {
 					float w = getTextDim(cData.strings[i], bs.textSettings.font).w;
 					maxWidth = max(maxWidth, w);
 				}
-				maxWidth += 10;
-				clamp(&maxWidth, POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
+				maxWidth += padding*2 + 4;
+				// clamp(&maxWidth, POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
 
 				// Rect r = rectTDim(rectT(pd.r), vec2(maxWidth, (fontHeight+1) * cData.count));
 				float popupWidth = rectW(pd.r);
 				clampMin(&popupWidth, POPUP_MIN_WIDTH);
-				Rect r = rectTDim(rectT(pd.r), vec2(popupWidth, (fontHeight+1) * cData.count));
+				// Rect r = rectTDim(rectT(pd.r), vec2(popupWidth, (fontHeight) * cData.count + 1));
+				Rect r = rectTDim(rectT(pd.r)-vec2(0,2), vec2(max(maxWidth, rectW(pd.r)), (fontHeight) * cData.count + 1));
 
 
 				newGuiSetHotAllMouseOver(gui, r, gui->zLevel);
 				drawBox(r, gui->scissor, gui->popupSettings);
 
 				scissorState();
-				float padding = gui->comboBoxSettings.sideAlignPadding;
 				Rect layoutRect = rectExpand(r, vec2(-padding*2,-2));
 				newGuiScissorLayoutPush(gui, layoutRect, layoutData(layoutRect, gui->textSettings.font->height, 0, 0));
 
 				gui->comboBoxSettings.sideAlignPadding = 0;
 
 				for(int i = 0; i < cData.count; i++) {
-					if(newGuiQuickButton(gui, newGuiLRectAdv(gui), cData.strings[i], vec2i(-1,0))) {
+					bs.boxSettings.color = gui->popupSettings.color;
+					if(cData.index == i) bs.boxSettings.color += newGuiHotActiveColorMod(true, false);
+					// if(cData.index == i) bs.boxSettings.borderColor.a = 1;
+					// else bs.boxSettings.borderColor.a = 0;
+
+					if(newGuiQuickButton(gui, newGuiLRectAdv(gui), cData.strings[i], vec2i(-1,0), &bs)) {
 						gui->comboBoxData.index = i;
 						gui->comboBoxData.finished = true;
 						// newGuiPopupPop(gui);
@@ -3991,104 +4091,46 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(init || ad->reloadSettings) {
 	// if(init || ad->reloadSettings || reload) {
 
-		// if(!fileExists(App_Settings_File)) {
-			if(init) {
+			if(!fileExists(App_Settings_File)) {
+			// if(init) {
 				AppSettings as;
-				AppColors ac;
 				AppColorsRelative rac;
 
-				{
-					as.font = "OpenSans-Regular.ttf";
-					as.fontBold = "OpenSans-Bold.ttf";
-					as.fontItalic = "OpenSans-Italic.ttf";
-					as.fontHeight = 20;
-					as.fontShadow = 0;
+				as.font = "OpenSans-Regular.ttf";
+				as.fontBold = "OpenSans-Bold.ttf";
+				as.fontItalic = "OpenSans-Italic.ttf";
+				as.fontHeight = 20;
+				as.fontShadow = 0;
+				as.graphTitleFontHeight = 30;
+				as.graphFontShadow = 1;
+				as.windowHeightMod = 1.0f;
+				as.windowBorder = 4;
+				as.border = 4;
+				as.padding = 4;
+				as.heightMod = 1.2f;
+				as.textPaddingMod = 0.5f;
+				as.rounding = 5;
 
-					as.graphTitleFontHeight = 30;
-					as.graphFontShadow = 1;
+				rac.font =                  relativeColor(vec4(0,0,0.9f, 1));
+				rac.font2 =                 relativeColor(vec4(0,0,0.7f, 1));
+				rac.fontShadow =            relativeColor(vec4(0,0,0.1f,1));
+				rac.background =            relativeColor(vec4(0,0,0.2f,1));
+				rac.windowBorder =          relativeColor(vec4(0,0,+0.08f,0), 5); // background
+				rac.button =                relativeColor(vec4(0,0,0.05f,0), 5); // background
+				rac.uiBackground =		    relativeColor(vec4(0,0,-0.03f,0), 5); // background
+				rac.graphFont =             relativeColor(0); // font
+				rac.graphBackgroundTop =    relativeColor(vec4(0.65f, 0.1f, 0.15f, 1)); 
+				rac.graphBackgroundBottom = relativeColor(vec4(0,0,0,-0.1f), 15); // graphBackgroundTop
+				rac.graphData1 =            relativeColor(vec4(0.50f, 0.7f, 0.4f, 1));
+				rac.graphData2 =            relativeColor(vec4(0.15f, 0,0,0), 11); // graphData1
+				rac.graphData3 =            relativeColor(vec4(0.5f, 0,0,0), 11); // graphData1
+				rac.graphMark =             relativeColor(vec4(0,0,1,0.05f));
+				rac.graphSubMark =          relativeColor(vec4(0,0,1,0.025f));
+				rac.editCursor =            relativeColor(13); // graphData3
+				rac.editSelection =         relativeColor(12); // graphData2
+				rac.edge =                  relativeColor(vec4(0,0,0.2f,0), 5); // background
 
-					as.windowHeightMod = 1.0f;
-					as.windowBorder = 4;
-					as.border = 4;
-					as.padding = 4;
-					as.heightMod = 1.2f;
-
-					as.textPaddingMod = 0.5f;
-
-					as.rounding = 5;
-
-
-
-					// ac.font = vec4(0.9f, 1);
-					// ac.font2 = vec4(0.7f, 1);
-					// ac.fontShadow = vec4(0.1f,1);
-
-					// Vec3 hslBackground = vec3(0.65f, 0.5f, 0.3f);
-					// Vec3 hslButton = hslBackground + vec3(0.25f,0,0);
-					// Vec3 hslGraph = hslBackground + vec3(0.1f,0,0);
-
-					// ac.background =            vec4(0.2f,1);
-					// ac.windowBorder =          ac.background + vec4(+0.08f,0);
-					// ac.button =                ac.background + vec4(0.05f,0);
-					// ac.uiBackground =		   ac.background + vec4(-0.03f,0);
-
-					// ac.graphFont =             ac.font;
-					// ac.graphBackgroundTop =    hslToRgbFloatAlpha(hslBackground + vec3(0,-0.4f,-0.12f));
-					// ac.graphBackgroundBottom = hslToRgbFloatAlpha(hslBackground + vec3(0,-0.54f,-0.2f));
-
-					// ac.graphData1 =            hslToRgbFloatAlpha(hslGraph + vec3(-0.25f, 0.2f,0.1f));
-					// ac.graphData2 =            hslToRgbFloatAlpha(hslGraph + vec3(0.18f,0.2f,0.1f));
-					// ac.graphData3 =            hslToRgbFloatAlpha(hslGraph + vec3(0.5,   0.2f,0.1f));
-
-					// ac.graphMark =             vec4(1,0.05f);
-					// ac.graphSubMark =          vec4(1,0.025f);
-
-					// ac.editCursor =            hslToRgbFloatAlpha(hslBackground + vec3(-0.3f,-0.1,0.3f));
-					// ac.editSelection =         hslToRgbFloatAlpha(hslGraph + vec3(0.25f,0.0f,0.1f));
-					// ac.edge =                  ac.background + vec4(0.2f,0);
-
-
-
-						rac.font =                  relativeColor(vec4(0,0,0.9f, 1));
-						rac.font2 =                 relativeColor(vec4(0,0,0.7f, 1));
-						rac.fontShadow =            relativeColor(vec4(0,0,0.1f,1));
-						rac.background =            relativeColor(vec4(0,0,0.2f,1));
-					rac.windowBorder =          relativeColor(vec4(0,0,+0.08f,0), 5); // background
-					rac.button =                relativeColor(vec4(0,0,0.05f,0), 5); // background
-					rac.uiBackground =		    relativeColor(vec4(0,0,-0.03f,0), 5); // background
-					rac.graphFont =             relativeColor(0); // font
-					rac.graphBackgroundTop =    relativeColor(vec4(0.65f, 0.1f, 0.15f, 1)); 
-					rac.graphBackgroundBottom = relativeColor(vec4(0,0,0,-0.1f), 15); // graphBackgroundTop
-					rac.graphData1 =            relativeColor(vec4(0.50f, 0.7f, 0.4f, 1));
-					rac.graphData2 =            relativeColor(vec4(0.15f, 0,0,0), 11); // graphData1
-					rac.graphData3 =            relativeColor(vec4(0.5f, 0,0,0), 11); // graphData1
-					rac.graphMark =             relativeColor(vec4(0,0,1,0.05f));
-					rac.graphSubMark =          relativeColor(vec4(0,0,1,0.025f));
-					rac.editCursor =            relativeColor(13); // graphData3
-					rac.editSelection =         relativeColor(12); // graphData2
-					rac.edge =                  relativeColor(vec4(0,0,0.2f,0), 5); // background
-
-				}
-
-				// Write settings to file.
-				{
-					char* buffer, *temp;
-					buffer = getTString(kiloBytes(10));
-					temp = buffer;
-
-					strCpyInc(&temp, "\\\\ Notes: \r\n");
-					strCpyInc(&temp, "\\\\ - Settings are hotloaded. \r\n");
-					strCpyInc(&temp, "\\\\ - App and windows font folders are checked for fonts. \r\n");
-					strCpyInc(&temp, "\\\\ - Delete this file to get back to the default settings. \r\n");
-					strCpyInc(&temp, "\r\n");
-					strCpyInc(&temp, "\\\\ ==================== App Settings. ==================== \\\\\r\n \r\n");
-					writeTypeSimple(&temp, STRUCTTYPE_AppSettings, &as);
-
-					strCpyInc(&temp, "\r\n\\\\ ==================== App Colors. ==================== \\\\\r\n \r\n");
-					writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, &rac);
-
-					writeBufferToFile(buffer, App_Settings_File);
-				}
+				writeAppSettingsToFile(App_Settings_File, &as, &rac);
 			}
 
 			char* buffer = getTString(fileSize(App_Settings_File)+1);
@@ -4164,8 +4206,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->buttonSettings = textBoxSettings(ts, bs);
 
 			ad->uiButtonSettings = ad->buttonSettings; ad->uiButtonSettings.boxSettings.roundedCorner = 0;
-			ad->scrollButtonSettings = ad->uiButtonSettings; ad->scrollButtonSettings.boxSettings.borderColor = vec4(0,0);
+			ad->scrollButtonSettings = ad->uiButtonSettings; 			
+			ad->scrollButtonSettings.boxSettings.borderColor = vec4(0,0);
 			ad->scrollButtonSettings.sideAlignPadding = textPadding;
+			// ad->scrollButtonSettings.boxSettings.color = ac->uiBackground;
+
 
 			TextBoxSettings settings = ad->uiButtonSettings; settings.boxSettings.color = ac->uiBackground;
 
@@ -5480,10 +5525,10 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			char* drawModeStrings[] = {"Draw Lines", "Draw Points", "Draw Bars"};
 
-			char* labels[] = {"Panel (F1)", "Reset", "Settings", "Stat config:", "0.000", "0.000", "Filter Inclusive", "Filter Exclusive"};
+			char* labels[] = {"Panel (F1)", "Reset", "Stat config:", "0.000", "0.000", "Filter Inclusive", "Filter Exclusive"};
 			int li = 0;
 			float bp = font->height * as->textPaddingMod * 2;
-			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, 130, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp};
+			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, 130, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp + 50, getTextDim(labels[li++], font).x+bp + 50};
 			li = 0;
 
 
@@ -5503,9 +5548,9 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				ad->sortStat = -1;
 				ad->startLoadFile = true;
 			}
-			if(newGuiQuickButton(gui, layoutInc(&l), labels[li++])) {
-				shellExecuteNoWindow(fillString("explorer.exe %s", App_Settings_File));
-			}
+			// if(newGuiQuickButton(gui, layoutInc(&l), labels[li++])) {
+			// 	shellExecuteNoWindow(fillString("explorer.exe %s", App_Settings_File));
+			// }
 
 			layoutInc(&l);
 
@@ -6393,48 +6438,53 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 						drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), ld->pos + vec2(ld->dim.w,0), vec2i(1,1), wrapWidth, darkerLabelSettings);
 						ld->pos.y -= font->height;
+						ld->pos.y -= 8;
 					}
-						scrollHeight = scrollValues.pos.y - ld->pos.y + 4; // @Hack.
-					} else {
-						scrollHeight = rectH(r);
-						drawTriangle(rectCen(r), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
-					}
-
-					ld = newGuiLayoutPop(gui);
-					newGuiScissorPop(gui);
-					ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
+					scrollHeight = scrollValues.pos.y - ld->pos.y + 4; // @Hack.
+				} else {
+					scrollHeight = rectH(r);
+					drawTriangle(rectCen(r), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
 				}
 
+				ld = newGuiLayoutPop(gui);
 				newGuiScissorPop(gui);
-				newGuiLayoutPop(gui);
-				scissorState(false);
+				ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
+			}
+
+			newGuiScissorPop(gui);
+			newGuiLayoutPop(gui);
+			scissorState(false);
 
 
-				if(closePanel) {
-					ad->selectedVideo = -1;
-					if(ad->modeData.downloadMode == Download_Mode_Snippet) {
-						downloadModeAbort(&ad->modeData);
-					}
+			if(closePanel) {
+				ad->selectedVideo = -1;
+				if(ad->modeData.downloadMode == Download_Mode_Snippet) {
+					downloadModeAbort(&ad->modeData);
 				}
 			}
+		}
 
 		// Draw Borders.
-			{
-				glLineWidth(0.5f);
-				drawRectOutline(rGraphs, ac->edge);
-				drawRectOutline(ad->clientRect, ac->edge);
-			}
-
+		{
+			glLineWidth(0.5f);
+			drawRectOutline(rGraphs, ac->edge);
+			drawRectOutline(ad->clientRect, ac->edge);
 		}
+
+	}
 
 		TIMER_BLOCK_END(appMain);
 
 		endOfMainLabel:
 
 
+		{
+			// ad->panelMode = 1;
+			// ad->panelActive = true;
+		}
 
 
-	// Main Panel.
+		// Main Panel.
 		if(ad->panelActive) {
 			AppSettings as = ad->appSettings;
 			AppColors ac = ad->appColors;
@@ -6443,7 +6493,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			bool resizable = true;
 			bool resizableX = true;
 			bool resizableY = false;
-		// bool resizableY = true;
+			// bool resizableY = true;
 			bool movable = true;
 
 			Font* font = ad->font;
@@ -6459,7 +6509,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			float windowControlsPadding = 0.6f;
 			float windowControlsSize = 1.0f;
 
-		// Vec2 clientBorder = vec2(as.border);
+			// Vec2 clientBorder = vec2(as.border);
 			Vec2 clientBorder = vec2(textPadding);
 			float heightMod = as.heightMod;
 			float rowHeightNormal = font->height*heightMod;
@@ -6539,7 +6589,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				insideRect.top -= modeTabHeight;
 				drawRectOutlined(insideRect, backgroundColor, edgeColor);
 
-			// Panel mode switches.
+				// Panel mode switches.
 				{
 					float leftPadding = font->height;
 					char* labels[] = {"Main", "Settings"};
@@ -6558,12 +6608,14 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 					modeRect.left += leftPadding;
 					Vec2 p = rectTL(modeRect);
 
+					int newMode = ad->panelMode;
 					for(int i = 0; i < arrayCount(labels); i++) {
 						Rect r = rectTLDim(p, vec2(widths[li++], rectH(modeRect))); 
 
 						if(ad->panelMode != i) {
-							if(newGuiQuickButton(gui, r, labels[i], &unselectedTabSet)) ad->panelMode = i;
+							if(newGuiQuickPButton(gui, r, labels[i], &unselectedTabSet)) newMode = i;
 						} else {
+							newGuiIncrementId(gui);
 							r.bottom -= 1;
 							newGuiQuickTextBox(gui, r, labels[i], &selectedTabSet);
 							glLineWidth(2);
@@ -6573,6 +6625,8 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 						p += vec2(rectW(r), 0);
 					}
+
+					ad->panelMode = newMode;
 
 					gui->colorModActive = activeColorMod;
 					scissorState(false);
@@ -6589,101 +6643,109 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				Rect r;
 
 
-				if(ad->panelMode == 1) {
+			if(ad->panelMode == 1) {
 
-				// float maxTextWidth = 0;
-				// StructInfo* info = Get_Struct_Info(AppColors);
-				// for(int i = 0; i < info->memberCount; i++) {
-				// 	maxTextWidth = max(maxTextWidth, getTextDim(info->list[i].name, font).w);
-				// }
-				// maxTextWidth += 2;
-
-				// Vec2 sliderRange = vec2(0.001f, 0.999f);
-
-				// const int memberCount = arrayCount(ad->appColors.e);
-				// static int colorIndexes[memberCount] = {};
-
-				// gui->ld->defaultHeight = rowHeightNormal;
-				// gui->ld->yPadding = 2;
-
-				// AppColors* cs = &ad->appColors;
-				// for(int i = 0; i < info->memberCount; i++) {
-				// 	float widths[] = {maxTextWidth, 0, 0, 0, 0};
-				// 	l = layoutQuickRowArray(&lay, newGuiLRectAdv(gui), widths, arrayCount(widths));
-				// 	newGuiQuickTextBox(gui, layoutInc(&l), info->list[i].name, vec2i(1,0));
-
-				// 	Vec3 hslColor = rgbToHslFloat(cs->e[i].rgb);
-				// 	newGuiQuickSlider(gui, layoutInc(&l), &hslColor.x, sliderRange.min, sliderRange.max);
-				// 	newGuiQuickSlider(gui, layoutInc(&l), &hslColor.y, sliderRange.min, sliderRange.max);
-				// 	newGuiQuickSlider(gui, layoutInc(&l), &hslColor.z, sliderRange.min, sliderRange.max);
-
-				// 	newGuiQuickSlider(gui, layoutInc(&l), &colorIndexes[i], -1, memberCount);
-
-				// 	cs->e[i] = vec4(hslToRgbFloat(hslColor), cs->e[i].a);
-				// }
-
-
-
-
-					float maxTextWidth = 0;
-					StructInfo* info = Get_Struct_Info(AppColorsRelative);
-					for(int i = 0; i < info->memberCount; i++) {
-						maxTextWidth = max(maxTextWidth, getTextDim(info->list[i].name, font).w);
-					}
-					maxTextWidth += 2;
-
-					const int memberCount = arrayCount(ad->appColors.e);
-					static int colorIndexes[memberCount] = {};
-					if(init || reload) {
-						for(int i = 0; i < memberCount; i++) colorIndexes[i] = -1;
-					}
-
-				gui->ld->defaultHeight = rowHeightNormal;
-				gui->ld->yPadding = 2;
-
-				AppColors* cs = &ad->appColors;
+				float maxTextWidth = 0;
+				StructInfo* info = Get_Struct_Info(AppColorsRelative);
 				for(int i = 0; i < info->memberCount; i++) {
-					float widths[] = {maxTextWidth, 0, 0, 0, 0, 0, 0};
-					l = layoutQuickRowArray(&lay, newGuiLRectAdv(gui), widths, arrayCount(widths));
-					newGuiQuickTextBox(gui, layoutInc(&l), info->list[i].name, vec2i(1,0));
+					maxTextWidth = max(maxTextWidth, getTextDim(info->list[i].name, font).w);
+				}
+				maxTextWidth += 2;
 
-					RelativeColor* rc = &ad->appColorsRelative.e[i];
-
-					Vec2 sliderRange = rc->i == -1 ? vec2(0.001f, 0.999f) : vec2(-1, 1);
-					newGuiQuickSlider(gui, layoutInc(&l), &rc->c.x, sliderRange.min, sliderRange.max);
-					newGuiQuickSlider(gui, layoutInc(&l), &rc->c.y, sliderRange.min, sliderRange.max);
-					newGuiQuickSlider(gui, layoutInc(&l), &rc->c.z, sliderRange.min, sliderRange.max);
-					newGuiQuickSlider(gui, layoutInc(&l), &rc->c.a, sliderRange.min, sliderRange.max);
-
-					int temp = rc->i;
-					if(newGuiQuickSlider(gui, layoutInc(&l), &temp, -1, memberCount-1)) {
-						rc->i = temp;
-						if(rc->i == i) rc->i--;
-					}
-
-					// newGuiQuickButton(gui, layoutInc(&l), "test");
-
-					static int comboIndex = 0;
-					char* comboStrings[] = {"sadf", "3", "grt"};
-					ComboBoxData cData = {comboIndex, comboStrings, arrayCount(comboStrings)};
-					if(newGuiQuickComboBox(gui, layoutInc(&l), cData)) {
-						comboIndex = gui->comboBoxData.index;
-					}
+				char** colorStrings = (char**)getTArray(char*, info->memberCount+1);
+				int colorStringsCount = info->memberCount+1;
+				for(int i = 0; i < info->memberCount+1; i++) {
+					if(i == 0) colorStrings[i] = getTStringCpy("");
+					else colorStrings[i] = getTStringCpy(info->list[i-1].name);
 				}
 
-				AppColorsRelative temp = ad->appColorsRelative;
-				relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
 
+				const int memberCount = arrayCount(ad->appColors.e);
+				static int colorIndexes[memberCount] = {};
+				if(init || reload) {
+					for(int i = 0; i < memberCount; i++) colorIndexes[i] = -1;
+				}
+
+
+				{
+					newGuiLayoutPush(gui);
+					gui->ld->defaultHeight = rowHeightNormal;
+					gui->ld->yPadding = padding;
+
+					gui->sliderSettings.useDefaultValue = true;
+
+					for(int i = -1; i < info->memberCount; i++) {
+						float widths[] = {maxTextWidth, panelBorder, gui->ld->defaultHeight, 0, 0, 0, 0, panelBorder, 0};
+						l = layoutQuickRowArray(&lay, newGuiLRectAdv(gui), widths, arrayCount(widths));
+
+						if(i == -1) {
+							newGuiQuickTextBox(gui, layoutInc(&l), "Name", vec2i(0,0));
+							layoutInc(&l);
+							layoutInc(&l);
+							newGuiQuickTextBox(gui, layoutInc(&l), "Hue", vec2i(0,0));
+							newGuiQuickTextBox(gui, layoutInc(&l), "Saturation", vec2i(0,0));
+							newGuiQuickTextBox(gui, layoutInc(&l), "Lightness", vec2i(0,0));
+							newGuiQuickTextBox(gui, layoutInc(&l), "Alpha", vec2i(0,0));
+							layoutInc(&l);
+							newGuiQuickTextBox(gui, layoutInc(&l), "Relative To", vec2i(0,0));
+						} else {
+							newGuiQuickTextBox(gui, layoutInc(&l), info->list[i].name, vec2i(1,0));
+
+							layoutInc(&l);
+
+							BoxSettings colorPreviewSettings = gui->editSettings.textBoxSettings.boxSettings;
+							colorPreviewSettings.color = ad->appColors.e[i];
+							drawBox(layoutInc(&l), gui->scissor, colorPreviewSettings);
+
+							RelativeColor* rc = &ad->appColorsRelative.e[i];
+							Vec2 sliderRange = rc->i == -1 ? vec2(0.001f, 0.999f) : vec2(-1, 1);
+							gui->sliderSettings.defaultvalue = rc->i==-1? 0 : 0;
+							newGuiQuickSlider(gui, layoutInc(&l), &rc->c.x, sliderRange.min, sliderRange.max);
+							gui->sliderSettings.defaultvalue = rc->i==-1? 0.5 : 0;
+							newGuiQuickSlider(gui, layoutInc(&l), &rc->c.y, sliderRange.min, sliderRange.max);
+							gui->sliderSettings.defaultvalue = rc->i==-1? 0.5 : 0;
+							newGuiQuickSlider(gui, layoutInc(&l), &rc->c.z, sliderRange.min, sliderRange.max);
+							gui->sliderSettings.defaultvalue = rc->i==-1? 1 : 0;
+							newGuiQuickSlider(gui, layoutInc(&l), &rc->c.a, sliderRange.min, sliderRange.max);
+
+							layoutInc(&l);
+
+							ComboBoxData cData = {rc->i+1, colorStrings, colorStringsCount};
+							if(newGuiQuickComboBox(gui, layoutInc(&l), cData)) {
+								float oldValue = rc->i;
+								rc->i = gui->comboBoxData.index-1;
+
+								AppColorsRelative temp = ad->appColorsRelative;
+								bool result = relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
+
+								if(!result) rc->i = oldValue;
+							}
+						}
+					}
+
+					gui->sliderSettings.useDefaultValue = false;
+
+					AppColorsRelative temp = ad->appColorsRelative;
+					relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
+
+					newGuiLayoutPop(gui);
+				}
+
+				newGuiLAdv(gui, yOffsetExtra);
+				gui->ld->dim.w -= 40;
+				gui->ld->pos.x += 20;
+
+				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0,0);
+				if(newGuiQuickButton(gui, layoutInc(&l), "Open app folder")) 
+					shellExecuteNoWindow(fillString("explorer.exe %s", App_Folder));
+				if(newGuiQuickButton(gui, layoutInc(&l), "Open settings")) 
+					shellExecuteNoWindow(fillString("explorer.exe %s", App_Settings_File));
+				if(newGuiQuickButton(gui, layoutInc(&l), "Save settings")) 
+					writeAppSettingsToFile(App_Settings_File, &ad->appSettings, &ad->appColorsRelative);
 
 
 
 			} else if(ad->panelMode == 0) {
-
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
-				if(newGuiQuickButton(gui, layoutInc(&l), "Open app folder")) shellExecuteNoWindow(fillString("explorer.exe %s", App_Folder));
-				if(newGuiQuickButton(gui, layoutInc(&l), "Delete app save")) remove(App_Save_File);
-
-				newGuiLAdv(gui, yOffsetExtra);
 
 				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
 				if(newGuiQuickButton(gui, layoutInc(&l), "Make screenshot")) {
@@ -6710,8 +6772,8 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 				newGuiQuickText(gui, newGuiLRectAdv(gui), fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s"), &boldLabelSettings); 
 
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0);
-				if(newGuiQuickButton(gui, layoutInc(&l), "Open folder")) shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));			
+				// l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0);
+				// if(newGuiQuickButton(gui, layoutInc(&l), "Open folder")) shellExecuteNoWindow(fillString("explorer.exe %s", Playlist_Folder));
 
 				{
 					static float scrollValue = 0;
