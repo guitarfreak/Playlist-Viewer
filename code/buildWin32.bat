@@ -6,26 +6,50 @@ cd %scriptpath%
 if not exist "..\buildWin32" mkdir ..\buildWin32
 pushd ..\buildWin32
 
-set LIBFOLDER=C:\Projects\Libs
-set MYLIBFOLDER=C:\Projects\MyLibs
-set INCLUDES=
+set INC=
 set LIBS=
-set LINKER_INCLUDES=
+set LINC=
 
 set LINKER_LIBS= -DEFAULTLIB:Opengl32.lib -DEFAULTLIB:ws2_32.lib -DEFAULTLIB:Shell32.lib -DEFAULTLIB:user32.lib -DEFAULTLIB:Gdi32.lib -DEFAULTLIB:Shlwapi.lib -DEFAULTLIB:Dwmapi.lib
 
-set INCLUDES=%INCLUDES% -I"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include"
-set LINKER_INCLUDES=%LINKER_INCLUDES% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\lib\amd64"
-set INCLUDES=%INCLUDES% -I"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"
-set LINKER_INCLUDES=%LINKER_INCLUDES% -LIBPATH:"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib\x64"
-set PATH=C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\amd64;%PATH%
+set          INC=%INC% -I"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include"
+set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\lib\amd64"
+set          INC=%INC% -I"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"
+set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib\x64"
+set                  PATH=C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\amd64;%PATH%
 
-set INCLUDES=%INCLUDES% -I"C:\Standalone\iaca"
+set INC=%INC% -I"C:\Standalone\iaca"
+
+
+
+
+rem set          INC=%INC% -I"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"
+rem set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib\x64"
+rem set          INC=%INC% -I"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include"
+rem set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\lib\amd64"
+rem set          INC=%INC% -I"C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include"
+rem set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\lib\amd64"
+rem set                  PATH=C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\bin\amd64;%PATH%
+
+
+
+rem set INC=%INC% -I"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include"
+rem set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\lib\amd64"
+
+rem set INC=%INC% -I"C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include"
+rem set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\lib\amd64"
+rem set INC=%INC% -I"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"
+rem set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib\x64"
+rem set PATH=C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\bin\amd64;%PATH%
+
+rem set INC=%INC% -I"C:\Standalone\iaca"
 
 
 set BUILD_MODE=-Od
 set MODE_DEFINE=
 if "%~2"=="-release" (
+	rem -Oy
+	rem -Zo
 	set BUILD_MODE=-O2
 	set MODE_DEFINE=-DRELEASE_BUILD
 )
@@ -37,10 +61,10 @@ set LINKER_OPTIONS= -link -SUBSYSTEM:WINDOWS -OUT:main.exe -incremental:no -opt:
 
 del main_*.pdb > NUL 2> NUL
 echo. 2>lock.tmp
-cl %COMPILER_OPTIONS% ..\code\app.cpp %MODE_DEFINE% -LD %INCLUDES% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %LINKER_INCLUDES% %LINKER_LIBS%
+cl %COMPILER_OPTIONS% ..\code\app.cpp %MODE_DEFINE% -LD %INC% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %LINC% %LINKER_LIBS%
 del lock.tmp
 
-cl %COMPILER_OPTIONS% ..\code\main.cpp %INCLUDES% %LINKER_OPTIONS% %LINKER_INCLUDES% %LINKER_LIBS%
+cl %COMPILER_OPTIONS% ..\code\main.cpp %INC% %LINKER_OPTIONS% %LINC% %LINKER_LIBS%
 
 
 

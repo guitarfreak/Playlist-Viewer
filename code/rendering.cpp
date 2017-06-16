@@ -796,6 +796,23 @@ void drawRectRounded(Rect r, Vec4 color, float size) {
 	// glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 };
 
+void drawRectShadow(Rect r, Vec4 color, float size) {
+	float z = globalGraphicsState->zOrder;
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	Vec4 c = COLOR_SRGB(color);
+	Vec4 c2 = vec4(0,0);
+	glBegin(GL_QUAD_STRIP);
+
+	pushColor(c); pushVec(rectBL(r), z); pushColor(c2); pushVec(rectBL(r) + normVec2(vec2(-1,-1))*size, z);
+	pushColor(c); pushVec(rectTL(r), z); pushColor(c2); pushVec(rectTL(r) + normVec2(vec2(-1, 1))*size, z);
+	pushColor(c); pushVec(rectTR(r), z); pushColor(c2); pushVec(rectTR(r) + normVec2(vec2( 1, 1))*size, z);
+	pushColor(c); pushVec(rectBR(r), z); pushColor(c2); pushVec(rectBR(r) + normVec2(vec2( 1,-1))*size, z);
+	pushColor(c); pushVec(rectBL(r), z); pushColor(c2); pushVec(rectBL(r) + normVec2(vec2(-1,-1))*size, z);
+
+	glEnd();
+};
+
 void drawRectRoundedOutline(Rect r, Vec4 color, float size, float offset = -1) {
 	if(size == 0) {
 		drawRectOutline(r, color);
@@ -926,6 +943,7 @@ void drawCross(Vec2 p, float size, float size2, Vec2 dir, Vec4 color) {
 	glEnd();
 }
 
+
 enum TextStatus {
 	TEXTSTATUS_END = 0, 
 	TEXTSTATUS_NEWLINE, 
@@ -1025,6 +1043,7 @@ float getCharAdvance(int c, int c2, Font* font) {
 
 
 
+
 struct TextInfo {
 	Vec2 pos;
 	int index;
@@ -1052,7 +1071,7 @@ struct TextSimInfo {
 };
 
 TextSimInfo initTextSimInfo(Vec2 startPos) {
-	TextSimInfo tsi;
+	TextSimInfo tsi = {};
 	tsi.pos = startPos;
 	tsi.index = 0;
 	tsi.wrapIndex = 0;

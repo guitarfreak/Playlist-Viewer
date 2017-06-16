@@ -18,21 +18,18 @@
 	- Fix fillString.
 	- Write own windows.h?
 	- Remove c runtime?
-
-	- Runs poorly when aero is enabled.
-	- Finish color panel.
-	- Total cleanup of the code.
-	- Align rects to int boundaries to make edges more sharp. Cursor as well.
-
 	- Slider snap back.
+	- Align rects to int boundaries to make edges more sharp. Cursor as well.
 	- Rect shadow draw function.
 	- Json stuff should check for errors.
+	- UI change history.
+
+	- Runs poorly when aero is enabled.
+	- Total cleanup of the code.
 
 
 	Done Today: 
-	- Caught bug: When using a macro with a number as argument always put parantheses around it.
-	- Combo box.
-	- Color settings menu.
+
 
 	Bugs:
 
@@ -40,6 +37,7 @@
 =================================================================================
 */
 
+#pragma optimize( "", on )
 
 
 // External.
@@ -98,6 +96,7 @@ Timer* globalTimer;
 	#define TIMER_BLOCKS_ENABLED
 #endif 
 
+
 #include "rt_types.cpp"
 #include "rt_timer.cpp"
 #include "rt_misc.cpp"
@@ -109,7 +108,6 @@ Timer* globalTimer;
 #include "memory.cpp"
 #include "openglDefines.cpp"
 #include "userSettings.cpp"
-
 #include "rendering.cpp"
 #include "gui.cpp"
 
@@ -196,12 +194,14 @@ struct AppSettings {
 	int windowBorder;
 	int border;
 	int padding;
+
+	bool darkTheme;
 };
 
 #include "debug.cpp"
 
 
-void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppColorsRelative* appColorsRelative) {
+void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppColorsRelative* appColorsRelativeLight, AppColorsRelative* appColorsRelativeDark) {
 	char* buffer, *temp;
 	buffer = getTString(kiloBytes(10));
 	temp = buffer;
@@ -216,7 +216,13 @@ void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppCol
 	strCpyInc(&temp, "\r\n");
 
 	strCpyInc(&temp, "\\\\ ==================== App Colors. ==================== \\\\\r\n\r\n");
-	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelative);
+	
+	strCpyInc(&temp, "\\\\ Light Theme:\r\n");
+	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelativeLight);
+
+	strCpyInc(&temp, "\r\n");
+	strCpyInc(&temp, "\\\\ Dark Theme:\r\n");
+	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelativeDark);
 
 	writeBufferToFile(buffer, settingsFile);
 }
@@ -280,7 +286,7 @@ bool relativeToAbsoluteColors(Vec4* ac, RelativeColor* rc, int count) {
 #define Cubic_Curve_Segment_Min 4
 
 #define App_Font_Folder "..\\data\\Fonts\\"
-#define Windows_Font_Folder "C:\\Windows\\Fonts\\"
+#define Windows_Font_Folder "\\Fonts\\"
 #define Default_Font "calibri.ttf"
 #define Playlist_Folder "..\\playlists\\"
 
@@ -926,7 +932,7 @@ struct TextBoxSettings {
 };
 
 TextBoxSettings textBoxSettings(TextSettings textSettings, BoxSettings boxSettings) {
-	return {textSettings, boxSettings};
+	return {textSettings, boxSettings, 0};
 }
 
 enum {
@@ -973,7 +979,7 @@ struct SliderSettings {
 };
 
 SliderSettings sliderSettings(TextBoxSettings textBoxSettings, float size, float minSize, float lineWidth, float rounding, float heightOffset, Vec4 color, Vec4 lineColor) {
-	return {textBoxSettings, size, minSize, lineWidth, rounding, heightOffset, color, lineColor};
+	return {textBoxSettings, size, minSize, lineWidth, rounding, heightOffset, color, lineColor, 0,0,false,0};
 }
 
 enum {
@@ -1004,7 +1010,7 @@ struct ScrollRegionSettings {
 
 ScrollRegionSettings scrollRegionSettings(BoxSettings boxSettings, int flags, Vec2 border, float scrollBarWidth, Vec2 sliderMargin, float sliderRounding, float sliderSize, float sliderSizeMin, float scrollAmount, Vec4 sliderColor, Vec4 scrollBarColor) {
 
-	ScrollRegionSettings s;
+	ScrollRegionSettings s = {};
 	s.boxSettings = boxSettings;
 	s.flags = flags;
 	s.border = border;
@@ -1984,7 +1990,8 @@ bool newGuiQuickSlider(NewGui* gui, Rect r, int type, void* val, void* min, void
 	} else {
 		if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - rectCen(slider);
 		if(event > 0) {
-			floatVal = newGuiSliderGetValue(gui->input->mousePosNegative - gui->mouseAnchor, r, sliderSize, floatMin, floatMax, true);
+			Vec2 pos = gui->input->mousePosNegative - gui->mouseAnchor;
+			floatVal = newGuiSliderGetValue(pos, r, sliderSize, floatMin, floatMax, true);
 
 			if(typeIsInt) floatVal = roundInt(floatVal);
 			slider = newGuiCalcSlider(floatVal, r, sliderSize, floatMin, floatMax, true);
@@ -2157,7 +2164,8 @@ bool newGuiQuickComboBox(NewGui* gui, Rect r, ComboBoxData cData, TextBoxSetting
 		PopupData pd = {};
 		pd.type = POPUP_TYPE_COMBO_BOX;
 		pd.id = newGuiCurrentId(gui);
-		pd.r = rectTLDim(rectBL(r), vec2(rectW(r), set.textSettings.font->height*cData.count));
+		// pd.r = rectTLDim(rectBL(r), vec2(rectW(r), set.textSettings.font->height*cData.count));
+		pd.r = rectTLDim(rectBL(r), vec2(rectW(r), 0));
 		pd.settings = gui->boxSettings;
 		pd.border = vec2(5,5);
 
@@ -2699,7 +2707,7 @@ void newGuiUpdatePopups(NewGui* gui) {
 				float popupWidth = rectW(pd.r);
 				clampMin(&popupWidth, POPUP_MIN_WIDTH);
 				// Rect r = rectTDim(rectT(pd.r), vec2(popupWidth, (fontHeight) * cData.count + 1));
-				Rect r = rectTDim(rectT(pd.r)-vec2(0,2), vec2(max(maxWidth, rectW(pd.r)), (fontHeight) * cData.count + 1));
+				Rect r = rectTDim(rectT(pd.r)-vec2(0,2), vec2(max(maxWidth, rectW(pd.r)), (fontHeight) * cData.count + 2));
 
 
 				newGuiSetHotAllMouseOver(gui, r, gui->zLevel);
@@ -3484,7 +3492,7 @@ Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
 
 
 struct AppData {
-// General.
+	// General.
 
 	SystemData systemData;
 	Input input;
@@ -3500,20 +3508,22 @@ struct AppData {
 
 	int msaaSamples;
 
-// Window.
+	// Window.
 
 	Rect clientRect;
 	Vec2i frameBufferSize;
 	bool screenShotMode;
 
-// App.
+	// App.
 
 	bool reloadSettings;
 	FILETIME settingsFileLastWriteTime;
 
-	AppColors appColors;
-	AppColorsRelative appColorsRelative;
 	AppSettings appSettings;
+	AppColorsRelative appColorsRelativeLight;
+	AppColorsRelative appColorsRelativeDark;
+
+	AppColors appColors;
 
 	bool appIsBusy;
 
@@ -3535,13 +3545,13 @@ struct AppData {
 	float sidePanelWidth;
 	float sidePanelMax;
 
-//
+	//
 
 	DownloadInfo dInfo;
 	CurlRequestData requestData;
 	DownloadModeData modeData;
 
-//
+	//
 
 	NewGui newGui;
 	NewGui* gui;
@@ -3561,7 +3571,7 @@ struct AppData {
 	ScrollRegionSettings commentScrollSettings;
 
 	TextBoxSettings comboBoxSettings;
-//
+	//
 
 	int playlistFolderIndex;
 	YoutubePlaylist playlist;
@@ -3629,8 +3639,8 @@ struct AppData {
 
 void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
 
-// #pragma optimize( "", off )
-#pragma optimize( "", on )
+#pragma optimize( "", off )
+// #pragma optimize( "", on )
 extern "C" APPMAINFUNCTION(appMain) {
 
 	i64 startupTimer = timerInit();
@@ -3892,7 +3902,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 
 		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(App_Font_Folder);
-		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(Windows_Font_Folder);
+		char* windowsFontFolder = fillString("%s%s", getenv("windir"), Windows_Font_Folder);
+		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(windowsFontFolder);
 
 
 		ad->curlHandle = curl_easy_initX();
@@ -3929,7 +3940,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->sidePanelMax = 0.5f;
 
 	// Make test file.
-		if(false) 
+		#if 0
 		{
 		// int count = 10000;
 			int count = 100000;
@@ -3966,6 +3977,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			free(videos);
 		}
+		#endif
 
 		ad->graphDrawMode = 0;
 		ad->sortByDate = true;
@@ -4034,10 +4046,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		int inputWaitMask = 0;
 		int waitTimeout = 0;
-	#ifdef RELEASE_BUILD
-		inputWaitMask = QS_ALLINPUT;
-		waitTimeout = INFINITE;
-	#endif
+
+	// #ifdef RELEASE_BUILD
+	// 	inputWaitMask = QS_ALLINPUT;
+	// 	waitTimeout = INFINITE;
+	// #endif
 
 		int message = -1;
 		if(!ad->appIsBusy) message = MsgWaitForMultipleObjects(systemData->folderHandleCount, systemData->folderHandles, false, waitTimeout, inputWaitMask);
@@ -4091,10 +4104,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(init || ad->reloadSettings) {
 	// if(init || ad->reloadSettings || reload) {
 
-			if(!fileExists(App_Settings_File)) {
-			// if(init) {
+			// if(!fileExists(App_Settings_File)) {
+			if(init) {
 				AppSettings as;
 				AppColorsRelative rac;
+				AppColorsRelative rac2;
 
 				as.font = "OpenSans-Regular.ttf";
 				as.fontBold = "OpenSans-Bold.ttf";
@@ -4111,34 +4125,57 @@ extern "C" APPMAINFUNCTION(appMain) {
 				as.textPaddingMod = 0.5f;
 				as.rounding = 5;
 
-				rac.font =                  relativeColor(vec4(0,0,0.9f, 1));
-				rac.font2 =                 relativeColor(vec4(0,0,0.7f, 1));
-				rac.fontShadow =            relativeColor(vec4(0,0,0.1f,1));
-				rac.background =            relativeColor(vec4(0,0,0.2f,1));
-				rac.windowBorder =          relativeColor(vec4(0,0,+0.08f,0), 5); // background
-				rac.button =                relativeColor(vec4(0,0,0.05f,0), 5); // background
-				rac.uiBackground =		    relativeColor(vec4(0,0,-0.03f,0), 5); // background
-				rac.graphFont =             relativeColor(0); // font
-				rac.graphBackgroundTop =    relativeColor(vec4(0.65f, 0.1f, 0.15f, 1)); 
-				rac.graphBackgroundBottom = relativeColor(vec4(0,0,0,-0.1f), 15); // graphBackgroundTop
-				rac.graphData1 =            relativeColor(vec4(0.50f, 0.7f, 0.4f, 1));
-				rac.graphData2 =            relativeColor(vec4(0.15f, 0,0,0), 11); // graphData1
-				rac.graphData3 =            relativeColor(vec4(0.5f, 0,0,0), 11); // graphData1
-				rac.graphMark =             relativeColor(vec4(0,0,1,0.05f));
-				rac.graphSubMark =          relativeColor(vec4(0,0,1,0.025f));
-				rac.editCursor =            relativeColor(13); // graphData3
-				rac.editSelection =         relativeColor(12); // graphData2
-				rac.edge =                  relativeColor(vec4(0,0,0.2f,0), 5); // background
+				as.darkTheme = true;
 
-				writeAppSettingsToFile(App_Settings_File, &as, &rac);
+				rac.font =                  { { 0.0010000, 0.0010000, 0.0010000, 0.9990000 },-1 };
+				rac.font2 =                 { { 0.0010000, 0.0010000, 0.2041946, 0.9990000 },-1 };
+				rac.graphFont =             { { 0.0000000, 0.0000000, 0.0000000, 0.0000000 }, 0 };
+				rac.fontShadow =            { { 0.0010000, 0.0010000, 0.9990000, 0.9990000 },-1 };
+				rac.windowBorder =          { { 0.0000000, 0.0000000,-0.2000000, 0.0000000 }, 5 };
+				rac.background =            { { 0.0010000, 0.0010000, 0.8560750, 0.9990000 },-1 };
+				rac.button =                { { 0.0000000, 0.0000000,-0.1553364, 0.0000000 }, 5 };
+				rac.uiBackground =          { { 0.0000000, 0.0000000,-0.2500001, 0.0000000 }, 5 };
+				rac.edge =                  { { 0.0000000, 0.0000000,-1.0000000, 0.0000000 }, 5 };
+				rac.editCursor =            { { 0.5010000, 0.6010000, 0.3010000, 0.9990000 },-1 };
+				rac.editSelection =         { {-0.2097955,-0.1090000, 0.4009999, 1.0000000 }, 9 };
+				rac.graphData1 =            { { 0.5063151, 0.7007888, 0.3092435, 0.9990000 },-1 };
+				rac.graphData2 =            { { 0.1061938,-0.1000000, 0.1000000, 0.0000000 }, 11 };
+				rac.graphData3 =            { {-0.2200000, 0.0000000, 0.0200000, 0.0000000 }, 11 };
+				rac.graphBackgroundBottom = { { 0.0000000, 0.0000000, 0.2007910, 0.0000000 }, 15 };
+				rac.graphBackgroundTop =    { { 0.0010000, 0.0010000, 0.7000105, 0.9990000 },-1 };
+				rac.graphMark =             { { 0.0010000, 0.0010000, 0.0010000, 0.2510002 },-1 };
+				rac.graphSubMark =          { { 0.0010000, 0.0010000, 0.0010000,-0.1000000 }, 16 };
+
+				rac2.font =                  { { 0.0010000, 0.0010000, 0.9000000, 0.9990000 },-1 };
+				rac2.font2 =                 { { 0.0010000, 0.0010000, 0.7000000, 0.9990000 },-1 };
+				rac2.graphFont =             { { 0.0000000, 0.0000000, 0.0000000, 0.0000000 }, 0 };
+				rac2.fontShadow =            { { 0.0010000, 0.0010000, 0.1000000, 0.9990000 },-1 };
+				rac2.windowBorder =          { { 0.0000000, 0.0000000, 0.0800000, 0.0000000 }, 5 };
+				rac2.background =            { { 0.0010000, 0.0010000, 0.2000000, 0.9990000 },-1 };
+				rac2.button =                { { 0.0000000, 0.0000000, 0.0500000, 0.0000000 }, 5 };
+				rac2.uiBackground =          { { 0.0000000, 0.0000000,-0.0300000, 0.0000000 }, 5 };
+				rac2.edge =                  { { 0.0000000, 0.0000000, 0.2000000, 0.0000000 }, 5 };
+				rac2.editCursor =            { { 0.5066964, 0.6009999, 0.7010000, 0.9990000 },-1 };
+				rac2.editSelection =         { { 0.2258796,-0.1090001,-0.2590001, 0.0000000 }, 9 };
+				rac2.graphData1 =            { { 0.5007138, 0.5000002, 0.4590000, 0.9990000 },-1 };
+				rac2.graphData2 =            { { 0.1500000, 0.0000000, 0.0500000, 0.0000000 }, 11 };
+				rac2.graphData3 =            { {-0.1526443, 0.0000000, 0.0000000, 0.0000000 }, 11 };
+				rac2.graphBackgroundBottom = { { 0.0000000, 0.0000000,-0.0800000, 0.0000000 }, 15 };
+				rac2.graphBackgroundTop =    { { 0.0010000, 0.0010000, 0.1665365, 0.9990000 },-1 };
+				rac2.graphMark =             { { 0.0010000, 0.0010000, 0.9990000, 0.0500000 },-1 };
+				rac2.graphSubMark =          { { 0.0010000, 0.0010000, 0.9990000, 0.0250000 },-1 };
+
+				writeAppSettingsToFile(App_Settings_File, &as, &rac, &rac2);
 			}
 
 			char* buffer = getTString(fileSize(App_Settings_File)+1);
 			readFileToBuffer(buffer, App_Settings_File);
 			parseTypeSimple(&buffer, STRUCTTYPE_AppSettings, &ad->appSettings);
-			parseTypeSimple(&buffer, STRUCTTYPE_AppColorsRelative, &ad->appColorsRelative);
+			parseTypeSimple(&buffer, STRUCTTYPE_AppColorsRelative, &ad->appColorsRelativeLight);
+			parseTypeSimple(&buffer, STRUCTTYPE_AppColorsRelative, &ad->appColorsRelativeDark);
 
-			AppColorsRelative temp = ad->appColorsRelative;
+
+			AppColorsRelative temp = ad->appSettings.darkTheme?ad->appColorsRelativeDark : ad->appColorsRelativeLight;
 			relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
 
 			{
@@ -6557,7 +6594,11 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			newGuiSetHotAllMouseOver(ad->gui, ad->panelRect, zLevel);
 			newGuiWindowUpdate(gui, &ad->panelRect, zLevel, windowSettings);
 
-			drawRectRounded(ad->panelRect, borderColor, roundedCorners);
+			// drawRectRounded(ad->panelRect, borderColor, roundedCorners);
+// void drawBox(Rect r, Rect scissor, BoxSettings settings) {
+			BoxSettings panelBoxSettings = gui->buttonSettings.boxSettings;
+			panelBoxSettings.color = borderColor;
+			drawBox(ad->panelRect, gui->scissor, panelBoxSettings);
 
 			{
 				Rect insideRect = rectExpand(ad->panelRect, -panelBorder*2);
@@ -6667,6 +6708,12 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				}
 
 
+				char* themeStrings[] = {"Light Theme", "Dark Theme"};
+				ComboBoxData cData = {ad->appSettings.darkTheme, themeStrings, arrayCount(themeStrings)};
+				if(newGuiQuickComboBox(gui, rectRSetR(newGuiLRectAdv(gui), 200), cData)) ad->appSettings.darkTheme = gui->comboBoxData.index;
+
+				AppColorsRelative* appColorsRelative = ad->appSettings.darkTheme?&ad->appColorsRelativeDark:&ad->appColorsRelativeLight;
+
 				{
 					newGuiLayoutPush(gui);
 					gui->ld->defaultHeight = rowHeightNormal;
@@ -6697,7 +6744,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 							colorPreviewSettings.color = ad->appColors.e[i];
 							drawBox(layoutInc(&l), gui->scissor, colorPreviewSettings);
 
-							RelativeColor* rc = &ad->appColorsRelative.e[i];
+							RelativeColor* rc = &appColorsRelative->e[i];
 							Vec2 sliderRange = rc->i == -1 ? vec2(0.001f, 0.999f) : vec2(-1, 1);
 							gui->sliderSettings.defaultvalue = rc->i==-1? 0 : 0;
 							newGuiQuickSlider(gui, layoutInc(&l), &rc->c.x, sliderRange.min, sliderRange.max);
@@ -6715,7 +6762,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 								float oldValue = rc->i;
 								rc->i = gui->comboBoxData.index-1;
 
-								AppColorsRelative temp = ad->appColorsRelative;
+								AppColorsRelative temp = *appColorsRelative;
 								bool result = relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
 
 								if(!result) rc->i = oldValue;
@@ -6725,7 +6772,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 					gui->sliderSettings.useDefaultValue = false;
 
-					AppColorsRelative temp = ad->appColorsRelative;
+					AppColorsRelative temp = *appColorsRelative;
 					relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
 
 					newGuiLayoutPop(gui);
@@ -6741,7 +6788,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				if(newGuiQuickButton(gui, layoutInc(&l), "Open settings")) 
 					shellExecuteNoWindow(fillString("explorer.exe %s", App_Settings_File));
 				if(newGuiQuickButton(gui, layoutInc(&l), "Save settings")) 
-					writeAppSettingsToFile(App_Settings_File, &ad->appSettings, &ad->appColorsRelative);
+					writeAppSettingsToFile(App_Settings_File, &ad->appSettings, &ad->appColorsRelativeLight, &ad->appColorsRelativeDark);
 
 
 
@@ -7033,7 +7080,11 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 	if(false)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1));
-		drawRectRoundedOutlined(rectCenDim(400,-400,200,200), vec4(0.4f,1), vec4(1.0f,1), 5, 10);
+		// drawRectRoundedOutlined(rectCenDim(400,-400,200,200), vec4(0.4f,1), vec4(1.0f,1), 5, 10);
+
+		// void drawRectRoundedShadow(Rect r, Vec4 color, float size) {
+		// drawRectRounded(rectCenDim(400,-400,200,200), vec4(0.4f,1), 20);
+		// drawRectShadow(rectCenDim(400,-400,200,200), vec4(0,1), 10);
 	}
 
 	if(false)
@@ -8051,6 +8102,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		// drawText(fillString("Fps  : %i", fps), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		// drawText(fillString("BufferIndex: %i",    ds->timer->bufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
 		// drawText(fillString("LastBufferIndex: %i",ds->lastBufferIndex), font, tp, c, ali, 0, sh, c2); tp.y -= fontSize;
+
 
 		TextSettings ts = textSettings(font, c, TEXT_SHADOW, sh, c2);
 		for(int i = 0; i < ds->infoStackCount; i++) {

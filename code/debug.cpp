@@ -110,6 +110,7 @@ StructMemberInfo Struct_Member_Info_Array(AppSettings)[] = {
 	initMemberInfo( Init_Member(AppSettings, windowBorder, int)),
 	initMemberInfo( Init_Member(AppSettings, border, int)),
 	initMemberInfo( Init_Member(AppSettings, padding, int)),
+	initMemberInfo( Init_Member(AppSettings, darkTheme, bool)),
 };
 
 // StructMemberInfo Struct_Member_Info_Array(AppColors)[] = {
@@ -318,9 +319,18 @@ void writeTypeSimple(char** b, int structType, void* d, int depth = 0) {
 	StructInfo* info = structInfos + structType;
 
 	if(typeIsCore(structType)) {
+		
 		// Align negative numbers.
-		if(structType == STRUCTTYPE_float && *((float*)d) < 0) (*b)--;
-		else if(structType == STRUCTTYPE_int && *((int*)d) < 0) (*b)--;
+		if(structType == STRUCTTYPE_float) {
+			float n = *((float*)d);
+			if(n == -0.0f) *((float*)d) = 0.0f;
+			if(n < 0) (*b)--;
+		} else if(structType == STRUCTTYPE_int) {
+			int n = *((int*)d);
+			if(n == -0) *((int*)d) = 0;
+			if(n < 0) (*b)--;
+		}
+
 		strCpyInc(b, coreTypeToString(structType, d));
 		return;
 	}
@@ -753,248 +763,3 @@ struct Asset {
 	FILETIME lastWriteTime;
 };
 
-
-
-
-
-
-
-// enum StructType {
-// 	STRUCTTYPE_INT = 0,
-// 	STRUCTTYPE_FLOAT,
-// 	STRUCTTYPE_CHAR,
-// 	STRUCTTYPE_BOOL,
-
-// 	STRUCTTYPE_VEC3,
-// 	STRUCTTYPE_TEST,
-// 	STRUCTTYPE_ENTITY,
-
-// 	STRUCTTYPE_SIZE,
-// };
-
-// enum ArrayType {
-// 	ARRAYTYPE_CONSTANT, 
-// 	ARRAYTYPE_DYNAMIC, 
-
-// 	ARRAYTYPE_SIZE, 
-// };
-
-// struct ArrayInfo {
-// 	int type;
-// 	int sizeMode;
-
-// 	union {
-// 		int size;
-// 		int offset;
-// 	};
-// };
-
-// struct StructMemberInfo {
-// 	char* name;
-// 	int type;
-// 	int offset;
-// 	int arrayCount;
-// 	ArrayInfo arrays[2];
-// };
-
-// StructMemberInfo initMemberInfo(char* name, int type, int offset) {
-// 	StructMemberInfo info;
-// 	info.name = name;
-// 	info.type = type;
-// 	info.offset = offset;
-// 	info.arrayCount = 0;
-
-// 	return info;
-// }
-
-// StructMemberInfo initMemberInfo(char* name, int type, int offset, ArrayInfo aInfo1, ArrayInfo aInfo2 = {-1}) {
-// 	StructMemberInfo info = initMemberInfo(name, type, offset);
-// 	info.arrayCount = 1;
-// 	if(aInfo2.type != -1) info.arrayCount = 2;
-
-// 	info.arrays[0] = aInfo1;
-// 	info.arrays[1] = aInfo2;
-
-// 	return info;
-// }
-
-// struct StructInfo {
-// 	char* name;
-// 	int size;
-// 	int memberCount;
-// 	StructMemberInfo* list;
-// };
-
-// StructMemberInfo vec3StructMemberInfos[] = {
-// 	initMemberInfo("x", STRUCTTYPE_FLOAT, offsetof(Vec3, x)),
-// 	initMemberInfo("y", STRUCTTYPE_FLOAT, offsetof(Vec3, y)),
-// 	initMemberInfo("z", STRUCTTYPE_FLOAT, offsetof(Vec3, z)),
-// };
-
-// // struct NewAppSettings {
-// // 	char* font;
-// // 	char* fontBold;
-// // 	char* fontItalic;
-
-// // 	int fontHeight;
-// // 	float fontShadow;
-// // 	int graphTitleFontHeight;
-// // 	float graphFontShadow;
-
-// // 	float windowHeightMod;
-// // 	float heightMod;
-// // 	float textPaddingMod;
-
-// // 	float rounding;
-
-// // 	int windowBorder;
-// // 	int border;
-// // 	int padding;
-// // };
-
-// StructMemberInfo testStructMemberInfos[] = {
-// 	initMemberInfo("x", STRUCTTYPE_FLOAT, offsetof(Vec3, x)),
-// 	initMemberInfo("y", STRUCTTYPE_FLOAT, offsetof(Vec3, y)),
-// 	initMemberInfo("z", STRUCTTYPE_FLOAT, offsetof(Vec3, z)),
-// };
-
-// // StructMemberInfo entityStructMemberInfos[] = {
-// // 	initMemberInfo("init", STRUCTTYPE_INT, offsetof(Entity, init)),
-// // 	initMemberInfo("type", STRUCTTYPE_INT, offsetof(Entity, type)),
-// // 	initMemberInfo("id", STRUCTTYPE_INT, offsetof(Entity, id)),
-// // 	initMemberInfo("name", STRUCTTYPE_CHAR, offsetof(Entity, name), {ARRAYTYPE_CONSTANT, 2, memberSize(Entity, name)}),
-// // 	initMemberInfo("pos", STRUCTTYPE_VEC3, offsetof(Entity, pos)),
-// // 	initMemberInfo("dir", STRUCTTYPE_VEC3, offsetof(Entity, dir)),
-// // 	initMemberInfo("rot", STRUCTTYPE_VEC3, offsetof(Entity, rot)),
-// // 	initMemberInfo("rotAngle", STRUCTTYPE_FLOAT, offsetof(Entity, rotAngle)),
-// // 	initMemberInfo("dim", STRUCTTYPE_VEC3, offsetof(Entity, dim)),
-// // 	initMemberInfo("camOff", STRUCTTYPE_VEC3, offsetof(Entity, camOff)),
-// // 	initMemberInfo("vel", STRUCTTYPE_VEC3, offsetof(Entity, vel)),
-// // 	initMemberInfo("acc", STRUCTTYPE_VEC3, offsetof(Entity, acc)),
-// // 	initMemberInfo("movementType", STRUCTTYPE_INT, offsetof(Entity, movementType)),
-// // 	initMemberInfo("spatial", STRUCTTYPE_INT, offsetof(Entity, spatial)),
-// // 	initMemberInfo("deleted", STRUCTTYPE_BOOL, offsetof(Entity, deleted)),
-// // 	initMemberInfo("isMoving", STRUCTTYPE_BOOL, offsetof(Entity, isMoving)),
-// // 	initMemberInfo("isColliding", STRUCTTYPE_BOOL, offsetof(Entity, isColliding)),
-// // 	initMemberInfo("exploded", STRUCTTYPE_BOOL, offsetof(Entity, exploded)),
-// // 	initMemberInfo("playerOnGround", STRUCTTYPE_BOOL, offsetof(Entity, playerOnGround)),
-// // };
-
-// StructInfo structInfos[] = {
-// 	{ "int", sizeof(int), 0 },
-// 	{ "float", sizeof(float), 0 },
-// 	{ "char", sizeof(char), 0 },
-// 	{ "bool", sizeof(bool), 0 },
-// 	{ "Vec3", sizeof(Vec3), arrayCount(vec3StructMemberInfos), vec3StructMemberInfos }, 
-// 	{ "Test", sizeof(Test), arrayCount(testStructMemberInfos), testStructMemberInfos }, 
-// };
-
-
-// bool typeIsPrimitive(int type) {
-// 	return structInfos[type].memberCount == 0;
-// }
-
-// char* castTypeArray(char* base, ArrayInfo aInfo) {
-// 	char* arrayBase = (aInfo.type == ARRAYTYPE_CONSTANT) ? base :*((char**)(base));
-// 	return arrayBase;
-// }
-
-// int getTypeArraySize(char* structBase, ArrayInfo aInfo, char* arrayBase = 0) {
-// 	int arraySize;
-// 	if(aInfo.sizeMode == 0) arraySize = aInfo.size;
-// 	else if(aInfo.sizeMode == 1) arraySize = *(int*)(structBase + aInfo.offset);
-// 	else arraySize = strLen(arrayBase);
-
-// 	return arraySize;
-// }
-
-// void printType(int structType, void* data, int depth = 0);
-// void printTypeArray(char* structBase, StructMemberInfo member, char* data, int arrayIndex, int depth) {
-// 	int arrayPrintLimit = 5;
-
-// 	bool isPrimitive = typeIsPrimitive(member.type);
-// 	ArrayInfo aInfo = member.arrays[arrayIndex];
-// 	int typeSize = structInfos[member.type].size;
-
-// 	char* arrayBase = castTypeArray(data, aInfo);
-// 	int arraySize = getTypeArraySize(structBase, aInfo, arrayBase);
-
-// 	printf("[ ");
-	
-// 	if(arrayIndex == member.arrayCount-1) {
-// 		int size = min(arraySize, arrayPrintLimit);
-// 		bool isPrimitive = typeIsPrimitive(member.type);
-
-// 		for(int i = 0; i < size; i++) {
-// 			char* value = arrayBase + (typeSize*i);
-// 			if(!isPrimitive) printf("{ ");
-// 			printType(member.type, value, depth + 1);
-// 			if(!isPrimitive) printf("}, ");
-// 		}
-// 		if(arraySize > arrayPrintLimit) printf("... ");
-// 	} else {
-// 		ArrayInfo aInfo2 = member.arrays[arrayIndex+1];
-
-// 		int arrayOffset;
-// 		if(aInfo.type == ARRAYTYPE_CONSTANT && aInfo2.type == ARRAYTYPE_CONSTANT) {
-// 			int arraySize2 = getTypeArraySize(data, aInfo2);
-// 			arrayOffset = arraySize2*typeSize;
-// 		} else arrayOffset = sizeof(int*); // Pointers have the same size, so any will suffice.
-
-// 		for(int i = 0; i < arraySize; i++) {
-// 			printTypeArray(structBase, member, arrayBase + i*arrayOffset, arrayIndex+1, depth+1);
-// 		}
-// 	}
-
-// 	printf("], ");
-// }
-
-// void printType(int structType, void* d, int depth) {
-
-// 	char* data = (char*)d;
-
-// 	int arrayPrintLimit = 5;
-// 	int indent = 2;
-
-// 	StructInfo* info = structInfos + structType;
-
-// 	if(depth == 0) printf("{\n");
-
-// 	if(typeIsPrimitive(structType)) {
-// 		switch(structType) {
-// 			case STRUCTTYPE_INT: printf("%i", *(int*)data); break;
-// 			case STRUCTTYPE_FLOAT: printf("%f", *(float*)data); break;
-// 			case STRUCTTYPE_CHAR: printf("%c", *data); break;
-// 			case STRUCTTYPE_BOOL: printf((*((bool*)data)) ? "true" : "false"); break;
-// 			default: break;
-// 		};
-
-// 		printf(", ");
-// 		if(depth == 0) printf("\n");
-// 		return;
-// 	}
-
-// 	for(int i = 0; i < info->memberCount; i++) {
-// 		StructMemberInfo member = info->list[i];
-
-// 		bool isPrimitive = typeIsPrimitive(member.type);
-
-// 		if(depth == 0) printf("%*s", indent*(depth+1), "");
-
-// 		if(member.arrayCount == 0) {
-// 			if(!isPrimitive) printf("{ ");
-// 			printType(member.type, data + member.offset, depth + 1);
-// 			if(!isPrimitive) printf("}, ");
-// 			if(depth == 0) printf("\n");
-// 		} else {
-// 			ArrayInfo aInfo = member.arrays[0];
-// 			printTypeArray(data, member, data + member.offset, 0, depth + 1);
-
-// 			if(depth == 0) printf("\n");
-// 		}
-
-// 	}
-
-// 	if(depth == 0) printf("}\n");
-
-// }
