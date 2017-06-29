@@ -498,11 +498,15 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		fontBitmap[i*4+2] = 255;
 		// Trying to negate gamma correction because fonts look better without it.
 		// fontBitmap[i*4+3] = fontBitmapBuffer[i]; // Black to thin?
-		fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
+		// fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
+
+		fontBitmap[i*4+3] = fontBitmapBuffer[i];
 	}
 
 	Texture tex;
 	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+	
 
 	font.tex = tex;
 
@@ -546,7 +550,7 @@ Font* getFont(char* fontFile, int height, char* boldFontFile = 0, char* italicFo
 		if(!font) {
 			return getFont(globalGraphicsState->fallbackFont, height, globalGraphicsState->fallbackFontBold, globalGraphicsState->fallbackFontItalic);
 		}
-		
+
 		if(boldFontFile) {
 			fontSlot->boldFont = getPStruct(Font);
 			fontInit(fontSlot->boldFont, boldFontFile, height);
@@ -1285,6 +1289,8 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 }
 
 void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSettings settings) {
+	glEnable(GL_FRAMEBUFFER_SRGB);
+
 	float z = globalGraphicsState->zOrder;
 	Font* font = settings.font;
 
@@ -1332,6 +1338,8 @@ void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSetting
 	}
 	
 	glEnd();
+
+	glDisable(GL_FRAMEBUFFER_SRGB);
 }
 void drawText(char* text, Vec2 startPos, TextSettings settings) {
 	return drawText(text, startPos, vec2i(-1,1), 0, settings);

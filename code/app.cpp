@@ -25,16 +25,18 @@
 	- UI change history.
 	- Tesselate bezier curves.
 	- Hue preserve brightness.
+	- Layout get last rect;
+	- Tooltips?
+	- Split main and settings panel.
 
 	- Runs poorly when aero is enabled.
 	- Total cleanup of the code.
 
 
 	Done Today: 
-	- Release build mode folder structure changed. Icon.
+
 
 	Bugs:
-	- Release mode doesnt hot load playlist folder. (On delete.)
 
 
 =================================================================================
@@ -1061,12 +1063,13 @@ struct LayoutData {
 
 enum Popup_Type {
 	POPUP_TYPE_COMBO_BOX = 0,
+	POPUP_TYPE_OTHER,
 };
 
 struct PopupData {
 	int type;
 	int id;
-	char name[20];
+	char* name;
 	Rect r;
 	BoxSettings settings;
 	Vec2 border;
@@ -1156,6 +1159,8 @@ void newGuiBegin(NewGui* gui, Input* input = 0) {
 		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = voidId;
 	}
 
+	gui->zLevel = 0;
+
 	gui->colorModHot = vec4(0.08f, 0);
 	gui->colorModActive = vec4(0.17f, 0);
 
@@ -1167,10 +1172,7 @@ void newGuiBegin(NewGui* gui, Input* input = 0) {
 	gui->layoutStackIndex = 0;
 }
 
-void newGuiUpdatePopups(NewGui* gui);
 void newGuiEnd(NewGui* gui) {
-	newGuiUpdatePopups(gui);
-
 	for(int i = 0; i < Gui_Focus_Size; i++) {
 		gui->hotId[i] = gui->contenderId[i];
 	}
@@ -2686,11 +2688,9 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
 #define POPUP_MIN_WIDTH 80
 #define POPUP_MAX_WIDTH 300
 
-void newGuiUpdatePopups(NewGui* gui) {
-	float z = 5;
+void newGuiPopupSetup(NewGui* gui) {
 
-	float oldz = gui->zLevel;
-	gui->zLevel = z;
+	gui->zLevel = 5;
 
 	if(gui->popupStackCount > 0) {
 
@@ -2709,74 +2709,67 @@ void newGuiUpdatePopups(NewGui* gui) {
 			newGuiSetNotActiveWhenActive(gui, id);			
 		}
 
-		if(newGuiGotActive(gui, id)) {
-			gui->popupStackCount = 0;
-		} else {
+		if(newGuiGotActive(gui, id)) gui->popupStackCount = 0;
+	}
+}
 
-			TextBoxSettings savedSettings = gui->buttonSettings;
+void newGuiUpdateComboBoxPopups(NewGui* gui) {
+	for(int i = 0; i < gui->popupStackCount; i++) {
+		PopupData pd = gui->popupStack[i];
+
+		if(pd.type == POPUP_TYPE_COMBO_BOX) {
 			TextBoxSettings bs = gui->buttonSettings;
 			bs.boxSettings.roundedCorner = 0;
 			bs.boxSettings.borderColor = vec4(0,0);
 			bs.boxSettings.color = gui->popupSettings.color;
 
-			gui->buttonSettings = bs;
 
-			for(int i = 0; i < gui->popupStackCount; i++) {
-				PopupData pd = gui->popupStack[i];
-				float fontHeight = gui->textSettings.font->height;
-				ComboBoxData cData = gui->comboBoxData;
+			ComboBoxData cData = gui->comboBoxData;
+			float padding = gui->comboBoxSettings.sideAlignPadding;
+			float fontHeight = gui->textSettings.font->height;
 
-				float padding = gui->comboBoxSettings.sideAlignPadding;
+			float maxWidth = 0;
+			for(int i = 0; i < cData.count; i++) {
+				float w = getTextDim(cData.strings[i], bs.textSettings.font).w;
+				maxWidth = max(maxWidth, w);
+			}
+			maxWidth += padding*2 + 4;
+			// clamp(&maxWidth, POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
 
-				float maxWidth = 0;
-				for(int i = 0; i < cData.count; i++) {
-					float w = getTextDim(cData.strings[i], bs.textSettings.font).w;
-					maxWidth = max(maxWidth, w);
+			// Rect r = rectTDim(rectT(pd.r), vec2(maxWidth, (fontHeight+1) * cData.count));
+			float popupWidth = rectW(pd.r);
+			clampMin(&popupWidth, POPUP_MIN_WIDTH);
+			// Rect r = rectTDim(rectT(pd.r), vec2(popupWidth, (fontHeight) * cData.count + 1));
+			Rect r = rectTDim(rectT(pd.r)-vec2(0,2), vec2(max(maxWidth, rectW(pd.r)), (fontHeight) * cData.count + 2));
+
+
+			newGuiSetHotAllMouseOver(gui, r, gui->zLevel);
+			drawBox(r, gui->scissor, gui->popupSettings);
+
+			scissorState();
+			Rect layoutRect = rectExpand(r, vec2(-padding*2,-2));
+			newGuiScissorLayoutPush(gui, layoutRect, layoutData(layoutRect, gui->textSettings.font->height, 0, 0));
+
+			gui->comboBoxSettings.sideAlignPadding = 0;
+
+			for(int i = 0; i < cData.count; i++) {
+				bs.boxSettings.color = gui->popupSettings.color;
+				if(cData.index == i) bs.boxSettings.color += newGuiHotActiveColorMod(true, false);
+				// if(cData.index == i) bs.boxSettings.borderColor.a = 1;
+				// else bs.boxSettings.borderColor.a = 0;
+
+				if(newGuiQuickButton(gui, newGuiLRectAdv(gui), cData.strings[i], vec2i(-1,0), &bs)) {
+					gui->comboBoxData.index = i;
+					gui->comboBoxData.finished = true;
+					// newGuiPopupPop(gui);
 				}
-				maxWidth += padding*2 + 4;
-				// clamp(&maxWidth, POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
-
-				// Rect r = rectTDim(rectT(pd.r), vec2(maxWidth, (fontHeight+1) * cData.count));
-				float popupWidth = rectW(pd.r);
-				clampMin(&popupWidth, POPUP_MIN_WIDTH);
-				// Rect r = rectTDim(rectT(pd.r), vec2(popupWidth, (fontHeight) * cData.count + 1));
-				Rect r = rectTDim(rectT(pd.r)-vec2(0,2), vec2(max(maxWidth, rectW(pd.r)), (fontHeight) * cData.count + 2));
-
-
-				newGuiSetHotAllMouseOver(gui, r, gui->zLevel);
-				drawBox(r, gui->scissor, gui->popupSettings);
-
-				scissorState();
-				Rect layoutRect = rectExpand(r, vec2(-padding*2,-2));
-				newGuiScissorLayoutPush(gui, layoutRect, layoutData(layoutRect, gui->textSettings.font->height, 0, 0));
-
-				gui->comboBoxSettings.sideAlignPadding = 0;
-
-				for(int i = 0; i < cData.count; i++) {
-					bs.boxSettings.color = gui->popupSettings.color;
-					if(cData.index == i) bs.boxSettings.color += newGuiHotActiveColorMod(true, false);
-					// if(cData.index == i) bs.boxSettings.borderColor.a = 1;
-					// else bs.boxSettings.borderColor.a = 0;
-
-					if(newGuiQuickButton(gui, newGuiLRectAdv(gui), cData.strings[i], vec2i(-1,0), &bs)) {
-						gui->comboBoxData.index = i;
-						gui->comboBoxData.finished = true;
-						// newGuiPopupPop(gui);
-					}
-				}
-
-				newGuiScissorLayoutPop(gui);
-				scissorState(false);
 			}
 
-			gui->buttonSettings = savedSettings;
+			newGuiScissorLayoutPop(gui);
+			scissorState(false);						
 		}
 	}
-
-	gui->zLevel = oldz;
 }
-
-
 
 
 
@@ -3943,6 +3936,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
 
 
+		folderExistsCreate(Playlist_Folder);
+
+
 		HANDLE fileChangeHandle  = FindFirstChangeNotification(App_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
 		if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
 		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
@@ -3964,7 +3960,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->curlHandle = curl_easy_initX();
 
 
-		folderExistsCreate(Playlist_Folder);
 
 		int maxVideoCount = 5000;
 		ad->maxVideoCount = maxVideoCount;
@@ -5621,10 +5616,10 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			char* drawModeStrings[] = {"Draw Lines", "Draw Points", "Draw Bars"};
 
-			char* labels[] = {"Panel (F1)", "Reset", "Stat config:", "0.000", "0.000", "Filter Inclusive", "Filter Exclusive"};
+			char* labels[] = {"Panel (F1)", "Reset", "Screenshot", "Stat config:", "0.000", "0.000", "Filter Inclusive", "Filter Exclusive"};
 			int li = 0;
 			float bp = font->height * as->textPaddingMod * 2;
-			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, 130, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp + 50, getTextDim(labels[li++], font).x+bp + 50};
+			float widths[] = {getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp, 0, 130, getTextDim(labels[li++], font).x+bp, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp/2, getTextDim(labels[li++], font).x+bp + 50, getTextDim(labels[li++], font).x+bp + 50};
 			li = 0;
 
 
@@ -5644,9 +5639,20 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				ad->sortStat = -1;
 				ad->startLoadFile = true;
 			}
-			// if(newGuiQuickButton(gui, layoutInc(&l), labels[li++])) {
-			// 	shellExecuteNoWindow(fillString("explorer.exe %s", App_Settings_File));
-			// }
+
+			Rect r = layoutInc(&l);
+			if(newGuiQuickButton(gui, r, labels[li++])) {
+				PopupData pd = {};
+				pd.type = POPUP_TYPE_OTHER;
+				pd.id = newGuiCurrentId(gui);
+				pd.name = "screenshotPanel";
+				// pd.r = rectTLDim(rectBL(r), vec2(rectW(r), 0));
+				pd.r.min = rectBL(r);
+				pd.settings = gui->boxSettings;
+				pd.border = vec2(5,5);
+
+				newGuiPopupPush(gui, pd);
+			}
 
 			layoutInc(&l);
 
@@ -6854,29 +6860,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			} else if(ad->panelMode == 0) {
 
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
-				if(newGuiQuickButton(gui, layoutInc(&l), "Make screenshot")) {
-					ad->startScreenShot = true;
-					ds->showMenu = false;
-				}
-				newGuiQuickTextEdit(gui, layoutInc(&l), ad->screenShotFilePath, 49);
-
-
-				char* labelText = "Dimension:";
-
-				l = layoutQuickRow(&lay, newGuiLRectAdv(gui), getTextDim(labelText, font).w + textPadding*2,0,0);
-				newGuiQuickTextBox(gui, layoutInc(&l), labelText, vec2i(-1,0));
-				int maxTextureSize;
-				glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-				if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.w)) 
-					clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
-				ad->screenShotDim.w = clampMin(ad->screenShotDim.w, Screenshot_Min_X);
-				if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.h)) 
-					clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
-				ad->screenShotDim.h = clampMin(ad->screenShotDim.h, Screenshot_Min_Y);
-
-				newGuiLAdv(gui, yOffsetExtra);
-
 				newGuiQuickText(gui, newGuiLRectAdv(gui), fillString("Playlist folder (%i item%s)", ad->playlistFolderCount, ad->playlistFolderCount==1?"":"s"), &boldLabelSettings); 
 
 				// l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0);
@@ -7400,6 +7383,79 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		printf("\n");
 
 		*isRunning = false;
+	}
+
+	// Popups.
+	{
+		NewGui* gui = ad->gui;
+
+		newGuiPopupSetup(gui);
+		newGuiUpdateComboBoxPopups(gui);
+
+		// Handle custom popups.
+		{
+			for(int i = 0; i < gui->popupStackCount; i++) {
+				PopupData pd = gui->popupStack[i];
+
+				if(pd.type != POPUP_TYPE_OTHER) continue;
+
+				if(strCompare(pd.name, "screenshotPanel")) {
+
+					float textPadding = gui->textSettings.font->height * ad->appSettings.textPaddingMod;
+					float padding = ad->appSettings.padding;
+					float border = ad->appSettings.padding*2;
+					float rowHeightNormal = gui->textSettings.font->height*ad->appSettings.heightMod;
+
+					float popupHeight = 4*(rowHeightNormal+padding) - padding + border*2;
+					Rect r = rectTLDim(pd.r.min-vec2(0,2), vec2(200,popupHeight));
+
+					newGuiSetHotAllMouseOver(gui, r, gui->zLevel);
+					newGuiQuickBox(gui, r, &gui->popupSettings);
+
+					scissorState();
+
+					Rect layoutRect = rectExpand(r, vec2(-border*2));
+					newGuiScissorLayoutPush(gui, layoutRect, layoutData(layoutRect, rowHeightNormal, padding, 0));
+
+					{
+						Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
+						Layout* l;
+
+						newGuiQuickTextEdit(gui, newGuiLRectAdv(gui), ad->screenShotFilePath, 49);
+
+						int maxTextureSize;
+						glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+
+						l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
+	
+						newGuiQuickTextBox(gui, layoutInc(&l), "Width", vec2i(-1,0));
+
+						if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.w)) 
+							clampInt(&ad->screenShotDim.w, 2, maxTextureSize-1);
+						ad->screenShotDim.w = clampMin(ad->screenShotDim.w, Screenshot_Min_X);
+
+
+						l = layoutQuickRow(&lay, newGuiLRectAdv(gui), 0,0);
+
+						newGuiQuickTextBox(gui, layoutInc(&l), "Height", vec2i(-1,0));
+
+						if(newGuiQuickTextEdit(gui, layoutInc(&l), &ad->screenShotDim.h)) 
+							clampInt(&ad->screenShotDim.h, 2, maxTextureSize-1);
+						ad->screenShotDim.h = clampMin(ad->screenShotDim.h, Screenshot_Min_Y);
+
+						if(newGuiQuickButton(gui, newGuiLRectAdv(gui), "Make screenshot")) {
+							ad->startScreenShot = true;
+							ds->showMenu = false;
+							gui->popupStackCount = 0;
+						}
+					}
+
+					newGuiScissorLayoutPop(gui);
+					scissorState(false);		
+				}
+
+			}
+		}
 	}
 
 	newGuiEnd(ad->gui);
