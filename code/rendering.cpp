@@ -1289,8 +1289,6 @@ Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(
 }
 
 void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSettings settings) {
-	glEnable(GL_FRAMEBUFFER_SRGB);
-
 	float z = globalGraphicsState->zOrder;
 	Font* font = settings.font;
 
@@ -1338,8 +1336,6 @@ void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSetting
 	}
 	
 	glEnd();
-
-	glDisable(GL_FRAMEBUFFER_SRGB);
 }
 void drawText(char* text, Vec2 startPos, TextSettings settings) {
 	return drawText(text, startPos, vec2i(-1,1), 0, settings);
