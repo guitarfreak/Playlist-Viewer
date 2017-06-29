@@ -8,16 +8,24 @@
 
 #include "external\curl\curl.h"
 
+#define Libcurl_Dll_File "External\\libcurl.dll"
+
 typedef CURLcode curl_global_initFunction(long flags);
 curl_global_initFunction* curl_global_initX;
 
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLine, int showCode) {
+
 	HotloadDll hotloadDll;
+
+	#ifndef RELEASE_BUILD	
 	initDll(&hotloadDll, "app.dll", "appTemp.dll", "lock.tmp");
+	#else 
+	initDll(&hotloadDll, "app.dll", "appTemp.dll", "lock.tmp", false);
+	#endif 
 
 	WindowsData wData = windowsData(instance, prevInstance, commandLine, showCode);
 
-	HMODULE curlDll = LoadLibraryA("libcurl.dll");
+	HMODULE curlDll = LoadLibraryA(Libcurl_Dll_File);
 	curl_global_initX = (curl_global_initFunction*)GetProcAddress(curlDll, "curl_global_init");
 	curl_global_initX(CURL_GLOBAL_ALL);
 
@@ -32,7 +40,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
     while(isRunning) {
 
     	bool reload = false;
+		
+		#ifndef RELEASE_BUILD	
 		if(threadQueueFinished(&threadQueue)) reload = updateDll(&hotloadDll);
+     	#endif 
+
      	platform_appMain = (appMainType*)getDllFunction(&hotloadDll, "appMain");
         platform_appMain(firstFrame, reload, &isRunning, wData, &threadQueue, &appMemory);
 

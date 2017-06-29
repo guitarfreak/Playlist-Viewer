@@ -373,6 +373,7 @@ struct GraphicsState {
 	int fontsCount;
 	char* fontFolders[10];
 	int fontFolderCount;
+	char* fallbackFont, *fallbackFontBold, *fallbackFontItalic;
 
 	GLuint textureUnits[16];
 	GLuint samplerUnits[16];
@@ -423,7 +424,7 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		}
 	}
 
-	myAssert(fontFolder);
+	if(!fontFolder) return 0;
 
 	char* path = fillString("%s%s", fontFolder, file);
 	char* fileBuffer = mallocString(fileSize(path) + 1);
@@ -541,7 +542,11 @@ Font* getFont(char* fontFile, int height, char* boldFontFile = 0, char* italicFo
 
 	// We are going to assume for now that a font size of 0 means it is uninitialized.
 	if(fontSlot->height == 0) {
-		fontInit(fontSlot, fontFile, height);
+		Font* font = fontInit(fontSlot, fontFile, height);
+		if(!font) {
+			return getFont(globalGraphicsState->fallbackFont, height, globalGraphicsState->fallbackFontBold, globalGraphicsState->fallbackFontItalic);
+		}
+		
 		if(boldFontFile) {
 			fontSlot->boldFont = getPStruct(Font);
 			fontInit(fontSlot->boldFont, boldFontFile, height);

@@ -619,7 +619,7 @@ float easeInOutCirc(float t, float b, float c, float d) {
 };
 
 
-float cubicInterpolation(float A, float B, float C, float D, float t) {
+float cubicBezierInterpolationSeemless(float A, float B, float C, float D, float t) {
 	float a = -A/2.0f + (3.0f*B)/2.0f - (3.0f*C)/2.0f + D/2.0f;
 	float b = A - (5.0f*B)/2.0f + 2.0f*C - D / 2.0f;
 	float c = -A/2.0f + C/2.0f;
@@ -1756,24 +1756,86 @@ inline bool vecBetweenVecs(Vec2 v, Vec2 left, Vec2 right) {
 	return result;
 }
 
-inline Vec2 lerpVec2(float percent, Vec2 min, Vec2 max) {
+inline Vec2 lerpVec2(Vec2 min, Vec2 max, float percent) {
 	Vec2 result;
 	result.x = lerp(percent, min.x, max.x);
 	result.y = lerp(percent, min.y, max.y);
 	return result;
 }
 
-inline Vec2 cubicInterpolationVec2(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, float t) {
-	Vec2 v;
-	v.x = cubicInterpolation(p0.x, p1.x, p2.x, p3.x, t);
-	v.y = cubicInterpolation(p0.y, p1.y, p2.y, p3.y, t);
+inline Vec2 quadraticBezierInterpolation(Vec2 p0, Vec2 p1, Vec2 p2, float t) {
+	Vec2 pa = lerpVec2(p0, p1, t);
+	Vec2 pb = lerpVec2(p1, p2, t);
+
+	Vec2 v = lerpVec2(pa, pb, t);
 	return v;
 }
 
-inline float bezierCurveGuessLength(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3) {
+inline Vec2 cubicBezierInterpolation(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, float t) {
+	Vec2 pa = quadraticBezierInterpolation(p0, p1, p2, t);
+	Vec2 pb = quadraticBezierInterpolation(p1, p2, p3, t);
+
+	Vec2 v = lerpVec2(pa, pb, t);
+	return v;
+}
+
+inline Vec2 cubicBezierInterpolationSeemless(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, float t) {
+	Vec2 v;
+	v.x = cubicBezierInterpolationSeemless(p0.x, p1.x, p2.x, p3.x, t);
+	v.y = cubicBezierInterpolationSeemless(p0.y, p1.y, p2.y, p3.y, t);
+	return v;
+}
+
+inline float cubicBezierGuessLength(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3) {
 	float length = lenLine(p0,p1) + lenLine(p1,p2) + lenLine(p2,p3) + lenLine(p3,p0);
 	length = length / 2;
 	return length;
+}
+
+void cubicBezierTesselate(Vec2* points, int* pointsCount, Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, float tolerance, int step = 0) {
+
+	if(step == 0) *pointsCount = 0;
+
+	if(step > 10) return;
+
+	float d = distancePointLine(p0, p3, p1) + distancePointLine(p0, p3, p2);
+	bool lineFlat = d < tolerance * lenLine(p0, p3);
+	if(!lineFlat) {
+		Vec2 p01 = lerpVec2(p0, p1, 0.5f);
+		Vec2 p12 = lerpVec2(p1, p2, 0.5f);
+		Vec2 p23 = lerpVec2(p2, p3, 0.5f);
+		Vec2 p012 = lerpVec2(p01, p12, 0.5f);
+		Vec2 p123 = lerpVec2(p12, p23, 0.5f);
+		Vec2 p0123 = lerpVec2(p012, p123, 0.5f);
+
+		if(step == 0) {
+			if(points) points[(*pointsCount)++] = p0;
+			else (*pointsCount)++;
+		}
+
+		cubicBezierTesselate(points, pointsCount, p0, p01, p012, p0123, tolerance, step+1);
+
+		if(points) points[(*pointsCount)++] = p0123;
+		else (*pointsCount)++;
+
+		cubicBezierTesselate(points, pointsCount, p0123, p123, p23, p3, tolerance, step+1);
+
+		if(step == 0) {
+			if(points) points[(*pointsCount)++] = p3;
+			else (*pointsCount)++;
+		}
+
+	} else {
+		if(step == 0) {
+			if(points) points[(*pointsCount)++] = p0;
+			else (*pointsCount)++;
+		}
+
+		if(step == 0) {
+			if(points) points[(*pointsCount)++] = p3;
+			else (*pointsCount)++;
+		}
+	}
 }
 
 inline void clampVec2(Vec2* v, Vec2 min, Vec2 max) {

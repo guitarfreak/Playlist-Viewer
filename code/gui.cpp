@@ -1248,7 +1248,7 @@ const SerializeData settingData[] = {
 	{"Layout", offsetof(Gui, cornerPos), memberSize(Gui, cornerPos) + memberSize(Gui, panelStartDim)}, 
 };
 
-const char* settingFile = "..\\data\\guiSettings.txt";
+const char* settingFile = "debugGuiTemp";
 const int settingSlotSize = settingData[0].size + settingData[1].size + settingData[2].size;
 const int settingSlots = 4;
 const int settingFileSize = settingSlotSize*settingSlots;

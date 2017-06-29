@@ -24,18 +24,22 @@ inline FILETIME getLastWriteTime(char *filename) {
     return lastWriteTime;
 }
 
-void loadDll(HotloadDll* hotloadDll) {
-	CopyFile(hotloadDll->libFilePath, hotloadDll->libTempFilePath, FALSE);
-	hotloadDll->dll = LoadLibraryA(hotloadDll->libTempFilePath);
-	hotloadDll->lastLibWriteTime = getLastWriteTime(hotloadDll->libFilePath);	
+void loadDll(HotloadDll* hotloadDll, bool useTemp = true) {
+	if(useTemp) {
+		CopyFile(hotloadDll->libFilePath, hotloadDll->libTempFilePath, FALSE);
+		hotloadDll->dll = LoadLibraryA(hotloadDll->libTempFilePath);
+		hotloadDll->lastLibWriteTime = getLastWriteTime(hotloadDll->libFilePath);	
+	} else {
+		hotloadDll->dll = LoadLibraryA(hotloadDll->libFilePath);
+	}
 }
 
-void initDll(HotloadDll* hotloadDll, char* functionName, char* functionTemp, char* lock) {
+void initDll(HotloadDll* hotloadDll, char* functionName, char* functionTemp, char* lock, bool useTemp = true) {
     hotloadDll->libFilePath = functionName; 
     hotloadDll->libTempFilePath = functionTemp; 
     hotloadDll->lockFilePath = lock; 
 	
-	loadDll(hotloadDll);
+	loadDll(hotloadDll, useTemp);
 }
 
 bool updateDll(HotloadDll* hotloadDll) {

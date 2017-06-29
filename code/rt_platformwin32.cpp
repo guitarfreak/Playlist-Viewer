@@ -904,3 +904,10 @@ void shellExecuteNoWindow(char* command, bool wait = true) {
 void sleep(int milliseconds) {
     Sleep(milliseconds);
 }
+
+void folderExistsCreate(char* path) {
+	bool folderExists = PathFileExists(path);
+	if(!folderExists) {
+		CreateDirectory(path, 0);
+	}
+}

@@ -23,6 +23,7 @@
 	- Rect shadow draw function.
 	- Json stuff should check for errors.
 	- UI change history.
+	- Tesselate bezier curves.
 
 	- Runs poorly when aero is enabled.
 	- Total cleanup of the code.
@@ -32,9 +33,16 @@
 
 
 	Bugs:
+	- Release mode doesnt hot load playlist folder. (On delete.)
 
 
 =================================================================================
+*/
+
+/*
+Build mode:
+
+
 */
 
 #pragma optimize( "", on )
@@ -59,8 +67,18 @@
 #define STB_RECT_PACK_IMPLEMENTATION
 #include "external\stb_rect_pack.h"
 
+// #define STB_TRUETYPE_IMPLEMENTATION
+// #include "external\stb_truetype.h"
+
+
+// #include "external\stb_truetype.h"
+
+// stbtt_vertex* globalFontVertices;
+// int globalFontVertexCount;
+
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
+
 
 #include "external\curl\curl.h"
 
@@ -285,15 +303,21 @@ bool relativeToAbsoluteColors(Vec4* ac, RelativeColor* rc, int count) {
 #define Cubic_Curve_Segment_Mod 20
 #define Cubic_Curve_Segment_Min 4
 
-#define App_Font_Folder "..\\data\\Fonts\\"
-#define Windows_Font_Folder "\\Fonts\\"
-#define Default_Font "calibri.ttf"
-#define Playlist_Folder "..\\playlists\\"
+#define App_Font_Folder "Fonts\\"
+#define Playlist_Folder "Playlists\\"
+#define Libcurl_Dll_File "External\\libcurl.dll"
 
-#define App_Folder "..\\app\\"
-#define App_Settings_File "..\\app\\appSettings.txt"
-#define App_Save_File "..\\app\\appSave.txt"
-#define Screenshot_File "..\\app\\screenshot.png"
+#define Windows_Font_Folder "\\Fonts\\"
+#define Windows_Font_Path_Variable "windir"
+
+#define Fallback_Font "arial.ttf"
+#define Fallback_Font_Italic "ariali.ttf"
+#define Fallback_Font_Bold "arialbd.ttf"
+
+#define App_Folder ".\\"
+#define App_Settings_File ".\\settings.txt"
+#define App_Save_File ".\\temp"
+#define Screenshot_File ".\\screenshot.png"
 
 #define Panel_Min_X 300
 #define Panel_Min_Y 300
@@ -1116,17 +1140,19 @@ struct NewGui {
 };
 
 void newGuiBegin(NewGui* gui, Input* input = 0) {
+	int voidId = 0;
+
 	gui->id = 1;
-	gui->gotActiveId = 0;
-	gui->wasActiveId = 0;
+	gui->gotActiveId = voidId;
+	gui->wasActiveId = voidId;
 
 	for(int i = 0; i < Gui_Focus_Size; i++) {
-		gui->contenderId[i] = 0;
-		gui->contenderIdZ[i] = 0;
+		gui->contenderId[i] = voidId;
+		gui->contenderIdZ[i] = voidId;
 	}
 
 	if(gui->activeId != 0) {
-		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = 0;
+		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = voidId;
 	}
 
 	gui->colorModHot = vec4(0.08f, 0);
@@ -2217,7 +2243,8 @@ bool newGuiQuickComboBox(NewGui* gui, Rect r, ComboBoxData cData, TextBoxSetting
 
 		drawText(textRect, text, vec2i(-1,0), gui->scissor, set.textSettings);
 
-		Vec2 dir = popupActive ? vec2(0,-1) : vec2(1,0);
+		// Vec2 dir = popupActive ? vec2(0,-1) : vec2(1,0);
+		Vec2 dir = vec2(0,-1);
 		drawTriangle(rectCen(triangleRect), triangleSize, dir, set.textSettings.color);
 
 		newGuiScissorPop(gui);
@@ -3488,8 +3515,28 @@ Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
 	return node->list;
 }
 
+struct TrueTypeInterpreter {
+	bool autoFlip = true;
+	float cutIn = (float)17/16; // F26Dot6, pixels
+	int deltaBase = 9;
+	int deltaShift = 3;
+	void* dualProjectionVector;
+	bool freedomVector = 0; //0 - x-axis, 1 - y-axis
+	bool instructionControl = false;
+	int loop = 1;	
+	float minimumDistance = 1; // F26Dot6, pixels
+	bool projectionVector = false; //0 - x-axis, 1 - y-axis
+	int roundState = 1; // 1 - grid, ...
+	int referencePoints[3]; // = {0,0,0};
+	bool scanControl = false;
+	float singleWidthCutIn = 0; // F26Dot6, pixels	
+	float singleWidthValue = 0; // F26Dot6, pixels	
+	int zonePointers[3]; // {1,1,1};
 
-
+	int stack[32];
+	int stackCount;
+	int instructionIndex = 0;
+};
 
 struct AppData {
 	// General.
@@ -3794,7 +3841,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// Init curl.
 
-		ad->curlDll = LoadLibraryA("libcurl.dll");
+		ad->curlDll = LoadLibraryA(Libcurl_Dll_File);
 		loadCurlFunctions(ad->curlDll);
 
 		updateResolution(windowHandle, ws);
@@ -3895,18 +3942,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
 		ad->settingsFileLastWriteTime = getLastWriteTime(App_Settings_File);
 
-	// fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
 		fileChangeHandle = FindFirstChangeNotification(Playlist_Folder, false, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
 		if(fileChangeHandle == INVALID_HANDLE_VALUE) printf("Could not set folder change notification.\n");
 		systemData->folderHandles[systemData->folderHandleCount++] = fileChangeHandle;
 
 
 		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(App_Font_Folder);
-		char* windowsFontFolder = fillString("%s%s", getenv("windir"), Windows_Font_Folder);
+		char* windowsFontFolder = fillString("%s%s", getenv(Windows_Font_Path_Variable), Windows_Font_Folder);
 		globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount++] = getPStringCpy(windowsFontFolder);
 
+		globalGraphicsState->fallbackFont = getPStringCpy(Fallback_Font);
+		globalGraphicsState->fallbackFontBold = getPStringCpy(Fallback_Font_Bold);
+		globalGraphicsState->fallbackFontItalic = getPStringCpy(Fallback_Font_Italic);
 
 		ad->curlHandle = curl_easy_initX();
+
+
+		folderExistsCreate(Playlist_Folder);
 
 		int maxVideoCount = 5000;
 		ad->maxVideoCount = maxVideoCount;
@@ -4104,8 +4156,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(init || ad->reloadSettings) {
 	// if(init || ad->reloadSettings || reload) {
 
-			// if(!fileExists(App_Settings_File)) {
-			if(init) {
+			if(!fileExists(App_Settings_File)) {
+			// if(init) {
 				AppSettings as;
 				AppColorsRelative rac;
 				AppColorsRelative rac2;
@@ -4548,7 +4600,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				downloadModeFinish(modeData);
 
 				char* buffer = requestData->buffer;
-				writeBufferToFile(buffer, "..\\lastSnippetDownload.json");
+				// writeBufferToFile(buffer, "..\\lastSnippetDownload.json");
+				writeBufferToFile(buffer, fillString("%s\\lastSnippetDownload.json", App_Folder));
 
 				JSonValue* object = jsonParseValue(&buffer);
 				JSonValue* items = jsonGetMember(object, "items");
@@ -6147,11 +6200,11 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 									if(i != endCount-1) p3 = graphCamMap(cam, xPos+avgWidth*2, ad->averagesLineGraph.points[graphIndex][i+2]);
 									else p3 = p2 - (p2 - p1);
 
-									int segmentCount = bezierCurveGuessLength(p0, p1, p2, p3)/Cubic_Curve_Segment_Mod;
+									int segmentCount = cubicBezierGuessLength(p0, p1, p2, p3)/Cubic_Curve_Segment_Mod;
 									segmentCount = clampMin(segmentCount, Cubic_Curve_Segment_Min);
 
 									for(int i = 0; i < segmentCount; i++) {
-										pushVec(cubicInterpolationVec2(p0, p1, p2, p3, (float)i/(segmentCount-1)));
+										pushVec(cubicBezierInterpolationSeemless(p0, p1, p2, p3, (float)i/(segmentCount-1)));
 									}
 								}
 
@@ -6277,6 +6330,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				scissorTestScreen(rGraphs);
 				drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), selectionColor);
 				glLineWidth(1);
+				scissorState(false);
 			}
 		}
 
@@ -7077,14 +7131,259 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 
 
+	if(false) {
+		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+		NewGui* gui = ad->gui;
+		newGuiSetHotAll(gui, 5);
+
+		float z = 6;
+
+		static Vec2 p0 = vec2(500,-500);
+		static Vec2 p1 = vec2(600,-400);
+		static Vec2 p2 = vec2(700,-400);
+		static Vec2 p3 = vec2(800,-500);
+
+		glPointSize(2);
+		int count = 53;
+		for(int i = 0; i < count; i++) {
+			float t = i / ((float)count-1);
+			Vec2 p = cubicBezierInterpolation(p0, p1, p2, p3, t);
+			// drawPoint(p, vec4(1,1));
+
+			if(i < count-1) {
+				float tNext = (i+1) / ((float)count-1);
+				Vec2 pNext = cubicBezierInterpolation(p0, p1, p2, p3, tNext);
+
+				drawLine(p, pNext, vec4(1,0.7f));
+			}
+		}
+
+		Vec2 off = vec2(0,-50);
+		float tolerance = 0.05f;
+		int pointCount;
+		cubicBezierTesselate(0, &pointCount, p0, p1, p2, p3, tolerance, 0);
+		drawText(fillString("%i", pointCount), vec2(200,-200), gui->textSettings);
+
+		Vec2* points = getTArray(Vec2, pointCount);
+		cubicBezierTesselate(points, &pointCount, p0, p1, p2, p3, tolerance, 0);
+
+		for(int i = 0; i < pointCount; i++) {
+			// drawPoint(points[i]+off, vec4(1,1));
+
+			if(i < pointCount-1) {
+				drawLine(points[i]+off, points[i+1]+off, vec4(1,0.7f));
+			}
+		}
+
+
+		Vec4 dragColor = vec4(0.5f, 0, 0.5f, 1);
+		float dragSize = 15;
+		int event = newGuiGoDragAction(gui, rectCenDim(p1, vec2(dragSize)), z);
+		if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - p1;
+		if(event > 1) {
+			p1 = gui->input->mousePosNegative - gui->mouseAnchor;
+		}
+		drawRect(rectCenDim(p1, vec2(dragSize)), dragColor + newGuiColorMod(gui));
+
+		event = newGuiGoDragAction(gui, rectCenDim(p2, vec2(dragSize)), z);
+		if(event == 1) gui->mouseAnchor = gui->input->mousePosNegative - p2;
+		if(event > 1) {
+			p2 = gui->input->mousePosNegative - gui->mouseAnchor;
+		}
+		drawRect(rectCenDim(p2, vec2(dragSize)), dragColor + newGuiColorMod(gui));
+
+		float ps = 5;
+		glPointSize(ps);
+		drawPoint(p0, vec4(1,0,0,1));
+		drawPoint(p3, vec4(1,0,0,1));
+
+	}
+
 	if(false)
 	{
-		drawRect(getScreenRect(ws), vec4(0.2f,1));
+		drawRect(getScreenRect(ws), vec4(0.2f,1.0f));
 		// drawRectRoundedOutlined(rectCenDim(400,-400,200,200), vec4(0.4f,1), vec4(1.0f,1), 5, 10);
 
 		// void drawRectRoundedShadow(Rect r, Vec4 color, float size) {
 		// drawRectRounded(rectCenDim(400,-400,200,200), vec4(0.4f,1), 20);
 		// drawRectShadow(rectCenDim(400,-400,200,200), vec4(0,1), 10);
+
+
+		uchar glyph = 'L';
+		int glyphIndex = glyph - 29;
+
+
+
+		stbtt_vertex* verts;
+		int vertCount = stbtt_GetGlyphShape(&ad->font->info, glyphIndex, &verts);
+
+		float pSize = 5.0f;
+		glPointSize(pSize);
+
+		float fontScale = stbtt_ScaleForPixelHeight(&ad->font->info, ad->font->height);
+
+
+		// Get glyph instructions.
+		{
+			// 40, 0e, 03, 00, ...
+
+
+			// stbtt_int16 numberOfContours;
+			Font* font = ad->font;
+			uchar *data = font->info.data;
+
+			int g = stbtt__GetGlyfOffset(&font->info, glyphIndex);
+
+			int numberOfContours = ttSHORT(data + g);
+
+			int instructionOffset = 6*(sizeof(short));
+			int instructionCount = ttSHORT(data + g + instructionOffset);
+
+			uchar* instructions = data + g + instructionOffset + sizeof(short);
+
+			// printf("%i\n", instructionCount);
+			// printf("%02x\n", instructions[0]);
+			// printf("%02x\n", instructions[1]);
+			// printf("%02x\n", instructions[2]);
+			// exit(1);
+
+			int stack[32] = {};
+			int stackCount = 0;
+
+			Vec2 freedomVector = vec2(0,0);
+			Vec2 projectionVector = vec2(0,0);
+
+			int instructionIndex = 0;
+			while(instructionIndex < instructionCount) {
+
+				int ins = instructions[instructionIndex++];
+				// SVTCA
+				if(ins >= 0x00 && ins <= 0x01) {
+					// if(ins == 0x00) 
+				}
+				// SRP1   
+				else if(ins == 0x11) {
+
+				}
+				// SRP2   
+				else if(ins == 0x12) {
+
+				}
+				// RTG    
+				else if(ins == 0x18) {
+
+				}
+				// CALL   
+				else if(ins == 0x2B) {
+
+				}
+				// IUP    
+				else if(ins >= 0x30 && ins <= 0x31) {
+
+				}
+				// SHP    
+				else if(ins >= 0x32 && ins <= 0x33) {
+
+				}
+				// IP     
+				else if(ins == 0x39) {
+
+				}
+				// MIAP   
+				else if(ins >= 0x3E && ins <= 0x3F) {
+
+				}
+				// NPUSHB 
+				else if(ins == 0x40) {
+					int n = instructions[instructionIndex++];
+
+					for(int i = 0; i < n; i++) {
+						stack[stackCount++] = instructions[instructionIndex + i];
+					}
+					instructionIndex += n;
+				}
+
+			}
+
+		}
+
+
+		float mod = 32.0f;
+		float scale = ad->font->pixelScale*mod;
+		Vec2 offset = vec2(800,-600);
+
+		drawPoint((vec2(0,0)*scale) + offset, vec4(1,1));
+
+		float alpha = 0.1f;
+		glLineWidth(0.5f);
+		int lineCount = 20;
+		for(int i = 0; i < lineCount; i++) {
+			float val = i*mod + offset.y;
+			val = roundInt(val)+0.5f;
+			drawLine(vec2(-1000000,val), vec2(1000000,val), vec4(1,alpha));
+
+			val = i*mod + offset.x;
+			val = roundInt(val)+0.5f;
+			drawLine(vec2(val,-1000000), vec2(val,1000000), vec4(1,alpha));
+		}
+
+
+
+		Vec2 prevPoint;
+		for(int i = 0; i < vertCount; i++) {
+			stbtt_vertex v = verts[i];
+			Vec2 p = (vec2(v.x, v.y)*scale) + offset;
+
+			if(v.type == 1) {
+				prevPoint = p;
+			} else if(v.type == 2) {
+				// Line.
+				drawLine(prevPoint, p, vec4(1,1));
+				prevPoint = p;
+			} else {
+				// Curve
+				int pointCount = 30;
+				Vec2 p0 = prevPoint;
+				Vec2 p1 = (vec2(v.cx, v.cy)*scale) + offset;
+				Vec2 p2 = p;
+				for(int i = 0; i < pointCount; i++) {
+					Vec2 pa = lerpVec2(p0, p1, (float)i/(pointCount-1));
+					Vec2 pb = lerpVec2(p1, p2, (float)i/(pointCount-1));
+					
+					p = lerpVec2(pa, pb, (float)i/(pointCount-1));
+					// drawLine(prevPoint, p, vec4(1,1));
+					glPointSize(1.0f);
+					drawPoint(p, vec4(1,1));
+					glPointSize(pSize);
+				}
+
+				prevPoint = p;
+			}
+		}
+
+		for(int i = 0; i < vertCount; i++) {
+			stbtt_vertex v = verts[i];
+			Vec2 p = (vec2(v.x, v.y)*scale) + offset;
+			if(v.type == 1) {
+				glPointSize(pSize*1.5f);
+				drawPoint(p, vec4(1,1,1,1));
+				glPointSize(pSize);
+
+			} else if(v.type == 2) {
+				drawPoint(p, vec4(1,0,0,1));
+
+			} else if(v.type == 3) {
+				drawPoint(p, vec4(1,0.5f,0,1));
+
+				Vec2 bp = (vec2(v.cx, v.cy)*scale) + offset;
+				drawPoint(bp, vec4(1,0,1,1));
+			} else {
+				drawPoint(p, vec4(0,0,1,1));
+
+			}
+		}
+
+		stbtt_FreeShape(&ad->font->info, verts);
 	}
 
 	if(false)
