@@ -7119,6 +7119,14 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 	}
 
 
+	if(false) {
+		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+		NewGui* gui = ad->gui;
+		newGuiSetHotAll(gui, 5);
+
+		Texture* t = &ad->font->tex;
+		drawRect(rectCenDim(vec2(500,-500), vec2(t->dim)), vec4(1,1), rect(0,0,1,1), t->id);
+	}
 
 	if(false) {
 		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
@@ -7479,21 +7487,21 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-			if(!ad->screenShotMode) {
-				blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+			// if(!ad->screenShotMode) {
+			// 	blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-				glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-				glBlendEquation(GL_FUNC_ADD);
-				bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
+			// 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+			// 	glBlendEquation(GL_FUNC_ADD);
+			// 	bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
 
-				glLoadIdentity();
-				glViewport(0,0, res.w, res.h);
-				glOrtho(0,1,1,0, -1, 1);
+			// 	glLoadIdentity();
+			// 	glViewport(0,0, res.w, res.h);
+			// 	glOrtho(0,1,1,0, -1, 1);
 
-				drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-				glBlendEquation(GL_FUNC_ADD);
-			}
+			// 	drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
+			// 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			// 	glBlendEquation(GL_FUNC_ADD);
+			// }
 		}
 
 
@@ -7543,6 +7551,18 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
 	}
+
+
+	/*
+		Drawing method:
+		- SRGB textures
+		- draw to rgb msaa framebuffer
+		- convert colors pushed to gpu to srgb colors.
+
+		- blit rgb msaa framebuffer to non msaa framebuffer
+		- enable GL_framebuffer_SRGB
+		- draw framebuffer to windows backbuffer
+	*/
 
 	// Swap window background buffer.
 	{

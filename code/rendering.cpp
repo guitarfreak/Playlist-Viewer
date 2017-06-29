@@ -461,7 +461,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 
 
 	stbtt_pack_context context;
-	int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, 1, 0);
+	int glyphPadding = 2;
+	int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, glyphPadding, 0);
 
 	int sampling = 2;
 	if(font.height < 25) sampling = 4;
@@ -498,9 +499,7 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		fontBitmap[i*4+2] = 255;
 		// Trying to negate gamma correction because fonts look better without it.
 		// fontBitmap[i*4+3] = fontBitmapBuffer[i]; // Black to thin?
-		// fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
-
-		fontBitmap[i*4+3] = fontBitmapBuffer[i];
+		fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
 	}
 
 	Texture tex;
