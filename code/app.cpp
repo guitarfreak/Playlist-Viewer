@@ -24,13 +24,14 @@
 	- Json stuff should check for errors.
 	- UI change history.
 	- Tesselate bezier curves.
+	- Hue preserve brightness.
 
 	- Runs poorly when aero is enabled.
 	- Total cleanup of the code.
 
 
 	Done Today: 
-
+	- Release build mode folder structure changed. Icon.
 
 	Bugs:
 	- Release mode doesnt hot load playlist folder. (On delete.)
@@ -1201,7 +1202,12 @@ void newGuiClearStoredIds(NewGui* gui) {
 }
 
 int newGuiCurrentId(NewGui* gui) {
-	return gui->id-1;
+	if(gui->storedIdCount) {
+		int storedId = gui->storedIds[gui->storedIdCount];
+		return storedId;
+	} else {
+		return gui->id-1;
+	}
 }
 
 bool newGuiIsHot(NewGui* gui, int id = 0, int focus = 0) {
@@ -4311,10 +4317,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			int scrollFlags = SCROLL_BACKGROUND | SCROLL_SLIDER | SCROLL_MOUSE_WHEEL | SCROLL_DYNAMIC_HEIGHT;
 			
-			ad->scrollSettings = scrollRegionSettings(settings.boxSettings, scrollFlags, vec2(as->padding,0), 20, vec2(4,4), 6, 0, 40, font->height+1, ac->button, vec4(0,0));
+			ad->scrollSettings = scrollRegionSettings(settings.boxSettings, scrollFlags, vec2(as->padding,as->padding), 20, vec2(4,4), 6, 0, 40, font->height+1, ac->button, vec4(0,0));
 
 			ad->commentScrollSettings = ad->scrollSettings;
-			ad->commentScrollSettings.border = vec2(textPadding, 0);
+			ad->commentScrollSettings.border = vec2(textPadding, textPadding/2);
 			flagRemove(&ad->commentScrollSettings.flags, SCROLL_DYNAMIC_HEIGHT);
 
 			ad->comboBoxSettings = ad->buttonSettings;
@@ -6878,10 +6884,10 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 				{
 					static float scrollValue = 0;
-					Rect r = rectTDim(ld->pos + vec2(ld->dim.w/2, 0), vec2(ld->dim.w - sectionOffset*2, 10 * (rowHeightScrollElements+listOffset))); 
+					Rect r = rectTDim(ld->pos + vec2(ld->dim.w/2, 0), vec2(ld->dim.w - sectionOffset*2, 10 * (rowHeightScrollElements+listOffset) + gui->scrollSettings.border.y*2)); 
 
 					ScrollRegionValues scrollValues = {};
-					newGuiQuickScroll(gui, r, ad->playlistFolderCount * (rowHeightScrollElements+listOffset), &scrollValue, &scrollValues);
+					newGuiQuickScroll(gui, r, ad->playlistFolderCount * (rowHeightScrollElements+listOffset) + gui->scrollSettings.border.y*2, &scrollValue, &scrollValues);
 
 
 					ld = newGuiLayoutPush(gui, scrollValues.region);
@@ -6970,10 +6976,10 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 						// writePos.x += sectionOffset; rowDim.w -= sectionOffset*2;
 
 						static float scrollValue = 0;
-						Rect r = rectTDim(ld->pos + vec2(ld->dim.w/2, 0), vec2(ld->dim.w - sectionOffset*2, 10 * (rowHeightScrollElements+listOffset))); 
+						Rect r = rectTDim(ld->pos + vec2(ld->dim.w/2, 0), vec2(ld->dim.w - sectionOffset*2, 10 * (rowHeightScrollElements+listOffset)  + gui->scrollSettings.border.y*2)); 
 
 						ScrollRegionValues scrollValues = {};
-						newGuiQuickScroll(gui, r, ad->searchResultCount * (rowHeightScrollElements+listOffset), &scrollValue, &scrollValues);
+						newGuiQuickScroll(gui, r, ad->searchResultCount * (rowHeightScrollElements+listOffset) + gui->scrollSettings.border.y*2, &scrollValue, &scrollValues);
 
 						ld = newGuiLayoutPush(gui, scrollValues.region);
 						ld->pos = scrollValues.pos;
