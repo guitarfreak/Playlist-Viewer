@@ -28,8 +28,8 @@
 	- Layout get last rect;
 	- Tooltips?
 	- Split main and settings panel.
-
 	- Runs poorly when aero is enabled.
+
 	- Total cleanup of the code.
 
 
@@ -74,10 +74,7 @@ Build mode:
 // #include "external\stb_truetype.h"
 
 
-// #include "external\stb_truetype.h"
 
-// stbtt_vertex* globalFontVertices;
-// int globalFontVertexCount;
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
@@ -132,6 +129,9 @@ Timer* globalTimer;
 #include "rendering.cpp"
 #include "gui.cpp"
 
+#include "truetypeInterpreter.cpp"
+
+
 
 struct RelativeColor {
 	Vec4 c;
@@ -140,7 +140,6 @@ struct RelativeColor {
 RelativeColor relativeColor(Vec4 c) { return {c, -1}; }
 RelativeColor relativeColor(int i) { return {vec4(0,0), i}; }
 RelativeColor relativeColor(Vec4 c, int i) { return {c, i}; }
-
 
 
 union AppColors {
@@ -3514,28 +3513,28 @@ Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
 	return node->list;
 }
 
-struct TrueTypeInterpreter {
-	bool autoFlip = true;
-	float cutIn = (float)17/16; // F26Dot6, pixels
-	int deltaBase = 9;
-	int deltaShift = 3;
-	void* dualProjectionVector;
-	bool freedomVector = 0; //0 - x-axis, 1 - y-axis
-	bool instructionControl = false;
-	int loop = 1;	
-	float minimumDistance = 1; // F26Dot6, pixels
-	bool projectionVector = false; //0 - x-axis, 1 - y-axis
-	int roundState = 1; // 1 - grid, ...
-	int referencePoints[3]; // = {0,0,0};
-	bool scanControl = false;
-	float singleWidthCutIn = 0; // F26Dot6, pixels	
-	float singleWidthValue = 0; // F26Dot6, pixels	
-	int zonePointers[3]; // {1,1,1};
+// struct TrueTypeInterpreter {
+// 	bool autoFlip = true;
+// 	float cutIn = (float)17/16; // F26Dot6, pixels
+// 	int deltaBase = 9;
+// 	int deltaShift = 3;
+// 	void* dualProjectionVector;
+// 	bool freedomVector = 0; //0 - x-axis, 1 - y-axis
+// 	bool instructionControl = false;
+// 	int loop = 1;	
+// 	float minimumDistance = 1; // F26Dot6, pixels
+// 	bool projectionVector = false; //0 - x-axis, 1 - y-axis
+// 	int roundState = 1; // 1 - grid, ...
+// 	int referencePoints[3]; // = {0,0,0};
+// 	bool scanControl = false;
+// 	float singleWidthCutIn = 0; // F26Dot6, pixels	
+// 	float singleWidthValue = 0; // F26Dot6, pixels	
+// 	int zonePointers[3]; // {1,1,1};
 
-	int stack[32];
-	int stackCount;
-	int instructionIndex = 0;
-};
+// 	int stack[32];
+// 	int stackCount;
+// 	int instructionIndex = 0;
+// };
 
 struct AppData {
 	// General.
@@ -3882,7 +3881,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		//
 
 		gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR);
-		// gs->samplers[SAMPLER_NORMAL] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_NEAREST, GL_NEAREST_MIPMAP_NEAREST);
+		gs->samplers[SAMPLER_NEAREST] = createSampler(16.0f, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_NEAREST, GL_NEAREST);
 
 		//
 		//
@@ -7119,13 +7118,18 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 	}
 
 
-	if(false) {
+	if(true) {
 		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
 		NewGui* gui = ad->gui;
-		newGuiSetHotAll(gui, 5);
+		// newGuiSetHotAll(gui, 5);
 
 		Texture* t = &ad->font->tex;
-		drawRect(rectCenDim(vec2(500,-500), vec2(t->dim)), vec4(1,1), rect(0,0,1,1), t->id);
+		float scale = 4;
+		Vec2 size = vec2(t->dim * scale);
+		Rect r = rectTLDim( vec2(100,-100), size);
+		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
+		drawRect(r, vec4(1,1), rect(0,0,1,1), t->id);
+		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
 	}
 
 	if(false) {
@@ -7196,7 +7200,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 	}
 
-	if(false)
+	if(true)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1.0f));
 		// drawRectRoundedOutlined(rectCenDim(400,-400,200,200), vec4(0.4f,1), vec4(1.0f,1), 5, 10);
@@ -7206,9 +7210,10 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		// drawRectShadow(rectCenDim(400,-400,200,200), vec4(0,1), 10);
 
 
-		uchar glyph = 'L';
-		int glyphIndex = glyph - 29;
+		// uchar glyph = 'I';
+		// int glyphIndex = glyph - 29;
 
+		int glyphIndex = 918;
 
 
 		stbtt_vertex* verts;
@@ -7222,84 +7227,58 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 		// Get glyph instructions.
 		{
-			// 40, 0e, 03, 00, ...
-
-
 			// stbtt_int16 numberOfContours;
 			Font* font = ad->font;
 			uchar *data = font->info.data;
 
-			int g = stbtt__GetGlyfOffset(&font->info, glyphIndex);
 
-			int numberOfContours = ttSHORT(data + g);
 
-			int instructionOffset = 6*(sizeof(short));
-			int instructionCount = ttSHORT(data + g + instructionOffset);
 
-			uchar* instructions = data + g + instructionOffset + sizeof(short);
 
-			// printf("%i\n", instructionCount);
-			// printf("%02x\n", instructions[0]);
-			// printf("%02x\n", instructions[1]);
-			// printf("%02x\n", instructions[2]);
-			// exit(1);
 
-			int stack[32] = {};
-			int stackCount = 0;
 
-			Vec2 freedomVector = vec2(0,0);
-			Vec2 projectionVector = vec2(0,0);
+			float scale = fontScale;
 
-			int instructionIndex = 0;
-			while(instructionIndex < instructionCount) {
+			// What.
+			// float scale = stbtt_ScaleForPixelHeight(info, 20);
+			stbtt_fontinfo* info = &font->info;
 
-				int ins = instructions[instructionIndex++];
-				// SVTCA
-				if(ins >= 0x00 && ins <= 0x01) {
-					// if(ins == 0x00) 
-				}
-				// SRP1   
-				else if(ins == 0x11) {
+		    info->fpgm = stbtt__find_table(info->data, info->fontstart, "fpgm");
+			// info->fpgm = 0;
+		    info->cvt = stbtt__find_table(info->data, info->fontstart, "cvt ");
+		    info->prep = stbtt__find_table(info->data, info->fontstart, "prep");
 
-				}
-				// SRP2   
-				else if(ins == 0x12) {
+		    int fpgmSize = info->fpgm = stbtt__find_table_length(info->data, info->fontstart, "fpgm");
+		    int cvtSize = stbtt__find_table_length(info->data, info->fontstart, "cvt ");
+		    int cvtEntries = cvtSize / 4;
+		    
+		    int prepSize = stbtt__find_table_length(info->data, info->fontstart, "prep");
 
-				}
-				// RTG    
-				else if(ins == 0x18) {
 
-				}
-				// CALL   
-				else if(ins == 0x2B) {
 
-				}
-				// IUP    
-				else if(ins >= 0x30 && ins <= 0x31) {
+		    // static TrueTypeInterpreter interpreter;
+		    // interpreter.SetTypeFace(info);
 
-				}
-				// SHP    
-				else if(ins >= 0x32 && ins <= 0x33) {
+		    // int* controlValues = (int*)(info->data + info->cvt);
+		    // uchar* prepBuffer = (uchar*)(info->data + info->prep);
 
-				}
-				// IP     
-				else if(ins == 0x39) {
+		    // interpreter._interpreter.SetControlValueTable(controlValues, 100, scale, font->height, prepBuffer, 100);
 
-				}
-				// MIAP   
-				else if(ins >= 0x3E && ins <= 0x3F) {
 
-				}
-				// NPUSHB 
-				else if(ins == 0x40) {
-					int n = instructions[instructionIndex++];
+		 //    int instructionOffset = 6*(sizeof(short));
+			// int goff = stbtt__GetGlyfOffset(&font->info, glyphIndex);
+		 //    int instructionCount = ttSHORT(font->info.data + goff + instructionOffset);
+			// uchar* instructions = font->info.data + goff + instructionOffset + sizeof(short);
 
-					for(int i = 0; i < n; i++) {
-						stack[stackCount++] = instructions[instructionIndex + i];
-					}
-					instructionIndex += n;
-				}
+			// int numberOfContours = ttSHORT(font->info.data + goff);
 
+		 //    interpreter._interpreter.HintGlyph(verts, vertCount, 0, numberOfContours, instructions, instructionCount);
+
+
+
+			for(int i = 0; i < vertCount; i++) {
+				verts[i].x = STBTT_ifloor((verts[i].x*scale) + 0.5f) / scale;	
+				verts[i].y = STBTT_ifloor((verts[i].y*scale) + 0.5f) / scale;	
 			}
 
 		}

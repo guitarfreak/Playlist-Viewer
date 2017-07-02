@@ -95,9 +95,8 @@ inline float diff(float a, float b) {
 	return abs(a - b);
 }
 
-inline float sameSign(float a, float b) {
-	bool result = (a < 0 && b < 0) || (a > 0 && b > 0); 
-	return result;
+inline bool sameSign(float a, float b) {
+	return (a < 0 && b < 0) || (a > 0 && b > 0); 
 }
 
 // inline float clampMin(float min, float a) {
@@ -282,6 +281,9 @@ inline float roundUpFloat(float i) {
 }
 
 inline float roundDownFloat(float i) {
+	return (float)((int)i);
+}
+inline float truncateFloat(float i) {
 	return (float)((int)i);
 }
 
@@ -1366,6 +1368,11 @@ inline Vec2 mulVec2(Vec2 a, Vec2 b) {
 inline float lenVec2(Vec2 a) {
 	float length = sqrt(a.x*a.x + a.y*a.y);
 	return length;
+}
+
+inline float lenSquaredVec2(Vec2 a) {
+	float lengthSquared = a.x*a.x + a.y*a.y;
+	return lengthSquared;
 }
 
 inline Vec2 normVec2(Vec2 a) {

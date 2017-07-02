@@ -231,6 +231,8 @@ struct Font {
 
 	Font* boldFont;
 	Font* italicFont;
+
+	bool pixelAlign;
 };
 
 //
@@ -431,7 +433,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	readFileToBuffer(fileBuffer, path);
 
 	// Vec2i size = vec2i(512,512);
-	Vec2i size = vec2i(800,800);
+	Vec2i size = vec2i(256,256);
+	// Vec2i size = vec2i(800,800);
 	uchar* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
 	uchar* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
 
@@ -443,13 +446,18 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	font.height = height;
 
 	font.glyphRangeCount = 0;
-	font.glyphRanges[0].x = (int)0x20-1;
-	font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
-	font.glyphRangeCount++;
-	font.glyphRanges[1].x = 0xA0;
-	font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
-	font.glyphRangeCount++;
+	// font.glyphRanges[0].x = (int)0x20-1;
+	// font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
+	// font.glyphRangeCount++;
+	// font.glyphRanges[1].x = 0xA0;
+	// font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
+	// font.glyphRangeCount++;
 	
+	font.glyphRanges[0].x = (int)0x48;
+	font.glyphRanges[0].y = (int)0x4C - font.glyphRanges[0].x + 1;
+	font.glyphRangeCount++;
+
+
 	int totalGlyphCount = 0;
 	for(int i = 0; i < font.glyphRangeCount; i++) totalGlyphCount += font.glyphRanges[i].y;
 
@@ -464,10 +472,16 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	int glyphPadding = 2;
 	int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, glyphPadding, 0);
 
-	int sampling = 2;
-	if(font.height < 25) sampling = 4;
-	stbtt_PackSetOversampling(&context, sampling, sampling);
+	// font.pixelAlign = false;
+	// int sampling = 2;
+	// if(font.height < 25) sampling = 4;
+	// stbtt_PackSetOversampling(&context, sampling, sampling);
+
+	font.pixelAlign = true;
+	stbtt_PackSetOversampling(&context, 1, 1);
 	
+	// stbtt_PackFontRangesRenderIntoRects
+
 	stbtt_pack_range range[4];
 	int cDataOffset = 0;
 	for(int i = 0; i < font.glyphRangeCount; i++) {
@@ -498,14 +512,14 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		fontBitmap[i*4+1] = 255;
 		fontBitmap[i*4+2] = 255;
 		// Trying to negate gamma correction because fonts look better without it.
-		// fontBitmap[i*4+3] = fontBitmapBuffer[i]; // Black to thin?
-		fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
+		fontBitmap[i*4+3] = fontBitmapBuffer[i]; // Black to thin?
+		// fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
 	}
 
 	Texture tex;
 	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
 	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
-	
+
 
 	font.tex = tex;
 
@@ -1018,6 +1032,7 @@ int getUnicodeRangeOffset(int c, Font* font) {
 	}
 
 	if(!found) {
+		if(c == Font_Error_Glyph) return 0;
 		unicodeOffset = getUnicodeRangeOffset(Font_Error_Glyph, font);
 	}
 
@@ -1027,9 +1042,11 @@ int getUnicodeRangeOffset(int c, Font* font) {
 void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	stbtt_aligned_quad q;
 	int unicodeOffset = getUnicodeRangeOffset(c, font);
-	stbtt_GetPackedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, unicodeOffset, pos.x, pos.y, &q, false);
+	stbtt_GetPackedQuad(font->cData, font->tex.dim.w, font->tex.dim.h, unicodeOffset, pos.x, pos.y, &q, font->pixelAlign);
 
 	float off = font->baseOffset;
+	if(font->pixelAlign) off = roundInt(off);
+
 	*r = rect(q.x0, q.y0 - off, q.x1, q.y1 - off);
 	*uv = rect(q.s0, q.t0, q.s1, q.t1);
 }

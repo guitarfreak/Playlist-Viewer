@@ -31,6 +31,7 @@ char* texturePaths[] = {
 
 enum SamplerType {
 	SAMPLER_NORMAL = 0,
+	SAMPLER_NEAREST,
 	SAMPLER_SIZE,
 };
 

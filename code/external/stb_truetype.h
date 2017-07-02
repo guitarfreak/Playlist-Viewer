@@ -646,6 +646,8 @@ struct stbtt_fontinfo
    int numGlyphs;                     // number of glyphs, needed for range checking
 
    int loca,head,glyf,hhea,hmtx,kern; // table locations as offset from start of .ttf
+   int fpgm, cvt, prep;
+
    int index_map;                     // a cmap mapping for our chosen character encoding
    int indexToLocFormat;              // format needed to map from glyph index to glyph
 };
@@ -1007,6 +1009,19 @@ static stbtt_uint32 stbtt__find_table(stbtt_uint8 *data, stbtt_uint32 fontstart,
       stbtt_uint32 loc = tabledir + 16*i;
       if (stbtt_tag(data+loc+0, tag))
          return ttULONG(data+loc+8);
+   }
+   return 0;
+}
+
+static stbtt_uint32 stbtt__find_table_length(stbtt_uint8 *data, stbtt_uint32 fontstart, const char *tag)
+{
+   stbtt_int32 num_tables = ttUSHORT(data+fontstart+4);
+   stbtt_uint32 tabledir = fontstart + 12;
+   stbtt_int32 i;
+   for (i=0; i < num_tables; ++i) {
+      stbtt_uint32 loc = tabledir + 16*i;
+      if (stbtt_tag(data+loc+0, tag))
+         return ttULONG(data+loc+12);
    }
    return 0;
 }
@@ -2488,6 +2503,30 @@ STBTT_DEF void stbtt_MakeGlyphBitmapSubpixel(const stbtt_fontinfo *info, unsigne
    stbtt_vertex *vertices;
    int num_verts = stbtt_GetGlyphShape(info, glyph, &vertices);
    stbtt__bitmap gbm;   
+
+   // // What.
+   // // if(true)
+   // if(glyph == 918)
+   // // if(glyph == 'H' - 29 + 1)
+   // // if(glyph == 0)
+   // // if(glyph == '!' - 29)
+   // {
+   // 		// float scale = stbtt_ScaleForPixelHeight(info, 20);
+
+	  //   int fpgm = stbtt__find_table(info->data, info->fontstart, "fpgm");
+
+   // 		for(int i = 0; i < num_verts; i++) {
+   // 			stbtt_vertex v = vertices[i];
+
+   // 			// if(v.type == 1) {
+   // 				vertices[i].x = STBTT_ifloor((vertices[i].x*scale_x) + 0.5f) / scale_x;	
+   // 				vertices[i].y = STBTT_ifloor((vertices[i].y*scale_y) + 0.5f) / scale_y;	
+   // 				// vertices[i].y += 200;	
+   // 			// }
+   // 			// vertices[i].x = STBTT_ifloor((shift_x*vertices[i].x) + 0.5f);
+
+   // 		}
+   // }
 
    stbtt_GetGlyphBitmapBoxSubpixel(info, glyph, scale_x, scale_y, shift_x, shift_y, &ix0,&iy0,0,0);
    gbm.pixels = output;
