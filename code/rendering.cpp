@@ -433,8 +433,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	readFileToBuffer(fileBuffer, path);
 
 	// Vec2i size = vec2i(512,512);
-	Vec2i size = vec2i(256,256);
-	// Vec2i size = vec2i(800,800);
+	// Vec2i size = vec2i(256,256);
+	Vec2i size = vec2i(800,800);
 	uchar* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
 	uchar* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
 
@@ -446,16 +446,20 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	font.height = height;
 
 	font.glyphRangeCount = 0;
-	// font.glyphRanges[0].x = (int)0x20-1;
-	// font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
-	// font.glyphRangeCount++;
-	// font.glyphRanges[1].x = 0xA0;
-	// font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
-	// font.glyphRangeCount++;
-	
-	font.glyphRanges[0].x = (int)0x48;
-	font.glyphRanges[0].y = (int)0x4C - font.glyphRanges[0].x + 1;
+	font.glyphRanges[0].x = (int)0x20-1;
+	font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
 	font.glyphRangeCount++;
+	font.glyphRanges[1].x = 0xA0;
+	font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
+	font.glyphRangeCount++;
+	
+	// font.glyphRanges[0].x = (int)0x49;
+	// font.glyphRanges[0].y = 1;
+	// font.glyphRangeCount = 1;
+
+	// font.glyphRanges[0].x = (int)0x48;
+	// font.glyphRanges[0].y = (int)0x4C - font.glyphRanges[0].x + 1;
+	// font.glyphRangeCount++;
 
 
 	int totalGlyphCount = 0;
@@ -1039,6 +1043,7 @@ int getUnicodeRangeOffset(int c, Font* font) {
 	return unicodeOffset;
 }
 
+// @Getglyphbox.
 void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
 	stbtt_aligned_quad q;
 	int unicodeOffset = getUnicodeRangeOffset(c, font);

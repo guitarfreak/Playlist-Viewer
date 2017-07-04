@@ -19,6 +19,26 @@
 
 #define Void_Dref(type, ptr) (*((type*)ptr))
 
+
+uint16_t swapU16( uint16_t val ) {
+    return (val << 8) | (val >> 8 );
+}
+
+int16_t swapI16( int16_t val ) {
+    return (val << 8) | ((val >> 8) & 0xFF);
+}
+
+uint32_t swapU32( uint32_t val ) {
+    val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF ); 
+    return (val << 16) | (val >> 16);
+}
+
+int32_t swapI32( int32_t val ) {
+    val = ((val << 8) & 0xFF00FF00) | ((val >> 8) & 0xFF00FF ); 
+    return (val << 16) | ((val >> 16) & 0xFFFF);
+}
+
+
 int myAssert(bool check) {
 	if(!check) {
 

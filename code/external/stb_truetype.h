@@ -647,6 +647,7 @@ struct stbtt_fontinfo
 
    int loca,head,glyf,hhea,hmtx,kern; // table locations as offset from start of .ttf
    int fpgm, cvt, prep;
+   int fpgmSize, cvtSize, prepSize;
 
    int index_map;                     // a cmap mapping for our chosen character encoding
    int indexToLocFormat;              // format needed to map from glyph index to glyph
@@ -2506,7 +2507,37 @@ STBTT_DEF void stbtt_MakeGlyphBitmapSubpixel(const stbtt_fontinfo *info, unsigne
 
    // // What.
    // // if(true)
-   // if(glyph == 918)
+   // if(true) {
+   // if(false) {
+   if(glyph == 918) {
+
+   		// int i = 0;
+   		// vertices[i].x = 1.41f / scale_x; vertices[i++].y = 0 / scale_y;
+   		// vertices[i].x = 1.41 / scale_x; vertices[i++].y = 12 / scale_y;
+   		// vertices[i].x = 2.73 / scale_x; vertices[i++].y = 12 / scale_y;
+   		// vertices[i].x = 2.73 / scale_x; vertices[i++].y = 0 / scale_y;
+
+   		// vertices[i].x = vertices[0].x; vertices[i++].y = vertices[0].y;
+
+
+
+		// for(int i = 0; i < num_verts; i++) {
+		// 	stbtt_vertex v = vertices[i];
+
+		// 	vertices[i].x = 1.41f;
+		// 	vertices[i].y = 0;
+
+		// 	// if(v.type == 1) {
+		// 		// vertices[i].x = STBTT_ifloor((vertices[i].x*scale_x) + 0.5f) / scale_x;	
+		// 		// vertices[i].y = STBTT_ifloor((vertices[i].y*scale_y) + 0.5f) / scale_y;	
+		// 		// vertices[i].y += 123;
+
+		// 		// vertices[i].y += 200;	
+		// 	// }
+		// 	// vertices[i].x = STBTT_ifloor((shift_x*vertices[i].x) + 0.5f);
+
+		// }
+
    // // if(glyph == 'H' - 29 + 1)
    // // if(glyph == 0)
    // // if(glyph == '!' - 29)
@@ -2526,7 +2557,7 @@ STBTT_DEF void stbtt_MakeGlyphBitmapSubpixel(const stbtt_fontinfo *info, unsigne
    // 			// vertices[i].x = STBTT_ifloor((shift_x*vertices[i].x) + 0.5f);
 
    // 		}
-   // }
+   }
 
    stbtt_GetGlyphBitmapBoxSubpixel(info, glyph, scale_x, scale_y, shift_x, shift_y, &ix0,&iy0,0,0);
    gbm.pixels = output;

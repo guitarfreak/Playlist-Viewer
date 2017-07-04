@@ -4,7 +4,7 @@
 #define Default_Array_Size 100
 
 void assertPrint(bool condition, char* string) {
-	printf(string);
+	if(condition) printf(string);
 	STBTT_assert(!condition);
 }
 void assertPrint(bool condition) { return assertPrint(condition, ""); }
@@ -12,6 +12,25 @@ void assertPrint(bool condition) { return assertPrint(condition, ""); }
 
 
 
+struct TrueTypeVertex {
+	short x,y,cx,cy;
+	unsigned char type,padding;
+	Vec2 p;
+};
+
+TrueTypeVertex trueTypeVertex() {
+	TrueTypeVertex v;
+	v.x = v.y = v.cx = v.cy = 0;
+	v.type = 0;
+	v.padding = 0;
+	v.p = vec2(0,0);
+	return v;
+}
+
+enum GlyphZoneType {
+	GLYPH_ZONE_TWILIGHT = 0,
+	GLYPH_ZONE_NORMAL = 1,
+};
 
 
 
@@ -189,30 +208,56 @@ struct SharpFontInterpreter {
 	};
 
 	struct Zone {
-	    stbtt_vertex* Current;
+	    TrueTypeVertex* Current;
 	    int CurrentCount;
-	    stbtt_vertex* Original;
+	    TrueTypeVertex* Original;
 	    int OriginalCount;
 	    int* TouchState;
 	    int TouchStateCount;
 	    bool IsTwilight;
 
 	    Zone() {};
-	    Zone(stbtt_vertex* points, int pointsCount, bool isTwilight) {
-	        IsTwilight = isTwilight;
-	        Current = points;
-	        CurrentCount = pointsCount;
-	        memCpy(Original, points, pointsCount);
-	        OriginalCount = pointsCount;
+	    Zone(TrueTypeVertex* points, int pointsCount, bool isTwilight) {
+	    	this->IsTwilight = isTwilight;
+			if(isTwilight) {
+				// twilight setup, assuming we just want an empty array.
+				Current = mallocArray(TrueTypeVertex, pointsCount);
+				for(int i = 0; i < pointsCount; i++) Current[i] = trueTypeVertex();
+				CurrentCount = pointsCount;
+
+				Original = mallocArray(TrueTypeVertex, pointsCount);
+				for(int i = 0; i < pointsCount; i++) Original[i] = trueTypeVertex();
+				OriginalCount = pointsCount;
+			} else {
+				// normal setup.
+				Current = mallocArray(TrueTypeVertex, pointsCount);
+				for(int i = 0; i < pointsCount; i++) Current[i] = points[i];
+				CurrentCount = pointsCount;
+
+				Original = mallocArray(TrueTypeVertex, pointsCount);
+				for(int i = 0; i < pointsCount; i++) Original[i] = points[i];
+				OriginalCount = pointsCount;
+
+				// Round last 4 points for current.
+				for(int i = 0; i < 4; i++) {
+					Current[CurrentCount-1-i].p.x = roundFloat(Current[CurrentCount-1-i].p.x);
+					Current[CurrentCount-1-i].p.y = roundFloat(Current[CurrentCount-1-i].p.y);
+				}
+			}
+
 	        TouchState = mallocArray(int, pointsCount);
+	        for(int i = 0; i < pointsCount; i++) TouchState[i] = TOUCH_STATE_None;
 	        TouchStateCount = pointsCount;
 	    }
 
-	    // Vec2 GetCurrent(int index) { return Current[index].P; }
-	    // Vec2 GetOriginal(int index) { return Original[index].P; }
-
-	    Vec2 GetCurrent(int index) { return vec2(0,0); }
-	    Vec2 GetOriginal(int index) { return vec2(0,0); }
+	    Vec2 GetCurrent(int index) { 
+	    	Vec2 v = Current[index].p;
+    		return v; 
+	    }
+	    Vec2 GetOriginal(int index) { 
+	    	Vec2 v = Original[index].p;
+	    	return v;
+	    }
 	};
 
 
@@ -304,6 +349,7 @@ struct SharpFontInterpreter {
 	    ExecutionStack(int maxStack) {
 	        s = mallocArray(int, maxStack);
 	        sMaxCount = maxStack;
+	        count = 0;
 	    }
 
 	    int Peek() { return Peek(0); }
@@ -353,6 +399,7 @@ struct SharpFontInterpreter {
 
 
 
+	// Vars.
 
     GraphicsState state;
     GraphicsState cvtState;
@@ -363,6 +410,7 @@ struct SharpFontInterpreter {
     int instructionDefsCount;
     float* controlValueTable;
     int controlValueTableCount;
+    Zone points, twilight;
 
     int* storage;
     int storageCount;
@@ -375,46 +423,44 @@ struct SharpFontInterpreter {
     float roundThreshold;
     float roundPhase;
     float roundPeriod;
-    Zone zp0, zp1, zp2;	
-    Zone points, twilight;
+    Zone *zp0, *zp1, *zp2;	
 
 
-    // SharpFontInterpreter(int maxStack, int maxStorage, int maxFunctions, int maxInstructionDefs, int maxTwilightPoints) {
-    //     stack = ExecutionStack(maxStack);
-    //     storage = mallocArray(int, maxStorage);
-    //     functions = mallocArray(InstructionStream, maxFunctions);
-    //     instructionDefs = mallocArray(InstructionStream, (maxInstructionDefs > 0 ? 256 : 0));
-    //     state = GraphicsState();
-    //     cvtState = GraphicsState();
-    //     // twilight = new Zone(new stb_vertex[maxTwilightPoints], isTwilight: true);
-    // }
 
     void init(int maxStack, int maxStorage, int maxFunctions, int maxInstructionDefs, int maxTwilightPoints) {
         stack = ExecutionStack(maxStack);
         storage = mallocArray(int, maxStorage);
+        storageCount = maxStorage;
         functions = mallocArray(InstructionStream, maxFunctions);
+        functionsCount = 0;
         instructionDefs = mallocArray(InstructionStream, (maxInstructionDefs > 0 ? 256 : 0));
         state = GraphicsState();
         cvtState = GraphicsState();
-        // twilight = new Zone(new stb_vertex[maxTwilightPoints], isTwilight: true);
-    }
 
+        twilight = Zone(0, maxTwilightPoints, true);
+    }
 
     void InitializeFunctionDefs(uchar* instructions, int count) {
         Execute(InstructionStream(instructions, count), false, true);
     }
 
-    void SetControlValueTable(int* cvt, int cvtCount, float scale, float ppem, uchar* cvProgram, int cvProgramCount) {
+    void SetControlValueTable(short* cvt, int cvtCount, float scale, float ppem, uchar* cvProgram, int cvProgramCount) {
         if (this->scale == scale || cvt == 0) return;
 
         if (controlValueTable == 0) controlValueTable = mallocArray(float, cvtCount);
+        controlValueTableCount = cvtCount;
         //copy cvt and apply scale
-        for (int i = cvtCount - 1; i >= 0; --i)
-            controlValueTable[i] = cvt[i] * scale;
+        for (int i = cvtCount - 1; i >= 0; --i) {
+        	short v = swapI16(cvt[i]);
+            controlValueTable[i] = v * scale;
+        }
 
         this->scale = scale;
         this->ppem = roundInt(ppem);
-        // zp0 = zp1 = zp2 = points;
+        points = Zone();
+        twilight = Zone();
+        zp0 = zp1 = zp2 = &points;
+
         state.Reset();
         stack.Clear();
 
@@ -435,7 +481,7 @@ struct SharpFontInterpreter {
         }
     }
 
-    void HintGlyph(stbtt_vertex* glyphPoints, int glyphPointsCount, ushort* contours, int contoursCount, uchar* instructions, int instructionsCount) {
+    void HintGlyph(TrueTypeVertex* glyphPoints, int glyphPointsCount, ushort* contours, int contoursCount, uchar* instructions, int instructionsCount) {
         if (instructions == 0 || instructionsCount == 0) return;
 
         // check if the CVT program disabled hinting
@@ -447,7 +493,9 @@ struct SharpFontInterpreter {
         // save contours and points
         this->contours = contours;
         this->contoursCount = contoursCount;
-        zp0 = zp1 = zp2 = points = Zone(glyphPoints, glyphPointsCount, false);
+
+        points = Zone(glyphPoints, glyphPointsCount, false);
+        zp0 = zp1 = zp2 = &points;
 
         // reset all of our shared state
         state = cvtState;
@@ -627,32 +675,32 @@ struct SharpFontInterpreter {
 	            case OPCODE_SDS: state.DeltaShift = stack.Pop(); break;
 
 	            // ==== POINT MEASUREMENT ====
-	            case OPCODE_GC0: stack.Push(Project(zp2.GetCurrent(stack.Pop()))); break;
-	            case OPCODE_GC1: stack.Push(DualProject(zp2.GetOriginal(stack.Pop()))); break;
+	            case OPCODE_GC0: stack.Push(Project(zp2->GetCurrent(stack.Pop()))); break;
+	            case OPCODE_GC1: stack.Push(DualProject(zp2->GetOriginal(stack.Pop()))); break;
 	            case OPCODE_SCFS:
 	                {
-	            //         var value = stack.PopFloat();
-	            //         var index = stack.Pop();
-	            //         var point = zp2.GetCurrent(index);
-	            //         MovePoint(zp2, index, value - Project(point));
+	                    auto value = stack.PopFloat();
+	                    auto index = stack.Pop();
+	                    auto point = zp2->GetCurrent(index);
+	                    MovePoint(zp2, index, value - Project(point));
 
-	            //         // moving twilight points moves their "original" value also
-	            //         if (zp2.IsTwilight)
-	            //             zp2.Original[index].P = zp2.Current[index].P;
+	                    // moving twilight points moves their "original" value also
+	                    if (zp2->IsTwilight)
+	                        zp2->Original[index].p = zp2->Current[index].p;
 	                }
 	                break;
 	            case OPCODE_MD0:
 	                {
-	            //         var p1 = zp1.GetOriginal(stack.Pop());
-	            //         var p2 = zp0.GetOriginal(stack.Pop());
-	            //         stack.Push(DualProject(p2 - p1));
+	                    auto p1 = zp1->GetOriginal(stack.Pop());
+	                    auto p2 = zp0->GetOriginal(stack.Pop());
+	                    stack.Push(DualProject(p2 - p1));
 	                }
 	                break;
 	            case OPCODE_MD1:
 	                {
-	            //         var p1 = zp1.GetCurrent(stack.Pop());
-	            //         var p2 = zp0.GetCurrent(stack.Pop());
-	            //         stack.Push(Project(p2 - p1));
+	                    auto p1 = zp1->GetCurrent(stack.Pop());
+	                    auto p2 = zp0->GetCurrent(stack.Pop());
+	                    stack.Push(Project(p2 - p1));
 	                }
 	                break;
 	            case OPCODE_MPS: // MPS should return point size, but we assume DPI so it's the same as pixel size
@@ -662,22 +710,25 @@ struct SharpFontInterpreter {
 	            // ==== POINT MODIFICATION ====
 	            case OPCODE_FLIPPT:
 	                {
-	            //         for (int i = 0; i < state.Loop; i++)
-	            //         {
-	            //             var index = stack.Pop();
-	            //             //review here again!
-	            //             points.Current[index].onCurve = !points.Current[index].onCurve;
-	            //             //if (points.Current[index].onCurve)
-	            //             //    points.Current[index].onCurve = false;
-	            //             //else
-	            //             //    points.Current[index].onCurve = true;
-	            //         }
-	            //         state.Loop = 1;
+	                	assert(false);
+	                //     for (int i = 0; i < state.Loop; i++)
+	                //     {
+	                //         auto index = stack.Pop();
+	                //         //review here again!
+	                //         points.Current[index].onCurve = !points.Current[index].onCurve;
+	                //         //if (points.Current[index].onCurve)
+	                //         //    points.Current[index].onCurve = false;
+	                //         //else
+	                //         //    points.Current[index].onCurve = true;
+	                //     }
+	                //     state.Loop = 1;
 	                }
 	                break;
 	            case OPCODE_FLIPRGON:
 	                {
-	            //         var end = stack.Pop();
+	                	assert(false);
+
+	            //         auto end = stack.Pop();
 	            //         for (int i = stack.Pop(); i <= end; i++)
 	            //             //points.Current[i].Type = PointType.OnCurve;
 	            //             points.Current[i].onCurve = true;
@@ -685,7 +736,9 @@ struct SharpFontInterpreter {
 	                break;
 	            case OPCODE_FLIPRGOFF:
 	                {
-	            //         var end = stack.Pop();
+	                	assert(false);
+
+	            //         auto end = stack.Pop();
 	            //         for (int i = stack.Pop(); i <= end; i++)
 	            //             //points.Current[i].Type = PointType.Quadratic;
 	            //             points.Current[i].onCurve = false;
@@ -694,293 +747,292 @@ struct SharpFontInterpreter {
 	            case OPCODE_SHP0:
 	            case OPCODE_SHP1:
 	                {
-	            //         Zone zone;
-	            //         int point;
-	            //         var displacement = ComputeDisplacement((int)opcode, out zone, out point);
-	            //         ShiftPoints(displacement);
+	                    Zone zone;
+	                    int point;
+	                    auto displacement = ComputeDisplacement((int)opcode, &zone, &point);
+	                    ShiftPoints(displacement);
 	                }
 	                break;
 	            case OPCODE_SHPIX: ShiftPoints(stack.PopFloat() * state.Freedom); break;
 	            case OPCODE_SHC0:
 	            case OPCODE_SHC1:
 	                {
-	            //         Zone zone;
-	            //         int point;
-	            //         var displacement = ComputeDisplacement((int)opcode, out zone, out point);
-	            //         var touch = GetTouchState();
-	            //         var contour = stack.Pop();
-	            //         var start = contour == 0 ? 0 : contours[contour - 1] + 1;
-	            //         var count = zp2.IsTwilight ? zp2.Current.Length : contours[contour] + 1;
+	                    Zone zone;
+	                    int point;
+	                    auto displacement = ComputeDisplacement((int)opcode, &zone, &point);
+	                    auto touch = GetTouchState();
+	                    auto contour = stack.Pop();
+	                    auto start = contour == 0 ? 0 : contours[contour - 1] + 1;
+	                    auto count = zp2->IsTwilight ? zp2->CurrentCount : contours[contour] + 1;
 
-	            //         for (int i = start; i < count; i++)
-	            //         {
-	            //             // don't move the reference point
-	            //             if (zone.Current != zp2.Current || point != i)
-	            //             {
-	            //                 zp2.Current[i].P += displacement;
-	            //                 zp2.TouchState[i] |= touch;
-	            //             }
-	            //         }
+	                    for (int i = start; i < count; i++)
+	                    {
+	                        // don't move the reference point
+	                        if (zone.Current != zp2->Current || point != i)
+	                        {
+	                            zp2->Current[i].p += displacement;
+	                            zp2->TouchState[i] |= touch;
+	                        }
+	                    }
 	                }
 	                break;
 	            case OPCODE_SHZ0:
 	            case OPCODE_SHZ1:
 	                {
-	            //         Zone zone;
-	            //         int point;
-	            //         var displacement = ComputeDisplacement((int)opcode, out zone, out point);
-	            //         var count = 0;
-	            //         if (zp2.IsTwilight)
-	            //             count = zp2.Current.Length;
-	            //         else if (contours.Length > 0)
-	            //             count = contours[contours.Length - 1] + 1;
+	                    Zone zone;
+	                    int point;
+	                    auto displacement = ComputeDisplacement((int)opcode, &zone, &point);
+	                    auto count = 0;
+	                    if (zp2->IsTwilight)
+	                        count = zp2->CurrentCount;
+	                    else if (contoursCount > 0)
+	                        count = contours[contoursCount - 1] + 1;
 
-	            //         for (int i = 0; i < count; i++)
-	            //         {
-	            //             // don't move the reference point
-	            //             if (zone.Current != zp2.Current || point != i)
-	            //                 zp2.Current[i].P += displacement;
-	            //         }
+	                    for (int i = 0; i < count; i++)
+	                    {
+	                        // don't move the reference point
+	                        if (zone.Current != zp2->Current || point != i)
+	                            zp2->Current[i].p += displacement;
+	                    }
 	                }
 	                break;
 	            case OPCODE_MIAP0:
 	            case OPCODE_MIAP1:
 	                {
-	            //         var distance = ReadCvt();
-	            //         var pointIndex = stack.Pop();
+	                    float distance = ReadCvt();
+	                    int pointIndex = stack.Pop();
 
-	            //         // this instruction is used in the CVT to set up twilight points with original values
-	            //         if (zp0.IsTwilight)
-	            //         {
-	            //             var original = state.Freedom * distance;
-	            //             zp0.Original[pointIndex].P = original;
-	            //             zp0.Current[pointIndex].P = original;
-	            //         }
+	                    // this instruction is used in the CVT to set up twilight points with original values
+	                    if (zp0->IsTwilight)
+	                    {
+	                        auto original = state.Freedom * distance;
+	                        zp0->Original[pointIndex].p = original;
+	                        zp0->Current[pointIndex].p = original;
+	                    }
 
-	            //         // current position of the point along the projection vector
-	            //         var point = zp0.GetCurrent(pointIndex);
-	            //         var currentPos = Project(point);
-	            //         if (opcode == OPCODE_MIAP1)
-	            //         {
-	            //             // only use the CVT if we are above the cut-in point
-	            //             if (Math.Abs(distance - currentPos) > state.ControlValueCutIn)
-	            //                 distance = currentPos;
-	            //             distance = Round(distance);
-	            //         }
+	                    // current position of the point along the projection vector
+	                    auto point = zp0->GetCurrent(pointIndex);
+	                    auto currentPos = Project(point);
+	                    if (opcode == OPCODE_MIAP1)
+	                    {
+	                        // only use the CVT if we are above the cut-in point
+	                        if (fabs(distance - currentPos) > state.ControlValueCutIn)
+	                            distance = currentPos;
+	                        distance = Round(distance);
+	                    }
 
-	            //         MovePoint(zp0, pointIndex, distance - currentPos);
-	            //         state.Rp0 = pointIndex;
-	            //         state.Rp1 = pointIndex;
+	                    MovePoint(zp0, pointIndex, distance - currentPos);
+	                    state.Rp0 = pointIndex;
+	                    state.Rp1 = pointIndex;
 	                }
 	                break;
 	            case OPCODE_MDAP0:
 	            case OPCODE_MDAP1:
 	                {
-	            //         var pointIndex = stack.Pop();
-	            //         var point = zp0.GetCurrent(pointIndex);
-	            //         var distance = 0.0f;
-	            //         if (opcode == OPCODE_MDAP1)
-	            //         {
-	            //             distance = Project(point);
-	            //             distance = Round(distance) - distance;
-	            //         }
+	                    auto pointIndex = stack.Pop();
+	                    auto point = zp0->GetCurrent(pointIndex);
+	                    auto distance = 0.0f;
+	                    if (opcode == OPCODE_MDAP1)
+	                    {
+	                        distance = Project(point);
+	                        distance = Round(distance) - distance;
+	                    }
 
-	            //         MovePoint(zp0, pointIndex, distance);
-	            //         state.Rp0 = pointIndex;
-	            //         state.Rp1 = pointIndex;
+	                    MovePoint(zp0, pointIndex, distance);
+	                    state.Rp0 = pointIndex;
+	                    state.Rp1 = pointIndex;
 	                }
 	                break;
 	            case OPCODE_MSIRP0:
 	            case OPCODE_MSIRP1:
 	                {
-	            //         var targetDistance = stack.PopFloat();
-	            //         var pointIndex = stack.Pop();
+	                    auto targetDistance = stack.PopFloat();
+	                    auto pointIndex = stack.Pop();
 
-	            //         // if we're operating on the twilight zone, initialize the points
-	            //         if (zp1.IsTwilight)
-	            //         {
-	            //             zp1.Original[pointIndex].P = zp0.Original[state.Rp0].P + targetDistance * state.Freedom / fdotp;
-	            //             zp1.Current[pointIndex].P = zp1.Original[pointIndex].P;
-	            //         }
+	                    // if we're operating on the twilight zone, initialize the points
+	                    if (zp1->IsTwilight)
+	                    {
+	                        zp1->Original[pointIndex].p = zp0->Original[state.Rp0].p + (targetDistance * state.Freedom) / fdotp;
+	                        zp1->Current[pointIndex].p = zp1->Original[pointIndex].p;
+	                    }
 
-	            //         var currentDistance = Project(zp1.GetCurrent(pointIndex) - zp0.GetCurrent(state.Rp0));
-	            //         MovePoint(zp1, pointIndex, targetDistance - currentDistance);
+	                    auto currentDistance = Project(zp1->GetCurrent(pointIndex) - zp0->GetCurrent(state.Rp0));
+	                    MovePoint(zp1, pointIndex, targetDistance - currentDistance);
 
-	            //         state.Rp1 = state.Rp0;
-	            //         state.Rp2 = pointIndex;
-	            //         if (opcode == OPCODE_MSIRP1)
-	            //             state.Rp0 = pointIndex;
+	                    state.Rp1 = state.Rp0;
+	                    state.Rp2 = pointIndex;
+	                    if (opcode == OPCODE_MSIRP1)
+	                        state.Rp0 = pointIndex;
 	                }
 	                break;
 	            case OPCODE_IP:
 	                {
-	            //         var originalBase = zp0.GetOriginal(state.Rp1);
-	            //         var currentBase = zp0.GetCurrent(state.Rp1);
-	            //         var originalRange = DualProject(zp1.GetOriginal(state.Rp2) - originalBase);
-	            //         var currentRange = Project(zp1.GetCurrent(state.Rp2) - currentBase);
+	                    auto originalBase = zp0->GetOriginal(state.Rp1);
+	                    auto currentBase = zp0->GetCurrent(state.Rp1);
+	                    auto originalRange = DualProject(zp1->GetOriginal(state.Rp2) - originalBase);
+	                    auto currentRange = Project(zp1->GetCurrent(state.Rp2) - currentBase);
 
-	            //         for (int i = 0; i < state.Loop; i++)
-	            //         {
-	            //             var pointIndex = stack.Pop();
-	            //             var point = zp2.GetCurrent(pointIndex);
-	            //             var currentDistance = Project(point - currentBase);
-	            //             var originalDistance = DualProject(zp2.GetOriginal(pointIndex) - originalBase);
+	                    for (int i = 0; i < state.Loop; i++)
+	                    {
+	                        auto pointIndex = stack.Pop();
+	                        auto point = zp2->GetCurrent(pointIndex);
+	                        auto currentDistance = Project(point - currentBase);
+	                        auto originalDistance = DualProject(zp2->GetOriginal(pointIndex) - originalBase);
 
-	            //             var newDistance = 0.0f;
-	            //             if (originalDistance != 0.0f)
-	            //             {
-	            //                 // a range of 0.0f is invalid according to the spec (would result in a div by zero)
-	            //                 if (originalRange == 0.0f)
-	            //                     newDistance = originalDistance;
-	            //                 else
-	            //                     newDistance = originalDistance * currentRange / originalRange;
-	            //             }
+	                        auto newDistance = 0.0f;
+	                        if (originalDistance != 0.0f)
+	                        {
+	                            // a range of 0.0f is invalid according to the spec (would result in a div by zero)
+	                            if (originalRange == 0.0f)
+	                                newDistance = originalDistance;
+	                            else
+	                                newDistance = originalDistance * currentRange / originalRange;
+	                        }
 
-	            //             MovePoint(zp2, pointIndex, newDistance - currentDistance);
-	            //         }
-	            //         state.Loop = 1;
+	                        MovePoint(zp2, pointIndex, newDistance - currentDistance);
+	                    }
+	                    state.Loop = 1;
 	                }
 	                break;
 	            case OPCODE_ALIGNRP:
 	                {
-	            //         for (int i = 0; i < state.Loop; i++)
-	            //         {
-	            //             var pointIndex = stack.Pop();
-	            //             var p1 = zp1.GetCurrent(pointIndex);
-	            //             var p2 = zp0.GetCurrent(state.Rp0);
-	            //             MovePoint(zp1, pointIndex, -Project(p1 - p2));
-	            //         }
-	            //         state.Loop = 1;
+	                    for (int i = 0; i < state.Loop; i++)
+	                    {
+	                        auto pointIndex = stack.Pop();
+	                        auto p1 = zp1->GetCurrent(pointIndex);
+	                        auto p2 = zp0->GetCurrent(state.Rp0);
+	                        MovePoint(zp1, pointIndex, -Project(p1 - p2));
+	                    }
+	                    state.Loop = 1;
 	                }
 	                break;
 	            case OPCODE_ALIGNPTS:
 	                {
-	            //         var p1 = stack.Pop();
-	            //         var p2 = stack.Pop();
-	            //         var distance = Project(zp0.GetCurrent(p2) - zp1.GetCurrent(p1)) / 2;
-	            //         MovePoint(zp1, p1, distance);
-	            //         MovePoint(zp0, p2, -distance);
+	                    auto p1 = stack.Pop();
+	                    auto p2 = stack.Pop();
+	                    auto distance = Project(zp0->GetCurrent(p2) - zp1->GetCurrent(p1)) / 2;
+	                    MovePoint(zp1, p1, distance);
+	                    MovePoint(zp0, p2, -distance);
 	                }
 	                break;
-	            case OPCODE_UTP: zp0.TouchState[stack.Pop()] &= ~GetTouchState(); break;
+	            case OPCODE_UTP: zp0->TouchState[stack.Pop()] &= ~GetTouchState(); break;
 	            case OPCODE_IUP0:
 	            case OPCODE_IUP1:
-	            //     unsafe
 	                {
-	            //         // bail if no contours (empty outline)
-	            //         if (contours.Length == 0)
-	            //             break;
+	                    // bail if no contours (empty outline)
+	                    if (contoursCount == 0)
+	                        break;
 
-	            //         fixed (stb_vertex* currentPtr = points.Current)
-	            //         fixed (stb_vertex* originalPtr = points.Original)
-	            //         {
-	            //             // opcode controls whether we care about X or Y direction
-	            //             // do some pointer trickery so we can operate on the
-	            //             // points in a direction-agnostic manner
-	            //             TouchState touchMask;
-	            //             byte* current;
-	            //             byte* original;
-	            //             if (opcode == OPCODE_IUP0)
-	            //             {
-	            //                 touchMask = TOUCH_STATE_Y;
-	            //                 current = (byte*)&currentPtr->P.Y;
-	            //                 original = (byte*)&originalPtr->P.Y;
-	            //             }
-	            //             else
-	            //             {
-	            //                 touchMask = TOUCH_STATE_X;
-	            //                 current = (byte*)&currentPtr->P.X;
-	            //                 original = (byte*)&originalPtr->P.X;
-	            //             }
+	                    TrueTypeVertex* currentPtr = points.Current;
+	                    TrueTypeVertex* originalPtr = points.Original;
+	                    {
+	                        // opcode controls whether we care about X or Y direction
+	                        // do some pointer trickery so we can operate on the
+	                        // points in a direction-agnostic manner
+	                        TouchStateEnum touchMask;
+	                        uchar* current;
+	                        uchar* original;
+	                        if (opcode == OPCODE_IUP0)
+	                        {
+	                            touchMask = TOUCH_STATE_Y;
+	                            current = (uchar*)&currentPtr->p.y;
+	                            original = (uchar*)&originalPtr->p.y;
+	                        }
+	                        else
+	                        {
+	                            touchMask = TOUCH_STATE_X;
+	                            current = (uchar*)&currentPtr->p.x;
+	                            original = (uchar*)&originalPtr->p.x;
+	                        }
 
-	            //             var point = 0;
-	            //             for (int i = 0; i < contours.Length; i++)
-	            //             {
-	            //                 var endPoint = contours[i];
-	            //                 var firstPoint = point;
-	            //                 var firstTouched = -1;
-	            //                 var lastTouched = -1;
+	                        auto point = 0;
+	                        for (int i = 0; i < contoursCount; i++)
+	                        {
+	                            auto endPoint = contours[i];
+	                            auto firstPoint = point;
+	                            auto firstTouched = -1;
+	                            auto lastTouched = -1;
 
-	            //                 for (; point <= endPoint; point++)
-	            //                 {
-	            //                     // check whether this point has been touched
-	            //                     if ((points.TouchState[point] & touchMask) != 0)
-	            //                     {
-	            //                         // if this is the first touched point in the contour, note it and continue
-	            //                         if (firstTouched < 0)
-	            //                         {
-	            //                             firstTouched = point;
-	            //                             lastTouched = point;
-	            //                             continue;
-	            //                         }
+	                            for (; point <= endPoint; point++)
+	                            {
+	                                // check whether this point has been touched
+	                                if ((points.TouchState[point] & touchMask) != 0)
+	                                {
+	                                    // if this is the first touched point in the contour, note it and continue
+	                                    if (firstTouched < 0)
+	                                    {
+	                                        firstTouched = point;
+	                                        lastTouched = point;
+	                                        continue;
+	                                    }
 
-	            //                         // otherwise, interpolate all untouched points
-	            //                         // between this point and our last touched point
-	            //                         InterpolatePoints(current, original, lastTouched + 1, point - 1, lastTouched, point);
-	            //                         lastTouched = point;
-	            //                     }
-	            //                 }
+	                                    // otherwise, interpolate all untouched points
+	                                    // between this point and our last touched point
+	                                    InterpolatePoints(current, original, lastTouched + 1, point - 1, lastTouched, point);
+	                                    lastTouched = point;
+	                                }
+	                            }
 
-	            //                 // check if we had any touched points at all in this contour
-	            //                 if (firstTouched >= 0)
-	            //                 {
-	            //                     // there are two cases left to handle:
-	            //                     // 1. there was only one touched point in the whole contour, in
-	            //                     //    which case we want to shift everything relative to that one
-	            //                     // 2. several touched points, in which case handle the gap from the
-	            //                     //    beginning to the first touched point and the gap from the last
-	            //                     //    touched point to the end of the contour
-	            //                     if (lastTouched == firstTouched)
-	            //                     {
-	            //                         var delta = *GetPoint(current, lastTouched) - *GetPoint(original, lastTouched);
-	            //                         if (delta != 0.0f)
-	            //                         {
-	            //                             for (int j = firstPoint; j < lastTouched; j++)
-	            //                                 *GetPoint(current, j) += delta;
-	            //                             for (int j = lastTouched + 1; j <= endPoint; j++)
-	            //                                 *GetPoint(current, j) += delta;
-	            //                         }
-	            //                     }
-	            //                     else
-	            //                     {
-	            //                         InterpolatePoints(current, original, lastTouched + 1, endPoint, lastTouched, firstTouched);
-	            //                         if (firstTouched > 0)
-	            //                             InterpolatePoints(current, original, firstPoint, firstTouched - 1, lastTouched, firstTouched);
-	            //                     }
-	            //                 }
-	            //             }
-	            //         }
+	                            // check if we had any touched points at all in this contour
+	                            if (firstTouched >= 0)
+	                            {
+	                                // there are two cases left to handle:
+	                                // 1. there was only one touched point in the whole contour, in
+	                                //    which case we want to shift everything relative to that one
+	                                // 2. several touched points, in which case handle the gap from the
+	                                //    beginning to the first touched point and the gap from the last
+	                                //    touched point to the end of the contour
+	                                if (lastTouched == firstTouched)
+	                                {
+	                                    auto delta = *GetPoint(current, lastTouched) - *GetPoint(original, lastTouched);
+	                                    if (delta != 0.0f)
+	                                    {
+	                                        for (int j = firstPoint; j < lastTouched; j++)
+	                                            *GetPoint(current, j) += delta;
+	                                        for (int j = lastTouched + 1; j <= endPoint; j++)
+	                                            *GetPoint(current, j) += delta;
+	                                    }
+	                                }
+	                                else
+	                                {
+	                                    InterpolatePoints(current, original, lastTouched + 1, endPoint, lastTouched, firstTouched);
+	                                    if (firstTouched > 0)
+	                                        InterpolatePoints(current, original, firstPoint, firstTouched - 1, lastTouched, firstTouched);
+	                                }
+	                            }
+	                        }
+	                    }
 	                }
 	                break;
 	            case OPCODE_ISECT:
 	                {
-	            //         // move point P to the intersection of lines A and B
-	            //         var b1 = zp0.GetCurrent(stack.Pop());
-	            //         var b0 = zp0.GetCurrent(stack.Pop());
-	            //         var a1 = zp1.GetCurrent(stack.Pop());
-	            //         var a0 = zp1.GetCurrent(stack.Pop());
-	            //         var index = stack.Pop();
+	                    // move point P to the intersection of lines A and B
+	                    auto b1 = zp0->GetCurrent(stack.Pop());
+	                    auto b0 = zp0->GetCurrent(stack.Pop());
+	                    auto a1 = zp1->GetCurrent(stack.Pop());
+	                    auto a0 = zp1->GetCurrent(stack.Pop());
+	                    auto index = stack.Pop();
 
-	            //         // calculate intersection using determinants: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_points_on_each_line
-	            //         var da = a0 - a1;
-	            //         var db = b0 - b1;
-	            //         var den = (da.X * db.Y) - (da.Y * db.X);
-	            //         if (Math.Abs(den) <= Epsilon)
-	            //         {
-	            //             // parallel lines; spec says to put the ppoint "into the middle of the two lines"
-	            //             zp2.Current[index].P = (a0 + a1 + b0 + b1) / 4;
-	            //         }
-	            //         else
-	            //         {
-	            //             var t = (a0.X * a1.Y) - (a0.Y * a1.X);
-	            //             var u = (b0.X * b1.Y) - (b0.Y * b1.X);
-	            //             var p = new Vec2(
-	            //                 (t * db.X) - (da.X * u),
-	            //                 (t * db.Y) - (da.Y * u)
-	            //             );
-	            //             zp2.Current[index].P = p / den;
-	            //         }
-	            //         zp2.TouchState[index] = TOUCH_STATE_Both;
+	                    // calculate intersection using determinants: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_points_on_each_line
+	                    auto da = a0 - a1;
+	                    auto db = b0 - b1;
+	                    auto den = (da.x * db.y) - (da.y * db.x);
+	                    if (fabs(den) <= Epsilon)
+	                    {
+	                        // parallel lines; spec says to put the ppoint "into the middle of the two lines"
+	                        zp2->Current[index].p = (a0 + a1 + b0 + b1) / 4;
+	                    }
+	                    else
+	                    {
+	                        auto t = (a0.x * a1.y) - (a0.y * a1.x);
+	                        auto u = (b0.x * b1.y) - (b0.y * b1.x);
+	                        auto p = vec2(
+	                            (t * db.x) - (da.x * u),
+	                            (t * db.y) - (da.y * u)
+	                        );
+	                        zp2->Current[index].p = p / den;
+	                    }
+	                    zp2->TouchState[index] = TOUCH_STATE_Both;
 	                }
 	                break;
 
@@ -997,51 +1049,51 @@ struct SharpFontInterpreter {
 	            // ==== FLOW CONTROL ====
 	            case OPCODE_IF:
 	                {
-	            //         // value is false; jump to the next else block or endif marker
-	            //         // otherwise, we don't have to do anything; we'll keep executing this block
-	            //         if (!stack.PopBool())
-	            //         {
-	            //             int indent = 1;
-	            //             while (indent > 0)
-	            //             {
-	            //                 opcode = SkipNext(ref stream);
-	            //                 switch (opcode)
-	            //                 {
-	            //                     case OPCODE_IF: indent++; break;
-	            //                     case OPCODE_EIF: indent--; break;
-	            //                     case OPCODE_ELSE:
-	            //                         if (indent == 1)
-	            //                             indent = 0;
-	            //                         break;
-	            //                 }
-	            //             }
-	            //         }
+	                    // value is false; jump to the next else block or endif marker
+	                    // otherwise, we don't have to do anything; we'll keep executing this block
+	                    if (!stack.PopBool())
+	                    {
+	                        int indent = 1;
+	                        while (indent > 0)
+	                        {
+	                            opcode = SkipNext(&stream);
+	                            switch (opcode)
+	                            {
+	                                case OPCODE_IF: indent++; break;
+	                                case OPCODE_EIF: indent--; break;
+	                                case OPCODE_ELSE:
+	                                    if (indent == 1)
+	                                        indent = 0;
+	                                    break;
+	                            }
+	                        }
+	                    }
 	                }
 	                break;
 	            case OPCODE_ELSE:
 	                {
-	            //         // assume we hit the true statement of some previous if block
-	            //         // if we had hit false, we would have jumped over this
-	            //         int indent = 1;
-	            //         while (indent > 0)
-	            //         {
-	            //             opcode = SkipNext(ref stream);
-	            //             switch (opcode)
-	            //             {
-	            //                 case OPCODE_IF: indent++; break;
-	            //                 case OPCODE_EIF: indent--; break;
-	            //             }
-	            //         }
+	                    // assume we hit the true statement of some previous if block
+	                    // if we had hit false, we would have jumped over this
+	                    int indent = 1;
+	                    while (indent > 0)
+	                    {
+	                        opcode = SkipNext(&stream);
+	                        switch (opcode)
+	                        {
+	                            case OPCODE_IF: indent++; break;
+	                            case OPCODE_EIF: indent--; break;
+	                        }
+	                    }
 	                }
 	                break;
 	            case OPCODE_EIF: /* nothing to do */ break;
 	            case OPCODE_JROT:
 	            case OPCODE_JROF:
-	                {
-	            //         if (stack.PopBool() == (opcode == OPCODE_JROT))
-	            //             stream.Jump(stack.Pop() - 1);
-	            //         else
-	            //             stack.Pop();    // ignore the offset
+	                {	                	
+	                    if (stack.PopBool() == (opcode == OPCODE_JROT))
+	                        stream.Jump(stack.Pop() - 1);
+	                    else
+	                        stack.Pop();    // ignore the offset
 	                }
 	                break;
 	            case OPCODE_JMPR: stream.Jump(stack.Pop() - 1); break;
@@ -1049,105 +1101,105 @@ struct SharpFontInterpreter {
 	            // ==== LOGICAL OPS ====
 	            case OPCODE_LT:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a < b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a < b);
 	                }
 	                break;
 	            case OPCODE_LTEQ:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a <= b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a <= b);
 	                }
 	                break;
 	            case OPCODE_GT:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a > b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a > b);
 	                }
 	                break;
 	            case OPCODE_GTEQ:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a >= b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a >= b);
 	                }
 	                break;
 	            case OPCODE_EQ:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a == b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a == b);
 	                }
 	                break;
 	            case OPCODE_NEQ:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a != b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a != b);
 	                }
 	                break;
 	            case OPCODE_AND:
 	                {
-	            //         var b = stack.PopBool();
-	            //         var a = stack.PopBool();
-	            //         stack.Push(a && b);
+	                    auto b = stack.PopBool();
+	                    auto a = stack.PopBool();
+	                    stack.Push(a && b);
 	                }
 	                break;
 	            case OPCODE_OR:
 	                {
-	            //         var b = stack.PopBool();
-	            //         var a = stack.PopBool();
-	            //         stack.Push(a || b);
+	                    auto b = stack.PopBool();
+	                    auto a = stack.PopBool();
+	                    stack.Push(a || b);
 	                }
 	                break;
 	            case OPCODE_NOT: stack.Push(!stack.PopBool()); break;
 	            case OPCODE_ODD:
 	                {
-	            //         var value = (int)Round(stack.PopFloat());
-	            //         stack.Push(value % 2 != 0);
+	                    auto value = (int)Round(stack.PopFloat());
+	                    stack.Push(value % 2 != 0);
 	                }
 	                break;
 	            case OPCODE_EVEN:
 	                {
-	            //         var value = (int)Round(stack.PopFloat());
-	            //         stack.Push(value % 2 == 0);
+	                    auto value = (int)Round(stack.PopFloat());
+	                    stack.Push(value % 2 == 0);
 	                }
 	                break;
 
 	            // ==== ARITHMETIC ====
 	            case OPCODE_ADD:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a + b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a + b);
 	                }
 	                break;
 	            case OPCODE_SUB:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         stack.Push(a - b);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    stack.Push(a - b);
 	                }
 	                break;
 	            case OPCODE_DIV:
 	                {
-	            //         var b = stack.Pop();
-	            //         assertPrint(b == 0, "Division by zero.");
+	                    auto b = stack.Pop();
+	                    assertPrint(b == 0, "Division by zero.");
 
-	            //         var a = stack.Pop();
-	            //         var result = ((long)a << 6) / b;
-	            //         stack.Push((int)result);
+	                    auto a = stack.Pop();
+	                    auto result = ((long)a << 6) / b;
+	                    stack.Push((int)result);
 	                }
 	                break;
 	            case OPCODE_MUL:
 	                {
-	            //         var b = stack.Pop();
-	            //         var a = stack.Pop();
-	            //         var result = ((long)a * b) >> 6;
-	            //         stack.Push((int)result);
+	                    auto b = stack.Pop();
+	                    auto a = stack.Pop();
+	                    auto result = ((long)a * b) >> 6;
+	                    stack.Push((int)result);
 	                }
 	                break;
 	            case OPCODE_ABS: stack.Push(abs(stack.Pop())); break;
@@ -1163,6 +1215,8 @@ struct SharpFontInterpreter {
 	                    assertPrint(!allowFunctionDefs || inFunction, "Can't define functions here.");
 
 	                    functions[stack.Pop()] = stream;
+	                    functionsCount++;
+
 	                    while (SkipNext(&stream) != OPCODE_ENDF);
 	                }
 	                break;
@@ -1182,14 +1236,14 @@ struct SharpFontInterpreter {
 	            case OPCODE_CALL:
 	            case OPCODE_LOOPCALL:
 	                {
-	            //         callStackSize++;
-	            //         assertPrint(callStackSize > MaxCallStack, "Stack overflow; infinite recursion?");
+	                    callStackSize++;
+	                    assertPrint(callStackSize > MaxCallStack, "Stack overflow; infinite recursion?");
 
-	            //         var function = functions[stack.Pop()];
-	            //         var count = opcode == OPCODE_LOOPCALL ? stack.Pop() : 1;
-	            //         for (int i = 0; i < count; i++)
-	            //             Execute(function, true, false);
-	            //         callStackSize--;
+	                    InstructionStream function = functions[stack.Pop()];
+	                    int count = opcode == OPCODE_LOOPCALL ? stack.Pop() : 1;
+	                    for (int i = 0; i < count; i++)
+	                        Execute(function, true, false);
+	                    callStackSize--;
 	                }
 	                break;
 
@@ -1209,65 +1263,65 @@ struct SharpFontInterpreter {
 	            case OPCODE_DELTAC2:
 	            case OPCODE_DELTAC3:
 	                {
-	            //         var last = stack.Pop();
-	            //         for (int i = 1; i <= last; i++)
-	            //         {
-	            //             var cvtIndex = stack.Pop();
-	            //             var arg = stack.Pop();
+	                    auto last = stack.Pop();
+	                    for (int i = 1; i <= last; i++)
+	                    {
+	                        auto cvtIndex = stack.Pop();
+	                        auto arg = stack.Pop();
 
-	            //             // upper 4 bits of the 8-bit arg is the relative ppem
-	            //             // the opcode specifies the base to add to the ppem
-	            //             var triggerPpem = (arg >> 4) & 0xF;
-	            //             triggerPpem += (opcode - OPCODE_DELTAC1) * 16;
-	            //             triggerPpem += state.DeltaBase;
+	                        // upper 4 bits of the 8-bit arg is the relative ppem
+	                        // the opcode specifies the base to add to the ppem
+	                        auto triggerPpem = (arg >> 4) & 0xF;
+	                        triggerPpem += (opcode - OPCODE_DELTAC1) * 16;
+	                        triggerPpem += state.DeltaBase;
 
-	            //             // if the current ppem matches the trigger, apply the exception
-	            //             if (ppem == triggerPpem)
-	            //             {
-	            //                 // the lower 4 bits of the arg is the amount to shift
-	            //                 // it's encoded such that 0 isn't an allowable value (who wants to shift by 0 anyway?)
-	            //                 var amount = (arg & 0xF) - 8;
-	            //                 if (amount >= 0)
-	            //                     amount++;
-	            //                 amount *= 1 << (6 - state.DeltaShift);
+	                        // if the current ppem matches the trigger, apply the exception
+	                        if (ppem == triggerPpem)
+	                        {
+	                            // the lower 4 bits of the arg is the amount to shift
+	                            // it's encoded such that 0 isn't an allowable value (who wants to shift by 0 anyway?)
+	                            auto amount = (arg & 0xF) - 8;
+	                            if (amount >= 0)
+	                                amount++;
+	                            amount *= 1 << (6 - state.DeltaShift);
 
-	            //                 // update the CVT
-	            //                 CheckIndex(cvtIndex, controlValueTable.Length);
-	            //                 controlValueTable[cvtIndex] += F26Dot6ToFloat(amount);
-	            //             }
-	            //         }
+	                            // update the CVT
+	                            CheckIndex(cvtIndex, controlValueTableCount);
+	                            controlValueTable[cvtIndex] += F26Dot6ToFloat(amount);
+	                        }
+	                    }
 	                }
 	                break;
 	            case OPCODE_DELTAP1:
 	            case OPCODE_DELTAP2:
 	            case OPCODE_DELTAP3:
 	                {
-	            //         var last = stack.Pop();
-	            //         for (int i = 1; i <= last; i++)
-	            //         {
-	            //             var pointIndex = stack.Pop();
-	            //             var arg = stack.Pop();
+	                    auto last = stack.Pop();
+	                    for (int i = 1; i <= last; i++)
+	                    {
+	                        auto pointIndex = stack.Pop();
+	                        auto arg = stack.Pop();
 
-	            //             // upper 4 bits of the 8-bit arg is the relative ppem
-	            //             // the opcode specifies the base to add to the ppem
-	            //             var triggerPpem = (arg >> 4) & 0xF;
-	            //             triggerPpem += state.DeltaBase;
-	            //             if (opcode != OPCODE_DELTAP1)
-	            //                 triggerPpem += (opcode - OPCODE_DELTAP2 + 1) * 16;
+	                        // upper 4 bits of the 8-bit arg is the relative ppem
+	                        // the opcode specifies the base to add to the ppem
+	                        auto triggerPpem = (arg >> 4) & 0xF;
+	                        triggerPpem += state.DeltaBase;
+	                        if (opcode != OPCODE_DELTAP1)
+	                            triggerPpem += (opcode - OPCODE_DELTAP2 + 1) * 16;
 
-	            //             // if the current ppem matches the trigger, apply the exception
-	            //             if (ppem == triggerPpem)
-	            //             {
-	            //                 // the lower 4 bits of the arg is the amount to shift
-	            //                 // it's encoded such that 0 isn't an allowable value (who wants to shift by 0 anyway?)
-	            //                 var amount = (arg & 0xF) - 8;
-	            //                 if (amount >= 0)
-	            //                     amount++;
-	            //                 amount *= 1 << (6 - state.DeltaShift);
+	                        // if the current ppem matches the trigger, apply the exception
+	                        if (ppem == triggerPpem)
+	                        {
+	                            // the lower 4 bits of the arg is the amount to shift
+	                            // it's encoded such that 0 isn't an allowable value (who wants to shift by 0 anyway?)
+	                            auto amount = (arg & 0xF) - 8;
+	                            if (amount >= 0)
+	                                amount++;
+	                            amount *= 1 << (6 - state.DeltaShift);
 
-	            //                 MovePoint(zp0, pointIndex, F26Dot6ToFloat(amount));
-	            //             }
-	            //         }
+	                            MovePoint(zp0, pointIndex, F26Dot6ToFloat(amount));
+	                        }
+	                    }
 	                }
 	                break;
 
@@ -1275,25 +1329,25 @@ struct SharpFontInterpreter {
 	            case OPCODE_DEBUG: stack.Pop(); break;
 	            case OPCODE_GETINFO:
 	                {
-	            //         var selector = stack.Pop();
-	            //         var result = 0;
-	            //         if ((selector & 0x1) != 0)
-	            //         {
-	            //             // pretend we are MS Rasterizer v35
-	            //             result = 35;
-	            //         }
+	                    auto selector = stack.Pop();
+	                    auto result = 0;
+	                    if ((selector & 0x1) != 0)
+	                    {
+	                        // pretend we are MS Rasterizer v35
+	                        result = 35;
+	                    }
 
-	            //         // TODO: rotation and stretching
-	            //         //if ((selector & 0x2) != 0)
-	            //         //if ((selector & 0x4) != 0)
+	                    // TODO: rotation and stretching
+	                    //if ((selector & 0x2) != 0)
+	                    //if ((selector & 0x4) != 0)
 
-	            //         // we're always rendering in grayscale
-	            //         if ((selector & 0x20) != 0)
-	            //             result |= 1 << 12;
+	                    // we're always rendering in grayscale
+	                    if ((selector & 0x20) != 0)
+	                        result |= 1 << 12;
 
-	            //         // TODO: ClearType flags
+	                    // TODO: ClearType flags
 
-	            //         stack.Push(result);
+	                    stack.Push(result);
 	                }
 	                break;
 
@@ -1347,8 +1401,8 @@ struct SharpFontInterpreter {
         // 3: SFVTL1
         int index1 = stack.Pop();
         int index2 = stack.Pop();
-        Vec2 p1 = zp2.GetCurrent(index1);
-        Vec2 p2 = zp1.GetCurrent(index2);
+        Vec2 p1 = zp2->GetCurrent(index1);
+        Vec2 p2 = zp1->GetCurrent(index2);
 
         Vec2 line = p2 - p1;
         if (lenSquaredVec2(line) == 0) {
@@ -1372,8 +1426,8 @@ struct SharpFontInterpreter {
 
         // set the dual projection vector using original points
         if (dual) {
-            p1 = zp2.GetOriginal(index1);
-            p2 = zp2.GetOriginal(index2);
+            p1 = zp2->GetOriginal(index1);
+            p2 = zp2->GetOriginal(index2);
             line = p2 - p1;
 
             if (lenSquaredVec2(line) == 0) state.DualProjection = vec2(1,0);
@@ -1387,14 +1441,35 @@ struct SharpFontInterpreter {
         OnVectorsUpdated();
     }
 
-    Zone GetZoneFromStack() {
+    // int ZoneValueToType(int value) {
+    //     switch (value) {
+    //         case 0: return GLYPH_ZONE_TWILIGHT;
+    //         case 1: return GLYPH_ZONE_NORMAL;
+    //         default: assertPrint(false, "Invalid zone pointer.");
+    //         return -1; // Go away compiler.
+    //     }
+    // }
+
+    // int GetZoneTypeFromStack() { return ZoneValueToType(stack.Pop()); }
+
+    // Zone* GetZone(int type) { 
+    // 	switch(type) {
+    // 		case GLYPH_ZONE_TWILIGHT: return &twilight;
+    // 		case GLYPH_ZONE_NORMAL: return &points;
+    // 		default: assertPrint(false, "Invalid zone type.");
+    // 		return 0;
+    // 	}
+    // }
+
+    Zone* GetZoneFromStack() {
         switch (stack.Pop()) {
-            case 0: return twilight;
-            case 1: return points;
+            case 0: return &twilight;
+            case 1: return &points;
             default: assertPrint(false, "Invalid zone pointer.");
-            return twilight; // Go away compiler.
+            return 0; // Go away compiler.
         }
     }
+
 
     void SetSuperRound(float period) {
         // mode is a bunch of packed flags
@@ -1433,16 +1508,16 @@ struct SharpFontInterpreter {
         }
 
         // if we're looking at the twilight zone we need to prepare the points there
-        Vec2 originalReference = zp0.GetOriginal(state.Rp0);
-        if (zp1.IsTwilight) {
+        Vec2 originalReference = zp0->GetOriginal(state.Rp0);
+        if (zp1->IsTwilight) {
             Vec2 initialValue = originalReference + state.Freedom * cvt;
-            // zp1.Original[pointIndex].P = initialValue;
-            // zp1.Current[pointIndex].P = initialValue;
+            zp1->Original[pointIndex].p = initialValue;
+            zp1->Current[pointIndex].p = initialValue;
         }
 
-        Vec2 point = zp1.GetCurrent(pointIndex);
-        float originalDistance = DualProject(zp1.GetOriginal(pointIndex) - originalReference);
-        float currentDistance = Project(point - zp0.GetCurrent(state.Rp0));
+        Vec2 point = zp1->GetCurrent(pointIndex);
+        float originalDistance = DualProject(zp1->GetOriginal(pointIndex) - originalReference);
+        float currentDistance = Project(point - zp0->GetCurrent(state.Rp0));
 
         if (state.AutoFlip && !sameSign(originalDistance, cvt)) cvt = -cvt;
 
@@ -1450,7 +1525,7 @@ struct SharpFontInterpreter {
         float distance = cvt;
         if ((flags & 0x4) != 0) {
             // only perform cut-in tests when both points are in the same zone
-            if (zp0.IsTwilight == zp1.IsTwilight && fabs(cvt - originalDistance) > state.ControlValueCutIn) cvt = originalDistance;
+            if (zp0->IsTwilight == zp1->IsTwilight && fabs(cvt - originalDistance) > state.ControlValueCutIn) cvt = originalDistance;
             distance = Round(cvt);
         }
 
@@ -1470,8 +1545,8 @@ struct SharpFontInterpreter {
     void MoveDirectRelative(int flags) {
         // determine the original distance between the two reference points
         int pointIndex = stack.Pop();
-        Vec2 p1 = zp0.GetOriginal(state.Rp0);
-        Vec2 p2 = zp1.GetOriginal(pointIndex);
+        Vec2 p1 = zp0->GetOriginal(state.Rp0);
+        Vec2 p2 = zp1->GetOriginal(pointIndex);
         float originalDistance = DualProject(p2 - p1);
 
         // single width cutin test
@@ -1491,7 +1566,7 @@ struct SharpFontInterpreter {
         }
 
         // move the point
-        originalDistance = Project(zp1.GetCurrent(pointIndex) - zp0.GetCurrent(state.Rp0));
+        originalDistance = Project(zp1->GetCurrent(pointIndex) - zp0->GetCurrent(state.Rp0));
         MovePoint(zp1, pointIndex, distance - originalDistance);
         state.Rp1 = state.Rp0;
         state.Rp2 = pointIndex;
@@ -1501,10 +1576,10 @@ struct SharpFontInterpreter {
     Vec2 ComputeDisplacement(int mode, Zone* zone, int* point) {
         // compute displacement of the reference point
         if ((mode & 1) == 0) {
-            *zone = zp1;
+            zone = zp1;
             *point = state.Rp2;
         } else {
-            *zone = zp0;
+            zone = zp0;
             *point = state.Rp1;
         }
 
@@ -1524,17 +1599,17 @@ struct SharpFontInterpreter {
         int touch = GetTouchState();
         for (int i = 0; i < state.Loop; i++) {
             int pointIndex = stack.Pop();
-            // zp2.Current[pointIndex].P += displacement;
-            zp2.TouchState[pointIndex] |= touch;
+            zp2->Current[pointIndex].p += displacement;
+            zp2->TouchState[pointIndex] |= touch;
         }
         state.Loop = 1;
     }
 
-    void MovePoint(Zone zone, int index, float distance) {
-        // Vec2 point = zone.GetCurrent(index) + distance * state.Freedom / fdotp;
+    void MovePoint(Zone* zone, int index, float distance) {
+        Vec2 point = zone->GetCurrent(index) + ((distance * state.Freedom) / fdotp);
         int touch = GetTouchState();
-        // zone.Current[index].P = point;
-        zone.TouchState[index] |= touch;
+        zone->Current[index].p = point;
+        zone->TouchState[index] |= touch;
     }
 
     float Round(float value) {
@@ -1605,55 +1680,55 @@ struct SharpFontInterpreter {
     static float F26Dot6ToFloat(int value) { return value / 64.0f; }
     static int FloatToF26Dot6(float value) { return (int)STBTT_ifloor((value * 64.0f) + 0.5f); }
 
-    float* GetPoint(stbtt_uint8* data, int index) { return (float*)(data + sizeof(stbtt_vertex) * index); }
+    static float* GetPoint(stbtt_uint8* data, int index) { return (float*)(data + sizeof(TrueTypeVertex) * index); }
 
     const float Sqrt2Over2 = (float)(sqrt(2) / 2);
 
     const int MaxCallStack = 128;
     const float Epsilon = 0.000001f;
 
-    // static void InterpolatePoints(uchar* current, uchar* original, int start, int end, int ref1, int ref2) {
-    //     if (start > end) return;
+    static void InterpolatePoints(uchar* current, uchar* original, int start, int end, int ref1, int ref2) {
+        if (start > end) return;
 
-    //     // figure out how much the two reference points
-    //     // have been shifted from their original positions
-    //     float delta1, delta2;
-    //     var lower = *GetPoint(original, ref1);
-    //     var upper = *GetPoint(original, ref2);
-    //     if (lower > upper)
-    //     {
-    //         var temp = lower;
-    //         lower = upper;
-    //         upper = temp;
+        // figure out how much the two reference points
+        // have been shifted from their original positions
+        float delta1, delta2;
+        auto lower = *GetPoint(original, ref1);
+        auto upper = *GetPoint(original, ref2);
+        if (lower > upper)
+        {
+            auto temp = lower;
+            lower = upper;
+            upper = temp;
 
-    //         delta1 = *GetPoint(current, ref2) - lower;
-    //         delta2 = *GetPoint(current, ref1) - upper;
-    //     }
-    //     else
-    //     {
-    //         delta1 = *GetPoint(current, ref1) - lower;
-    //         delta2 = *GetPoint(current, ref2) - upper;
-    //     }
+            delta1 = *GetPoint(current, ref2) - lower;
+            delta2 = *GetPoint(current, ref1) - upper;
+        }
+        else
+        {
+            delta1 = *GetPoint(current, ref1) - lower;
+            delta2 = *GetPoint(current, ref2) - upper;
+        }
 
-    //     var lowerCurrent = delta1 + lower;
-    //     var upperCurrent = delta2 + upper;
-    //     var scale = (upperCurrent - lowerCurrent) / (upper - lower);
+        auto lowerCurrent = delta1 + lower;
+        auto upperCurrent = delta2 + upper;
+        auto scale = (upperCurrent - lowerCurrent) / (upper - lower);
 
-    //     for (int i = start; i <= end; i++)
-    //     {
-    //         // three cases: if it's to the left of the lower reference point or to
-    //         // the right of the upper reference point, do a shift based on that ref point.
-    //         // otherwise, interpolate between the two of them
-    //         var pos = *GetPoint(original, i);
-    //         if (pos <= lower)
-    //             pos += delta1;
-    //         else if (pos >= upper)
-    //             pos += delta2;
-    //         else
-    //             pos = lowerCurrent + (pos - lower) * scale;
-    //         *GetPoint(current, i) = pos;
-    //     }
-    // }
+        for (int i = start; i <= end; i++)
+        {
+            // three cases: if it's to the left of the lower reference point or to
+            // the right of the upper reference point, do a shift based on that ref point.
+            // otherwise, interpolate between the two of them
+            auto pos = *GetPoint(original, i);
+            if (pos <= lower)
+                pos += delta1;
+            else if (pos >= upper)
+                pos += delta2;
+            else
+                pos = lowerCurrent + (pos - lower) * scale;
+            *GetPoint(current, i) = pos;
+        }
+    }
 
 };
 
@@ -1672,17 +1747,17 @@ struct TrueTypeInterpreter {
     void SetTypeFace(stbtt_fontinfo* info) {
         this->info = info;
 
-        int max = 100;
+        int max = 500;
         _interpreter.init(max,max,max,max,max);
 
-        // the fpgm table optionally contains a program to run at initialization time 
-        if (info->fpgm != 0) {
-        	uchar* instructions = info->data + info->fpgm;
-            _interpreter.InitializeFunctionDefs(instructions, 100);
-        }
+        // // the fpgm table optionally contains a program to run at initialization time 
+        // if (info->fpgm != 0) {
+        // 	uchar* instructions = info->data + info->fpgm;
+        //     _interpreter.InitializeFunctionDefs(instructions, 100);
+        // }
     }
 
-    // void HintGlyph(ushort glyphIndex, float glyphSizeInPixel, stbtt_vertex* vertices, int* verticesCount) {
+    // void HintGlyph(ushort glyphIndex, float glyphSizeInPixel, TrueTypeVertex* vertices, int* verticesCount) {
 
     //     Glyph glyph = currentTypeFace.GetGlyphByIndex(glyphIndex);
     //     //-------------------------------------------
@@ -1701,7 +1776,7 @@ struct TrueTypeInterpreter {
 
     // }
 
-    // void HintGlyph(int horizontalAdv, int hFrontSideBearing, int minX, int maxY, stb_vertex[] glyphPoints, ushort[] contourEndPoints, byte[] instructions, float glyphSizeInPixel) {
+    // void HintGlyph(int horizontalAdv, int hFrontSideBearing, int minX, int maxY, TrueTypeVertex[] glyphPoints, ushort[] contourEndPoints, byte[] instructions, float glyphSizeInPixel) {
 
     //     //get glyph for its matrix
 
@@ -1709,15 +1784,15 @@ struct TrueTypeInterpreter {
 
     //     int verticalAdv = 0;
     //     int vFrontSideBearing = 0;
-    //     var pp1 = new stb_vertex((minX - hFrontSideBearing), 0, true);
-    //     var pp2 = new stb_vertex(pp1.X + horizontalAdv, 0, true);
-    //     var pp3 = new stb_vertex(0, maxY + vFrontSideBearing, true);
-    //     var pp4 = new stb_vertex(0, pp3.Y - verticalAdv, true);
+    //     auto pp1 = new TrueTypeVertex((minX - hFrontSideBearing), 0, true);
+    //     auto pp2 = new TrueTypeVertex(pp1.X + horizontalAdv, 0, true);
+    //     auto pp3 = new TrueTypeVertex(0, maxY + vFrontSideBearing, true);
+    //     auto pp4 = new TrueTypeVertex(0, pp3.Y - verticalAdv, true);
     //     //-------------------------
 
     //     //2. use a clone version extend org with 4 elems
     //     int orgLen = glyphPoints.Length;
-    //     stb_vertex[] newGlyphPoints = Utils.CloneArray(glyphPoints, 4);
+    //     TrueTypeVertex[] newGlyphPoints = Utils.CloneArray(glyphPoints, 4);
     //     // add phantom points; these are used to define the extents of the glyph,
     //     // and can be modified by hinting instructions
     //     newGlyphPoints[orgLen] = pp1;
@@ -1761,7 +1836,7 @@ struct TrueTypeInterpreter {
 
     // }
 
-    // static void ApplyScaleOnlyOnXAxis(stb_vertex[] glyphPoints, float xscale)
+    // static void ApplyScaleOnlyOnXAxis(TrueTypeVertex[] glyphPoints, float xscale)
     // {
     //     //TODO: review performance here
     //     for (int i = glyphPoints.Length - 1; i >= 0; --i)
