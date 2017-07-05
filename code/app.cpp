@@ -7218,7 +7218,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		// int glyphIndex = glyph - 29;
 
         // int glyphIndex = stbtt_FindGlyphIndex(&ad->font->info, 0x48);
-		int glyph = 'H';
+		int glyph = 'X';
         int glyphIndex = stbtt_FindGlyphIndex(&ad->font->info, glyph);
 		// int glyphIndex = 918;
 		// int glyphIndex = 'A' - 29;
@@ -7237,6 +7237,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 
 		// Hinting.
+		// if(false)
 		if(init)
 		{
 			// stbtt_int16 numberOfContours;
@@ -7287,95 +7288,77 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 
 
-			float emToPixels = stbtt_ScaleForMappingEmToPixels(info, font->height);
-			int asc = 0;
-			int desc = 0;
-			int lineGap = 0;
-			stbtt_GetFontVMetrics(info, &asc, &desc, &lineGap);
-			int x0, y0, x1, y1;
-			stbtt_GetFontBoundingBox(info, &x0, &y0, &x1, &y1);
+			// int asc, desc, lineGap;
+			// stbtt_GetFontVMetrics(info, &asc, &desc, &lineGap);
+			// int advanceWidth, leftSideBearing;
+			// stbtt_GetGlyphHMetrics(info, glyphIndex, &advanceWidth, &leftSideBearing);
 
-			int advanceWidth, leftSideBearing;
-			// stbtt_GetCodepointHMetrics(info, glyphIndex, &advanceWidth, &leftSideBearing);
-
-			// int asdf = getUnicodeRangeOffset('I', font);
-			stbtt_GetGlyphHMetrics(info, glyphIndex, &advanceWidth, &leftSideBearing);
-
-			int goff = stbtt__GetGlyfOffset(&font->info, glyphIndex);
-			int numberOfContours = ttSHORT(font->info.data + goff);
+			// int goff = stbtt__GetGlyfOffset(&font->info, glyphIndex);
+			// int numberOfContours = ttSHORT(font->info.data + goff);
+			// uchar* contoursEndpoints = (data + goff + 10);
 
 
 			// Modify stb vertices for interpreter:
 			// Remove redundant contour endpoints, Add and scale vec2 for convenience, add 4 glyph points
-			int vertexCount = vertCount - numberOfContours + 4;
-			TrueTypeVertex* vertices = getTArray(TrueTypeVertex, vertexCount);
+
+			// int vertexCount = vertCount - numberOfContours + 4;
+			// TrueTypeVertex* vertices = getTArray(TrueTypeVertex, vertexCount);
 
 
-			uchar* contoursEndpoints = getTArray(uchar, numberOfContours);
+			// uchar* contoursEndpoints = getTArray(uchar, numberOfContours);
 
-			int ci = 0;
-			for(int i = 0; i < vertCount; i++) {
-				if(i == 0) continue;
+			// int ci = 0;
+			// for(int i = 0; i < vertCount; i++) {
+			// 	if(i == 0) continue;
 
-				if(vertices[i].type == 1) contoursEndpoints[ci++] = i-1;
+			// 	if(verts[i].type == 1) contoursEndpoints[ci++] = i-1;
+			// }
+			// contoursEndpoints[ci] = vertCount-1;
+
+
+			// int contourIndex = 0;
+			// for(int i = 0; i < vertexCount; i++) {
+			// 	if(i == contoursEndpoints[contourIndex]) {
+			// 		contourIndex++;
+			// 		continue;
+			// 	}
+
+			// 	vertices[i - contourIndex].x = verts[i].x * scale;
+			// 	vertices[i - contourIndex].y = verts[i].y * scale;
+			// 	vertices[i - contourIndex].cx = verts[i].cx;
+			// 	vertices[i - contourIndex].cy = verts[i].cy;
+			// 	vertices[i - contourIndex].type = verts[i].type;
+			// 	vertices[i - contourIndex].padding = verts[i].padding;
+			// 	vertices[i - contourIndex].p = vec2(verts[i].x * scale, verts[i].y * scale);
+			// }
+
+
+
+			TrueTypeVertex* vertices;
+			int vertexCount = getGlyphShape(info, glyphIndex, fontScale, &vertices);
+			glyphAddPhantomPoints(info, glyphIndex, scale, vertices, &vertexCount);
+
+			int goff = stbtt__GetGlyfOffset(&font->info, glyphIndex);
+			int numberOfContours = ttSHORT(font->info.data + goff);
+
+			// uchar* contoursEndpoints = (data + goff + 10);
+			uchar* contourData = (data + goff + 10);
+			ushort* contoursEndpoints = getTArray(ushort, numberOfContours);
+			for(int i = 0; i < numberOfContours; i++) {
+				contoursEndpoints[i] = ttUSHORT(contourData + i*2);
 			}
-			contoursEndpoints[ci] = vertCount-1;
 
 
-
-
-			int contourIndex = 0;
-			for(int i = 0; i < vertexCount; i++) {
-				if(i == contoursEndpoints[contourIndex]) {
-					contourIndex++;
-					continue;
-				}
-
-				vertices[i].x = verts[i].x * scale;
-				vertices[i].y = verts[i].y * scale;
-				vertices[i].cx = verts[i].cx;
-				vertices[i].cy = verts[i].cy;
-				vertices[i].type = verts[i].type;
-				vertices[i].padding = verts[i].padding;
-				vertices[i].p = vec2(verts[i].x * scale, verts[i].y * scale);
-			}
-
-			{
-				TrueTypeVertex origin, advance, ascent, descent;
-				origin.p = vec2(0,0); origin.type = 2;
-				advance.p = vec2(advanceWidth * scale,0); advance.type = 2;
-				ascent.p = vec2(0,asc * scale); ascent.type = 2;
-				descent.p = vec2(0,desc * scale); descent.type = 2;
-
-				vertices[vertexCount-4] = origin;
-				vertices[vertexCount-3] = advance;
-				vertices[vertexCount-2] = ascent;
-				vertices[vertexCount-1] = descent;
-			}
-
-			// var pp1 = new GlyphPointF((minX - hFrontSideBearing), 0, true);
-			// var pp2 = new GlyphPointF(pp1.X + horizontalAdv, 0, true);
-
-
-			// right up down, 10, 15, -4
-
-
-			// What.
-			// float scale = stbtt_ScaleForPixelHeight(info, 20);
 
 		    info->fpgm = stbtt__find_table(info->data, info->fontstart, "fpgm");
 		    info->cvt = stbtt__find_table(info->data, info->fontstart, "cvt ");
 		    info->prep = stbtt__find_table(info->data, info->fontstart, "prep");
 		    info->fpgmSize = stbtt__find_table_length(info->data, info->fontstart, "fpgm");
-
 		    int cvtCountDiv = 2; // 4?
 		    info->cvtSize = stbtt__find_table_length(info->data, info->fontstart, "cvt ") / cvtCountDiv;
 		    info->prepSize = stbtt__find_table_length(info->data, info->fontstart, "prep");
 
-
-
-
-		    int instructionOffset = 6*(sizeof(short));
+		    int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
 		    int instructionCount = ttSHORT(font->info.data + goff + instructionOffset);
 		    uchar* instructions = font->info.data + goff + instructionOffset + sizeof(short);
 
@@ -7384,81 +7367,26 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		    static TrueTypeInterpreter interpreter;
 
 		    if(init) {
-		    	interpreter.SetTypeFace(info);
+		    	int max = 10000;
+		    	interpreter.init(max,max,max,max,max);
 
 			    if (info->fpgm != 0) {
-			        interpreter._interpreter.InitializeFunctionDefs(info->data + info->fpgm, info->fpgmSize);
+			        interpreter.InitializeFunctionDefs(info->data + info->fpgm, info->fpgmSize);
 			    }
 
 			    if (info->cvt != 0) {
-				    interpreter._interpreter.SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, font->height, info->data + info->prep, info->prepSize);
-				    // interpreter._interpreter.SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, font->height, 0, 0);
+				    interpreter.SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, font->height, info->data + info->prep, info->prepSize);
 			    }
 
-				interpreter._interpreter.HintGlyph(vertices, vertexCount, contoursEndpoints, numberOfContours, instructions, instructionCount);
+				interpreter.HintGlyph(vertices, vertexCount, contoursEndpoints, numberOfContours, instructions, instructionCount);
 		    }
 
 
 
+		    stbtt_vertex* newVertices;
+		    trueTypeGlyphToStb(info, glyphIndex, &newVertices, interpreter.points.Current, vertexCount, scale);
 
-
-
-
-
-
-			TrueTypeVertex* newVertices = interpreter._interpreter.points.Current;
-
-			// Transform back to stb vertex.
-			stbtt_vertex startVertex;
-			contourIndex = 0;
-			for(int i = 0; i < vertCount; i++) {
-				if(i == contoursEndpoints[contourIndex]) {
-					contourIndex++;
-
-					int oldType = verts[i].type;
-					verts[i] = startVertex;
-					verts[i].type = oldType;
-
-					continue;
-				}
-
-				verts[i].x = newVertices[i - contourIndex].p.x / scale;
-				verts[i].y = newVertices[i - contourIndex].p.y / scale;
-				verts[i].cx = newVertices[i - contourIndex].cx;
-				verts[i].cy = newVertices[i - contourIndex].cy;
-				// verts[i].type = newVertices[i - contourIndex].type;
-				verts[i].padding = newVertices[i - contourIndex].padding;
-
-				if(verts[i].type == 1) {
-					startVertex = verts[i];
-				}
-			}
-
-
-
-
-		    // int* controlValues = (int*)(info->data + info->cvt);
-		    // uchar* prepBuffer = (uchar*)(info->data + info->prep);
-
-		    // interpreter._interpreter.SetControlValueTable(controlValues, 100, scale, font->height, prepBuffer, 100);
-
-
-		 //    int instructionOffset = 6*(sizeof(short));
-			// int goff = stbtt__GetGlyfOffset(&font->info, glyphIndex);
-		 //    int instructionCount = ttSHORT(font->info.data + goff + instructionOffset);
-			// uchar* instructions = font->info.data + goff + instructionOffset + sizeof(short);
-
-			// int numberOfContours = ttSHORT(font->info.data + goff);
-
-		 //    interpreter._interpreter.HintGlyph(vertices, vertexCount, 0, numberOfContours, instructions, instructionCount);
-
-
-
-			// for(int i = 0; i < vertexCount; i++) {
-			// 	vertices[i].x = STBTT_ifloor((vertices[i].x*scale) + 0.5f) / scale;	
-			// 	vertices[i].y = STBTT_ifloor((vertices[i].y*scale) + 0.5f) / scale;	
-			// }
-
+		    verts = newVertices;
 		}
 
 

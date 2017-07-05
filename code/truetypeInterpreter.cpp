@@ -1,6 +1,5 @@
 ﻿//MIT, 2015, Michael Popoloski's SharpFont
 
-
 #define Default_Array_Size 100
 
 void assertPrint(bool condition, char* string) {
@@ -10,20 +9,15 @@ void assertPrint(bool condition, char* string) {
 void assertPrint(bool condition) { return assertPrint(condition, ""); }
 
 
-
-
 struct TrueTypeVertex {
-	short x,y,cx,cy;
-	unsigned char type,padding;
 	Vec2 p;
+	bool onCurve;
 };
 
-TrueTypeVertex trueTypeVertex() {
+TrueTypeVertex trueTypeVertex(Vec2 p, bool onCurve) {
 	TrueTypeVertex v;
-	v.x = v.y = v.cx = v.cy = 0;
-	v.type = 0;
-	v.padding = 0;
-	v.p = vec2(0,0);
+	v.onCurve = onCurve;
+	v.p = p;
 	return v;
 }
 
@@ -34,7 +28,387 @@ enum GlyphZoneType {
 
 
 
-struct SharpFontInterpreter {
+
+STBTT_DEF int getGlyphShape(const stbtt_fontinfo *info, int glyph_index, float fontScale, TrueTypeVertex **pvertices)
+{
+   stbtt_int16 numberOfContours;
+   stbtt_uint8 *endPtsOfContours;
+   stbtt_uint8 *data = info->data;
+   stbtt_vertex *vertices=0;
+   int num_vertices=0;
+   int g = stbtt__GetGlyfOffset(info, glyph_index);
+
+   TrueTypeVertex* ttverts;
+
+   *pvertices = NULL;
+
+   if (g < 0) return 0;
+
+   numberOfContours = ttSHORT(data + g);
+
+   if (numberOfContours > 0) {
+      stbtt_uint8 flags=0,flagcount;
+      stbtt_int32 ins, i,j=0,m,n, next_move, was_off=0, off, start_off=0;
+      stbtt_int32 x,y,cx,cy,sx,sy, scx,scy;
+      stbtt_uint8 *points;
+      endPtsOfContours = (data + g + 10);
+      ins = ttUSHORT(data + g + 10 + numberOfContours * 2);
+      points = data + g + 10 + numberOfContours * 2 + 2 + ins;
+
+      n = 1+ttUSHORT(endPtsOfContours + numberOfContours*2-2);
+
+      m = n + 2*numberOfContours;  // a loose bound on how many vertices we might need
+      vertices = (stbtt_vertex *) STBTT_malloc(m * sizeof(vertices[0]), info->userdata);
+
+      ttverts = mallocArray(TrueTypeVertex, m * sizeof(vertices[0]) + 4);
+
+      if (vertices == 0)
+         return 0;
+
+      next_move = 0;
+      flagcount=0;
+
+      // in first pass, we load uninterpreted data into the allocated array
+      // above, shifted to the end of the array so we won't overwrite it when
+      // we create our final data starting from the front
+
+      off = m - n; // starting offset for uninterpreted data, regardless of how m ends up being calculated
+
+      // first load flags
+
+      for (i=0; i < n; ++i) {
+         if (flagcount == 0) {
+            flags = *points++;
+            if (flags & 8)
+               flagcount = *points++;
+         } else
+            --flagcount;
+         vertices[off+i].type = flags;
+      }
+
+      // now load x coordinates
+      x=0;
+      for (i=0; i < n; ++i) {
+         flags = vertices[off+i].type;
+         if (flags & 2) {
+            stbtt_int16 dx = *points++;
+            x += (flags & 16) ? dx : -dx; // ???
+         } else {
+            if (!(flags & 16)) {
+               x = x + (stbtt_int16) (points[0]*256 + points[1]);
+               points += 2;
+            }
+         }
+         vertices[off+i].x = (stbtt_int16) x;
+      }
+
+      // now load y coordinates
+      y=0;
+      for (i=0; i < n; ++i) {
+         flags = vertices[off+i].type;
+         if (flags & 4) {
+            stbtt_int16 dy = *points++;
+            y += (flags & 32) ? dy : -dy; // ???
+         } else {
+            if (!(flags & 32)) {
+               y = y + (stbtt_int16) (points[0]*256 + points[1]);
+               points += 2;
+            }
+         }
+         vertices[off+i].y = (stbtt_int16) y;
+      }
+
+      // now convert them to our format
+      num_vertices=0;
+      sx = sy = cx = cy = scx = scy = 0;
+      for (i=0; i < n; ++i) {
+         flags = vertices[off+i].type;
+         x     = (stbtt_int16) vertices[off+i].x;
+         y     = (stbtt_int16) vertices[off+i].y;
+
+         if (next_move == i) {
+
+            // now start the new one               
+            start_off = !(flags & 1);
+
+           sx = x;
+           sy = y;
+
+           ttverts[num_vertices++] = trueTypeVertex(vec2(sx * fontScale, sy * fontScale), !start_off);
+
+            was_off = 0;
+            next_move = 1 + ttUSHORT(endPtsOfContours+j*2);
+            ++j;
+         } else {
+            if (!(flags & 1)) { // if it's a curve
+           		ttverts[num_vertices++] = trueTypeVertex(vec2(x * fontScale, y * fontScale), false);
+        	} else {
+           		ttverts[num_vertices++] = trueTypeVertex(vec2(x * fontScale, y * fontScale), true);
+            }
+         }
+      }
+      // num_vertices = stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx,sy,scx,scy,cx,cy);
+   } else if (numberOfContours == -1) {
+   	  assert(false); // We dont want to handle these right now.
+   } else if (numberOfContours < 0) {
+      // @TODO other compound variations?
+      STBTT_assert(0);
+   } else {
+      // numberOfCounters == 0, do nothing
+   }
+
+   *pvertices = ttverts;
+   return num_vertices;
+}
+
+void glyphAddPhantomPoints(stbtt_fontinfo* info, int glyphIndex, float scale, TrueTypeVertex* vertices, int* vertexCount) {
+	int asc, desc, lineGap;
+	stbtt_GetFontVMetrics(info, &asc, &desc, &lineGap);
+	int advanceWidth, leftSideBearing;
+	stbtt_GetGlyphHMetrics(info, glyphIndex, &advanceWidth, &leftSideBearing);
+
+	vertices[*vertexCount] = trueTypeVertex(vec2(0,0), false); *vertexCount += 1;
+	vertices[*vertexCount] = trueTypeVertex(vec2(advanceWidth * scale,0), false); *vertexCount += 1;
+	vertices[*vertexCount] = trueTypeVertex(vec2(0,asc * scale), false); *vertexCount += 1;
+	vertices[*vertexCount] = trueTypeVertex(vec2(0,desc * scale), false); *vertexCount += 1;
+}
+
+
+int trueTypeGlyphToStb(const stbtt_fontinfo *info, int glyph_index, stbtt_vertex **pvertices, TrueTypeVertex* ttvertices, int ttcount, float scale) {
+
+   stbtt_int16 numberOfContours;
+   stbtt_uint8 *endPtsOfContours;
+   stbtt_uint8 *data = info->data;
+   stbtt_vertex *vertices=0;
+   int num_vertices=0;
+   int g = stbtt__GetGlyfOffset(info, glyph_index);
+
+   *pvertices = NULL;
+
+   if (g < 0) return 0;
+
+   numberOfContours = ttSHORT(data + g);
+
+   if (numberOfContours > 0) {
+      stbtt_uint8 flags=0,flagcount;
+      stbtt_int32 ins, i,j=0,m,n, next_move, was_off=0, off, start_off=0;
+      stbtt_int32 x,y,cx,cy,sx,sy, scx,scy;
+      stbtt_uint8 *points;
+      endPtsOfContours = (data + g + 10);
+      ins = ttUSHORT(data + g + 10 + numberOfContours * 2);
+      points = data + g + 10 + numberOfContours * 2 + 2 + ins;
+
+      n = 1+ttUSHORT(endPtsOfContours + numberOfContours*2-2);
+
+      m = n + 2*numberOfContours;  // a loose bound on how many vertices we might need
+      vertices = (stbtt_vertex *) STBTT_malloc(m * sizeof(vertices[0]), info->userdata);
+      if (vertices == 0)
+         return 0;
+
+      next_move = 0;
+      flagcount=0;
+
+      // in first pass, we load uninterpreted data into the allocated array
+      // above, shifted to the end of the array so we won't overwrite it when
+      // we create our final data starting from the front
+
+      off = m - n; // starting offset for uninterpreted data, regardless of how m ends up being calculated
+
+      // first load flags
+
+      for (i=0; i < n; ++i) {
+         if (flagcount == 0) {
+            flags = *points++;
+            if (flags & 8)
+               flagcount = *points++;
+         } else
+            --flagcount;
+         vertices[off+i].type = flags;
+      }
+
+      // now load x coordinates
+      x=0;
+      for (i=0; i < n; ++i) {
+         flags = vertices[off+i].type;
+         if (flags & 2) {
+            stbtt_int16 dx = *points++;
+            x += (flags & 16) ? dx : -dx; // ???
+         } else {
+            if (!(flags & 16)) {
+               x = x + (stbtt_int16) (points[0]*256 + points[1]);
+               points += 2;
+            }
+         }
+         vertices[off+i].x = (stbtt_int16) x;
+      }
+
+      // now load y coordinates
+      y=0;
+      for (i=0; i < n; ++i) {
+         flags = vertices[off+i].type;
+         if (flags & 4) {
+            stbtt_int16 dy = *points++;
+            y += (flags & 32) ? dy : -dy; // ???
+         } else {
+            if (!(flags & 32)) {
+               y = y + (stbtt_int16) (points[0]*256 + points[1]);
+               points += 2;
+            }
+         }
+         vertices[off+i].y = (stbtt_int16) y;
+      }
+
+      // now convert them to our format
+      num_vertices=0;
+      sx = sy = cx = cy = scx = scy = 0;
+      for (i=0; i < n; ++i) {
+         flags = vertices[off+i].type;
+         x     = (stbtt_int16) (ttvertices[i].p.x / scale);
+         y     = (stbtt_int16) (ttvertices[i].p.y / scale);
+
+         if (next_move == i) {
+            if (i != 0)
+               num_vertices = stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx,sy,scx,scy,cx,cy);
+
+            // now start the new one               
+            start_off = !(flags & 1);
+            if (start_off) {
+               // if we start off with an off-curve point, then when we need to find a point on the curve
+               // where we can start, and we need to save some state for when we wraparound.
+               scx = x;
+               scy = y;
+               if (!(vertices[off+i+1].type & 1)) {
+                  // next point is also a curve point, so interpolate an on-point curve
+                  sx = (x + (stbtt_int32) (ttvertices[i+1].p.x / scale)) >> 1;
+                  sy = (y + (stbtt_int32) (ttvertices[i+1].p.y / scale)) >> 1;
+               } else {
+                  // otherwise just use the next point as our start point
+                  sx = (stbtt_int32) (ttvertices[i+1].p.x / scale);
+                  sy = (stbtt_int32) (ttvertices[i+1].p.y / scale);
+                  ++i; // we're using point i+1 as the starting point, so skip it
+               }
+            } else {
+               sx = x;
+               sy = y;
+            }
+            stbtt_setvertex(&vertices[num_vertices++], STBTT_vmove,sx,sy,0,0);
+            was_off = 0;
+            next_move = 1 + ttUSHORT(endPtsOfContours+j*2);
+            ++j;
+         } else {
+            if (!(flags & 1)) { // if it's a curve
+               if (was_off) // two off-curve control points in a row means interpolate an on-curve midpoint
+                  stbtt_setvertex(&vertices[num_vertices++], STBTT_vcurve, (cx+x)>>1, (cy+y)>>1, cx, cy);
+               cx = x;
+               cy = y;
+               was_off = 1;
+            } else {
+               if (was_off)
+                  stbtt_setvertex(&vertices[num_vertices++], STBTT_vcurve, x,y, cx, cy);
+               else
+                  stbtt_setvertex(&vertices[num_vertices++], STBTT_vline, x,y,0,0);
+               was_off = 0;
+            }
+         }
+      }
+      num_vertices = stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx,sy,scx,scy,cx,cy);
+   } else if (numberOfContours == -1) {
+
+   		assert(false);
+
+      // // Compound shapes.
+      // int more = 1;
+      // stbtt_uint8 *comp = data + g + 10;
+      // num_vertices = 0;
+      // vertices = 0;
+      // while (more) {
+      //    stbtt_uint16 flags, gidx;
+      //    int comp_num_verts = 0, i;
+      //    stbtt_vertex *comp_verts = 0, *tmp = 0;
+      //    float mtx[6] = {1,0,0,1,0,0}, m, n;
+         
+      //    flags = ttSHORT(comp); comp+=2;
+      //    gidx = ttSHORT(comp); comp+=2;
+
+      //    if (flags & 2) { // XY values
+      //       if (flags & 1) { // shorts
+      //          mtx[4] = ttSHORT(comp); comp+=2;
+      //          mtx[5] = ttSHORT(comp); comp+=2;
+      //       } else {
+      //          mtx[4] = ttCHAR(comp); comp+=1;
+      //          mtx[5] = ttCHAR(comp); comp+=1;
+      //       }
+      //    }
+      //    else {
+      //       // @TODO handle matching point
+      //       STBTT_assert(0);
+      //    }
+      //    if (flags & (1<<3)) { // WE_HAVE_A_SCALE
+      //       mtx[0] = mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
+      //       mtx[1] = mtx[2] = 0;
+      //    } else if (flags & (1<<6)) { // WE_HAVE_AN_X_AND_YSCALE
+      //       mtx[0] = ttSHORT(comp)/16384.0f; comp+=2;
+      //       mtx[1] = mtx[2] = 0;
+      //       mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
+      //    } else if (flags & (1<<7)) { // WE_HAVE_A_TWO_BY_TWO
+      //       mtx[0] = ttSHORT(comp)/16384.0f; comp+=2;
+      //       mtx[1] = ttSHORT(comp)/16384.0f; comp+=2;
+      //       mtx[2] = ttSHORT(comp)/16384.0f; comp+=2;
+      //       mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
+      //    }
+         
+      //    // Find transformation scales.
+      //    m = (float) STBTT_sqrt(mtx[0]*mtx[0] + mtx[1]*mtx[1]);
+      //    n = (float) STBTT_sqrt(mtx[2]*mtx[2] + mtx[3]*mtx[3]);
+
+      //    // Get indexed glyph.
+      //    comp_num_verts = stbtt_GetGlyphShape(info, gidx, &comp_verts);
+      //    if (comp_num_verts > 0) {
+      //       // Transform vertices.
+      //       for (i = 0; i < comp_num_verts; ++i) {
+      //          stbtt_vertex* v = &comp_verts[i];
+      //          stbtt_vertex_type x,y;
+      //          x=v->x; y=v->y;
+      //          v->x = (stbtt_vertex_type)(m * (mtx[0]*x + mtx[2]*y + mtx[4]));
+      //          v->y = (stbtt_vertex_type)(n * (mtx[1]*x + mtx[3]*y + mtx[5]));
+      //          x=v->cx; y=v->cy;
+      //          v->cx = (stbtt_vertex_type)(m * (mtx[0]*x + mtx[2]*y + mtx[4]));
+      //          v->cy = (stbtt_vertex_type)(n * (mtx[1]*x + mtx[3]*y + mtx[5]));
+      //       }
+      //       // Append vertices.
+      //       tmp = (stbtt_vertex*)STBTT_malloc((num_vertices+comp_num_verts)*sizeof(stbtt_vertex), info->userdata);
+      //       if (!tmp) {
+      //          if (vertices) STBTT_free(vertices, info->userdata);
+      //          if (comp_verts) STBTT_free(comp_verts, info->userdata);
+      //          return 0;
+      //       }
+      //       if (num_vertices > 0) STBTT_memcpy(tmp, vertices, num_vertices*sizeof(stbtt_vertex));
+      //       STBTT_memcpy(tmp+num_vertices, comp_verts, comp_num_verts*sizeof(stbtt_vertex));
+      //       if (vertices) STBTT_free(vertices, info->userdata);
+      //       vertices = tmp;
+      //       STBTT_free(comp_verts, info->userdata);
+      //       num_vertices += comp_num_verts;
+         // }
+         // // More components ?
+         // more = flags & (1<<5);
+      // }
+   } else if (numberOfContours < 0) {
+      // @TODO other compound variations?
+      STBTT_assert(0);
+   } else {
+      // numberOfCounters == 0, do nothing
+   }
+
+   *pvertices = vertices;
+   return num_vertices;
+}
+
+
+
+
+
+
+struct TrueTypeInterpreter {
 	enum OpCode {
 	    OPCODE_SVTCA0,
 	    OPCODE_SVTCA1,
@@ -200,6 +574,9 @@ struct SharpFontInterpreter {
 	};
 
 
+
+
+
 	enum TouchStateEnum {
 	    TOUCH_STATE_None = 0,
 	    TOUCH_STATE_X = 0x1,
@@ -222,11 +599,11 @@ struct SharpFontInterpreter {
 			if(isTwilight) {
 				// twilight setup, assuming we just want an empty array.
 				Current = mallocArray(TrueTypeVertex, pointsCount);
-				for(int i = 0; i < pointsCount; i++) Current[i] = trueTypeVertex();
+				for(int i = 0; i < pointsCount; i++) Current[i] = {};
 				CurrentCount = pointsCount;
 
 				Original = mallocArray(TrueTypeVertex, pointsCount);
-				for(int i = 0; i < pointsCount; i++) Original[i] = trueTypeVertex();
+				for(int i = 0; i < pointsCount; i++) Original[i] = {};
 				OriginalCount = pointsCount;
 			} else {
 				// normal setup.
@@ -1731,121 +2108,3 @@ struct SharpFontInterpreter {
     }
 
 };
-
-
-
-
-
-
-struct TrueTypeInterpreter {
-	stbtt_fontinfo* info;
-    // Typeface currentTypeFace;
-    SharpFontInterpreter _interpreter;
-
-    bool UseVerticalHinting;
-
-    void SetTypeFace(stbtt_fontinfo* info) {
-        this->info = info;
-
-        int max = 500;
-        _interpreter.init(max,max,max,max,max);
-
-        // // the fpgm table optionally contains a program to run at initialization time 
-        // if (info->fpgm != 0) {
-        // 	uchar* instructions = info->data + info->fpgm;
-        //     _interpreter.InitializeFunctionDefs(instructions, 100);
-        // }
-    }
-
-    // void HintGlyph(ushort glyphIndex, float glyphSizeInPixel, TrueTypeVertex* vertices, int* verticesCount) {
-
-    //     Glyph glyph = currentTypeFace.GetGlyphByIndex(glyphIndex);
-    //     //-------------------------------------------
-    //     //1. start with original points/contours from glyph 
-    //     int horizontalAdv = currentTypeFace.GetHAdvanceWidthFromGlyphIndex(glyphIndex);
-    //     int hFrontSideBearing = currentTypeFace.GetHFrontSideBearingFromGlyphIndex(glyphIndex);
-
-    //     return HintGlyph(horizontalAdv,
-    //         hFrontSideBearing,
-    //         glyph.MinX,
-    //         glyph.MaxY,
-    //         glyph.GlyphPoints,
-    //         glyph.EndPoints,
-    //         glyph.GlyphInstructions,
-    //         glyphSizeInPixel);
-
-    // }
-
-    // void HintGlyph(int horizontalAdv, int hFrontSideBearing, int minX, int maxY, TrueTypeVertex[] glyphPoints, ushort[] contourEndPoints, byte[] instructions, float glyphSizeInPixel) {
-
-    //     //get glyph for its matrix
-
-    //     //TODO: review here again
-
-    //     int verticalAdv = 0;
-    //     int vFrontSideBearing = 0;
-    //     auto pp1 = new TrueTypeVertex((minX - hFrontSideBearing), 0, true);
-    //     auto pp2 = new TrueTypeVertex(pp1.X + horizontalAdv, 0, true);
-    //     auto pp3 = new TrueTypeVertex(0, maxY + vFrontSideBearing, true);
-    //     auto pp4 = new TrueTypeVertex(0, pp3.Y - verticalAdv, true);
-    //     //-------------------------
-
-    //     //2. use a clone version extend org with 4 elems
-    //     int orgLen = glyphPoints.Length;
-    //     TrueTypeVertex[] newGlyphPoints = Utils.CloneArray(glyphPoints, 4);
-    //     // add phantom points; these are used to define the extents of the glyph,
-    //     // and can be modified by hinting instructions
-    //     newGlyphPoints[orgLen] = pp1;
-    //     newGlyphPoints[orgLen + 1] = pp2;
-    //     newGlyphPoints[orgLen + 2] = pp3;
-    //     newGlyphPoints[orgLen + 3] = pp4;
-
-    //     //3. scale all point to target pixel size
-    //     float pxScale = currentTypeFace.CalculateToPixelScale(glyphSizeInPixel);
-    //     for (int i = orgLen + 3; i >= 0; --i)
-    //     {
-    //         newGlyphPoints[i].ApplyScale(pxScale);
-    //     }
-
-    //     //----------------------------------------------
-    //     //test : agg's vertical hint
-    //     //apply large scale on horizontal axis only 
-    //     //translate and then scale back
-    //     float agg_x_scale = 1000;
-    //     //
-    //     if (UseVerticalHinting)
-    //     {
-    //         ApplyScaleOnlyOnXAxis(newGlyphPoints, agg_x_scale);
-    //     }
-
-    //     //4.  
-    //     _interpreter.SetControlValueTable(currentTypeFace.ControlValues,
-    //         pxScale,
-    //         glyphSizeInPixel,
-    //         currentTypeFace.PrepProgramBuffer);
-    //     //--------------------------------------------------
-    //     //5. hint
-    //     _interpreter.HintGlyph(newGlyphPoints, contourEndPoints, instructions);
-
-    //     //6. scale back
-    //     if (UseVerticalHinting)
-    //     {
-    //         ApplyScaleOnlyOnXAxis(newGlyphPoints, 1f / agg_x_scale);
-    //     }
-    //     return newGlyphPoints;
-
-    // }
-
-    // static void ApplyScaleOnlyOnXAxis(TrueTypeVertex[] glyphPoints, float xscale)
-    // {
-    //     //TODO: review performance here
-    //     for (int i = glyphPoints.Length - 1; i >= 0; --i)
-    //     {
-    //         glyphPoints[i].ApplyScaleOnlyOnXAxis(xscale);
-    //     }
-
-    // }
-
-};
-
-
