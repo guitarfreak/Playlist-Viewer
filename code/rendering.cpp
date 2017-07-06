@@ -445,17 +445,42 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	// font.id = id;
 	font.height = height;
 
-	font.glyphRangeCount = 0;
-	font.glyphRanges[0].x = (int)0x20-1;
-	font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
-	font.glyphRangeCount++;
-	font.glyphRanges[1].x = 0xA0;
-	font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
-	font.glyphRangeCount++;
+	// font.glyphRangeCount = 0;
+	// font.glyphRanges[0].x = (int)0x20-1;
+	// font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
+	// font.glyphRangeCount++;
+	// font.glyphRanges[1].x = 0xA0;
+	// font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
+	// font.glyphRangeCount++;
 	
 	// font.glyphRanges[0].x = (int)0x49;
 	// font.glyphRanges[0].y = 1;
 	// font.glyphRangeCount = 1;
+	
+	// font.glyphRanges[0].x = 0x21;
+	// font.glyphRanges[0].y = 1;
+	// font.glyphRangeCount = 1;
+
+	font.glyphRangeCount = 0;
+	font.glyphRanges[0].x = (int)0x41;
+	font.glyphRanges[0].y = 0x5A - font.glyphRanges[0].x;
+	font.glyphRangeCount++;
+	font.glyphRanges[1].x = (int)0x61;
+	font.glyphRanges[1].y = 0x7A - font.glyphRanges[1].x;
+	font.glyphRangeCount++;
+
+	// font.glyphRangeCount = 0;
+	// font.glyphRanges[0].x = (int)0x20;
+	// font.glyphRanges[0].y = 0x25 - font.glyphRanges[0].x + 1;
+
+	// font.glyphRanges[0].y = 0x21 - font.glyphRanges[0].x;
+	// font.glyphRangeCount++;
+
+	// font.glyphRanges[1].x = 0xA0;
+	// font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
+	// font.glyphRangeCount++;
+	
+
 
 	// font.glyphRanges[0].x = (int)0x48;
 	// font.glyphRanges[0].y = (int)0x4C - font.glyphRanges[0].x + 1;
@@ -498,11 +523,49 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		cDataOffset += font.glyphRanges[i].y;
 	}
 
+
+
+	TrueTypeInterpreter interpreter;
+
+	{
+		Font* f = &font;
+		stbtt_fontinfo* info = &f->info;
+		float fontHeight = f->height;
+		float scale = stbtt_ScaleForPixelHeight(&f->info, fontHeight);
+
+		int max = 10000;
+		interpreter.init(max,max,max,max,max);
+
+		info->fpgm = stbtt__find_table(info->data, info->fontstart, "fpgm");
+		info->cvt = stbtt__find_table(info->data, info->fontstart, "cvt ");
+		info->prep = stbtt__find_table(info->data, info->fontstart, "prep");
+		info->fpgmSize = stbtt__find_table_length(info->data, info->fontstart, "fpgm");
+		int cvtCountDiv = 2; // 4?
+		info->cvtSize = stbtt__find_table_length(info->data, info->fontstart, "cvt ") / cvtCountDiv;
+		info->prepSize = stbtt__find_table_length(info->data, info->fontstart, "prep");
+
+		if (info->fpgm != 0) {
+		    interpreter.InitializeFunctionDefs(info->data + info->fpgm, info->fpgmSize);
+		}
+
+		if (info->cvt != 0) {
+		    interpreter.SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, fontHeight, info->data + info->prep, info->prepSize);
+		}
+
+		f->info.interpreter = &interpreter;
+		context.useHinting = true;
+		context.interpreter = &interpreter;
+	}
+
 	// We assume glyphRanges in the front have more importance.
 	for(int i = 0; i < font.glyphRangeCount; i++) {
 		stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range + i, 1);
 	}
 	// stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, range, font.glyphRangeCount);
+
+
+	interpreter.free();
+
 
 	stbtt_PackEnd(&context);
 

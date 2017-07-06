@@ -2,11 +2,11 @@
 
 #define Default_Array_Size 100
 
-void assertPrint(bool condition, char* string) {
-	if(condition) printf(string);
-	STBTT_assert(!condition);
-}
-void assertPrint(bool condition) { return assertPrint(condition, ""); }
+
+#define assertPrint(condition, string) \
+	if((condition)) printf(string); \
+	STBTT_assert(!(condition));
+
 
 
 struct TrueTypeVertex {
@@ -20,14 +20,6 @@ TrueTypeVertex trueTypeVertex(Vec2 p, bool onCurve) {
 	v.p = p;
 	return v;
 }
-
-enum GlyphZoneType {
-	GLYPH_ZONE_TWILIGHT = 0,
-	GLYPH_ZONE_NORMAL = 1,
-};
-
-
-
 
 STBTT_DEF int getGlyphShape(const stbtt_fontinfo *info, int glyph_index, float fontScale, TrueTypeVertex **pvertices)
 {
@@ -59,8 +51,7 @@ STBTT_DEF int getGlyphShape(const stbtt_fontinfo *info, int glyph_index, float f
 
       m = n + 2*numberOfContours;  // a loose bound on how many vertices we might need
       vertices = (stbtt_vertex *) STBTT_malloc(m * sizeof(vertices[0]), info->userdata);
-
-      ttverts = mallocArray(TrueTypeVertex, m * sizeof(vertices[0]) + 4);
+      ttverts = mallocArray(TrueTypeVertex, m * sizeof(stbtt_vertex) + 4);
 
       if (vertices == 0)
          return 0;
@@ -405,8 +396,9 @@ int trueTypeGlyphToStb(const stbtt_fontinfo *info, int glyph_index, stbtt_vertex
 
 
 
-
-
+#define Sqrt2Over2 ((float)(sqrt(2) / 2))
+#define MaxCallStack 128
+#define Epsilon 0.000001f
 
 struct TrueTypeInterpreter {
 	enum OpCode {
@@ -707,13 +699,19 @@ struct TrueTypeInterpreter {
 	        ip = 0;
 	    }
 
-	    stbtt_uint8 NextByte() {
-	        assertPrint(Done());
+	    int NextByte() {
+	        assertPrint(Done(), "");
 	        return instructions[ip++];
 	    }
 
 	    int NextOpCode() { return NextByte(); }
-	    int NextWord() { return (short)(ushort)(NextByte() << 8 | NextByte()); }
+	    int NextWord() { 
+	    	int byte1 = NextByte();
+	    	int byte2 = NextByte();
+	    	byte1 = byte1 << 8;
+	    	short word = (short)(byte1 | byte2);
+		    return word;
+	    }
 	    void Jump(int offset) { ip += offset; }
 	};
 
@@ -805,6 +803,8 @@ struct TrueTypeInterpreter {
 
 
     void init(int maxStack, int maxStorage, int maxFunctions, int maxInstructionDefs, int maxTwilightPoints) {
+    	*this = {};
+
         stack = ExecutionStack(maxStack);
         storage = mallocArray(int, maxStorage);
         storageCount = maxStorage;
@@ -813,8 +813,27 @@ struct TrueTypeInterpreter {
         instructionDefs = mallocArray(InstructionStream, (maxInstructionDefs > 0 ? 256 : 0));
         state = GraphicsState();
         cvtState = GraphicsState();
+        controlValueTable = 0;
 
         twilight = Zone(0, maxTwilightPoints, true);
+        points = {};
+        points.Current = 0;
+        points.Original = 0;
+    }
+
+    void free() {
+    	::free(stack.s);
+        ::free(storage);
+        ::free(functions);
+        ::free(instructionDefs);
+        if(points.Current) {
+	        ::free(points.Current);
+        }
+        if(points.Original) { 
+        	::free(points.Original);
+        }
+        ::free(twilight.Current);
+        ::free(twilight.Original);
     }
 
     void InitializeFunctionDefs(uchar* instructions, int count) {
@@ -822,9 +841,11 @@ struct TrueTypeInterpreter {
     }
 
     void SetControlValueTable(short* cvt, int cvtCount, float scale, float ppem, uchar* cvProgram, int cvProgramCount) {
+
         if (this->scale == scale || cvt == 0) return;
 
         if (controlValueTable == 0) controlValueTable = mallocArray(float, cvtCount);
+        
         controlValueTableCount = cvtCount;
         //copy cvt and apply scale
         for (int i = cvtCount - 1; i >= 0; --i) {
@@ -834,9 +855,10 @@ struct TrueTypeInterpreter {
 
         this->scale = scale;
         this->ppem = roundInt(ppem);
-        points = Zone();
-        twilight = Zone();
+        // points = Zone();
+        // twilight = Zone();
         zp0 = zp1 = zp2 = &points;
+        // zp0 = zp1 = zp2 = &twilight;
 
         state.Reset();
         stack.Clear();
@@ -859,6 +881,8 @@ struct TrueTypeInterpreter {
     }
 
     void HintGlyph(TrueTypeVertex* glyphPoints, int glyphPointsCount, ushort* contours, int contoursCount, uchar* instructions, int instructionsCount) {
+        points = Zone(glyphPoints, glyphPointsCount, false);
+
         if (instructions == 0 || instructionsCount == 0) return;
 
         // check if the CVT program disabled hinting
@@ -871,7 +895,6 @@ struct TrueTypeInterpreter {
         this->contours = contours;
         this->contoursCount = contoursCount;
 
-        points = Zone(glyphPoints, glyphPointsCount, false);
         zp0 = zp1 = zp2 = &points;
 
         // reset all of our shared state
@@ -928,7 +951,10 @@ struct TrueTypeInterpreter {
 	            case OPCODE_PUSHW7:
 	            case OPCODE_PUSHW8: {
 	                uchar count = opcode == OPCODE_NPUSHW ? stream.NextByte() : opcode - OPCODE_PUSHW1 + 1;
-	                for (int i = count - 1; i >= 0; --i) stack.Push(stream.NextWord());
+	                for (int i = count - 1; i >= 0; --i) {
+	                	int word = stream.NextWord();
+		                stack.Push(word);
+	                }
 	            } break;
 
 	            // ==== STORAGE MANAGEMENT ====
@@ -1087,38 +1113,27 @@ struct TrueTypeInterpreter {
 	            // ==== POINT MODIFICATION ====
 	            case OPCODE_FLIPPT:
 	                {
-	                	assert(false);
-	                //     for (int i = 0; i < state.Loop; i++)
-	                //     {
-	                //         auto index = stack.Pop();
-	                //         //review here again!
-	                //         points.Current[index].onCurve = !points.Current[index].onCurve;
-	                //         //if (points.Current[index].onCurve)
-	                //         //    points.Current[index].onCurve = false;
-	                //         //else
-	                //         //    points.Current[index].onCurve = true;
-	                //     }
-	                //     state.Loop = 1;
+	                    for (int i = 0; i < state.Loop; i++)
+	                    {
+	                        auto index = stack.Pop();
+	                        //review here again!
+	                        points.Current[index].onCurve = !points.Current[index].onCurve;
+	                    }
+	                    state.Loop = 1;
 	                }
 	                break;
 	            case OPCODE_FLIPRGON:
 	                {
-	                	assert(false);
-
-	            //         auto end = stack.Pop();
-	            //         for (int i = stack.Pop(); i <= end; i++)
-	            //             //points.Current[i].Type = PointType.OnCurve;
-	            //             points.Current[i].onCurve = true;
+	                    auto end = stack.Pop();
+	                    for (int i = stack.Pop(); i <= end; i++)
+	                        points.Current[i].onCurve = true;
 	                }
 	                break;
 	            case OPCODE_FLIPRGOFF:
 	                {
-	                	assert(false);
-
-	            //         auto end = stack.Pop();
-	            //         for (int i = stack.Pop(); i <= end; i++)
-	            //             //points.Current[i].Type = PointType.Quadratic;
-	            //             points.Current[i].onCurve = false;
+	                    auto end = stack.Pop();
+	                    for (int i = stack.Pop(); i <= end; i++)
+	                        points.Current[i].onCurve = false;
 	                }
 	                break;
 	            case OPCODE_SHP0:
@@ -1747,7 +1762,7 @@ struct TrueTypeInterpreter {
     }
 
     int CheckIndex(int index, int length) {
-        assertPrint(index < 0 || index >= length);
+        assertPrint(index < 0 || index >= length, "");
         return index;
     }
 
@@ -2059,11 +2074,6 @@ struct TrueTypeInterpreter {
 
     static float* GetPoint(stbtt_uint8* data, int index) { return (float*)(data + sizeof(TrueTypeVertex) * index); }
 
-    const float Sqrt2Over2 = (float)(sqrt(2) / 2);
-
-    const int MaxCallStack = 128;
-    const float Epsilon = 0.000001f;
-
     static void InterpolatePoints(uchar* current, uchar* original, int start, int end, int ref1, int ref2) {
         if (start > end) return;
 
@@ -2108,3 +2118,66 @@ struct TrueTypeInterpreter {
     }
 
 };
+
+
+
+
+
+
+
+void stbtt_MakeGlyphBitmapHinted(const stbtt_fontinfo *info, unsigned char *output, int out_w, int out_h, int out_stride, float scale_x, float scale_y, float shift_x, float shift_y, int glyph)
+{
+   int ix0,iy0;
+   stbtt_vertex *vertices;
+   int num_verts = stbtt_GetGlyphShape(info, glyph, &vertices);
+   stbtt__bitmap gbm;
+
+   if(true)
+	{
+		// Font* font = font;
+		// stbtt_fontinfo* info = &font->info;
+		stbtt_uint8 *data = info->data;
+		// float scale = stbtt_ScaleForPixelHeight(info, font->height);
+		float scale = scale_x;
+
+		TrueTypeVertex* ttvertices = 0;
+		int vertexCount = getGlyphShape(info, glyph, scale, &ttvertices);
+		if(vertexCount > 0) {
+			glyphAddPhantomPoints((stbtt_fontinfo*) info, glyph, scale, ttvertices, &vertexCount);
+
+			int goff = stbtt__GetGlyfOffset(info, glyph);
+			int numberOfContours = ttSHORT(data + goff);
+			stbtt_uint8* contourData = (data + goff + 10);
+			ushort* contoursEndpoints = mallocArray(ushort, numberOfContours);
+			for(int i = 0; i < numberOfContours; i++) {
+				contoursEndpoints[i] = ttUSHORT(contourData + i*2);
+			}
+
+			int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
+			int instructionCount = ttSHORT(data + goff + instructionOffset);
+			stbtt_uint8* instructions = data + goff + instructionOffset + sizeof(short);
+
+			if(true) {
+				info->interpreter->HintGlyph(ttvertices, vertexCount, contoursEndpoints, numberOfContours, instructions, instructionCount);
+
+				num_verts = trueTypeGlyphToStb(info, glyph, &vertices, info->interpreter->points.Current, vertexCount, scale);
+			} else {
+				num_verts = trueTypeGlyphToStb(info, glyph, &vertices, ttvertices, vertexCount, scale);
+			}
+
+			free(ttvertices);
+	   		free(contoursEndpoints);
+   		}
+	}
+
+   stbtt_GetGlyphBitmapBoxSubpixel(info, glyph, scale_x, scale_y, shift_x, shift_y, &ix0,&iy0,0,0);
+   gbm.pixels = output;
+   gbm.w = out_w;
+   gbm.h = out_h;
+   gbm.stride = out_stride;
+
+   if (gbm.w && gbm.h)
+      stbtt_Rasterize(&gbm, 0.35f, vertices, num_verts, scale_x, scale_y, shift_x, shift_y, ix0,iy0, 1, info->userdata);
+
+   STBTT_free(vertices, info->userdata);
+}

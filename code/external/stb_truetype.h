@@ -606,6 +606,8 @@ STBTT_DEF int  stbtt_PackFontRangesRenderIntoRects(stbtt_pack_context *spc, stbt
 // better packing than calling PackFontRanges multiple times
 // (or it may not).
 
+struct TrueTypeInterpreter;
+
 // this is an opaque structure that you shouldn't mess with which holds
 // all the context needed from PackBegin to PackEnd.
 struct stbtt_pack_context {
@@ -618,6 +620,9 @@ struct stbtt_pack_context {
    unsigned int   h_oversample, v_oversample;
    unsigned char *pixels;
    void  *nodes;
+
+   TrueTypeInterpreter* interpreter;
+   bool  useHinting;
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -646,11 +651,13 @@ struct stbtt_fontinfo
    int numGlyphs;                     // number of glyphs, needed for range checking
 
    int loca,head,glyf,hhea,hmtx,kern; // table locations as offset from start of .ttf
-   int fpgm, cvt, prep;
-   int fpgmSize, cvtSize, prepSize;
 
    int index_map;                     // a cmap mapping for our chosen character encoding
    int indexToLocFormat;              // format needed to map from glyph index to glyph
+
+   int fpgm, cvt, prep;
+   int fpgmSize, cvtSize, prepSize;
+   TrueTypeInterpreter* interpreter;
 };
 
 STBTT_DEF int stbtt_InitFont(stbtt_fontinfo *info, const unsigned char *data, int offset);
@@ -2505,60 +2512,6 @@ STBTT_DEF void stbtt_MakeGlyphBitmapSubpixel(const stbtt_fontinfo *info, unsigne
    int num_verts = stbtt_GetGlyphShape(info, glyph, &vertices);
    stbtt__bitmap gbm;   
 
-   // // What.
-   // // if(true)
-   // if(true) {
-   // if(false) {
-   if(glyph == 918) {
-
-   		// int i = 0;
-   		// vertices[i].x = 1.41f / scale_x; vertices[i++].y = 0 / scale_y;
-   		// vertices[i].x = 1.41 / scale_x; vertices[i++].y = 12 / scale_y;
-   		// vertices[i].x = 2.73 / scale_x; vertices[i++].y = 12 / scale_y;
-   		// vertices[i].x = 2.73 / scale_x; vertices[i++].y = 0 / scale_y;
-
-   		// vertices[i].x = vertices[0].x; vertices[i++].y = vertices[0].y;
-
-
-
-		// for(int i = 0; i < num_verts; i++) {
-		// 	stbtt_vertex v = vertices[i];
-
-		// 	vertices[i].x = 1.41f;
-		// 	vertices[i].y = 0;
-
-		// 	// if(v.type == 1) {
-		// 		// vertices[i].x = STBTT_ifloor((vertices[i].x*scale_x) + 0.5f) / scale_x;	
-		// 		// vertices[i].y = STBTT_ifloor((vertices[i].y*scale_y) + 0.5f) / scale_y;	
-		// 		// vertices[i].y += 123;
-
-		// 		// vertices[i].y += 200;	
-		// 	// }
-		// 	// vertices[i].x = STBTT_ifloor((shift_x*vertices[i].x) + 0.5f);
-
-		// }
-
-   // // if(glyph == 'H' - 29 + 1)
-   // // if(glyph == 0)
-   // // if(glyph == '!' - 29)
-   // {
-   // 		// float scale = stbtt_ScaleForPixelHeight(info, 20);
-
-	  //   int fpgm = stbtt__find_table(info->data, info->fontstart, "fpgm");
-
-   // 		for(int i = 0; i < num_verts; i++) {
-   // 			stbtt_vertex v = vertices[i];
-
-   // 			// if(v.type == 1) {
-   // 				vertices[i].x = STBTT_ifloor((vertices[i].x*scale_x) + 0.5f) / scale_x;	
-   // 				vertices[i].y = STBTT_ifloor((vertices[i].y*scale_y) + 0.5f) / scale_y;	
-   // 				// vertices[i].y += 200;	
-   // 			// }
-   // 			// vertices[i].x = STBTT_ifloor((shift_x*vertices[i].x) + 0.5f);
-
-   // 		}
-   }
-
    stbtt_GetGlyphBitmapBoxSubpixel(info, glyph, scale_x, scale_y, shift_x, shift_y, &ix0,&iy0,0,0);
    gbm.pixels = output;
    gbm.w = out_w;
@@ -3039,6 +2992,8 @@ STBTT_DEF int stbtt_PackFontRangesGatherRects(stbtt_pack_context *spc, stbtt_fon
    return k;
 }
 
+void stbtt_MakeGlyphBitmapHinted(const stbtt_fontinfo *info, unsigned char *output, int out_w, int out_h, int out_stride, float scale_x, float scale_y, float shift_x, float shift_y, int glyph);
+
 // rects array must be big enough to accommodate all characters in the given ranges
 STBTT_DEF int stbtt_PackFontRangesRenderIntoRects(stbtt_pack_context *spc, stbtt_fontinfo *info, stbtt_pack_range *ranges, int num_ranges, stbrp_rect *rects)
 {
@@ -3078,15 +3033,30 @@ STBTT_DEF int stbtt_PackFontRangesRenderIntoRects(stbtt_pack_context *spc, stbtt
                                     scale * spc->h_oversample,
                                     scale * spc->v_oversample,
                                     &x0,&y0,&x1,&y1);
-            stbtt_MakeGlyphBitmapSubpixel(info,
-                                          spc->pixels + r->x + r->y*spc->stride_in_bytes,
-                                          r->w - spc->h_oversample+1,
-                                          r->h - spc->v_oversample+1,
-                                          spc->stride_in_bytes,
-                                          scale * spc->h_oversample,
-                                          scale * spc->v_oversample,
-                                          0,0,
-                                          glyph);
+
+            if(!spc->useHinting) {
+            	stbtt_MakeGlyphBitmapSubpixel(info,
+            	                              spc->pixels + r->x + r->y*spc->stride_in_bytes,
+            	                              r->w - spc->h_oversample+1,
+            	                              r->h - spc->v_oversample+1,
+            	                              spc->stride_in_bytes,
+            	                              scale * spc->h_oversample,
+            	                              scale * spc->v_oversample,
+            	                              0,0,
+            	                              glyph);
+            } else {
+            	stbtt_MakeGlyphBitmapHinted(info,
+            	                              spc->pixels + r->x + r->y*spc->stride_in_bytes,
+            	                              r->w - spc->h_oversample+1,
+            	                              r->h - spc->v_oversample+1,
+            	                              spc->stride_in_bytes,
+            	                              scale * spc->h_oversample,
+            	                              scale * spc->v_oversample,
+            	                              0,0,
+            	                              glyph);
+            }
+
+
 
             if (spc->h_oversample > 1)
                stbtt__h_prefilter(spc->pixels + r->x + r->y*spc->stride_in_bytes,
@@ -3157,6 +3127,7 @@ STBTT_DEF int stbtt_PackFontRanges(stbtt_pack_context *spc, unsigned char *fontd
 
    stbtt_PackFontRangesPackRects(spc, rects, n);
   
+   info.interpreter = spc->interpreter;
    return_value = stbtt_PackFontRangesRenderIntoRects(spc, &info, ranges, num_ranges, rects);
 
    STBTT_free(rects, spc->user_allocator_context);
