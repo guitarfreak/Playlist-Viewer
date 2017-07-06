@@ -21,7 +21,8 @@ TrueTypeVertex trueTypeVertex(Vec2 p, bool onCurve) {
 	return v;
 }
 
-STBTT_DEF int getGlyphShape(const stbtt_fontinfo *info, int glyph_index, float fontScale, TrueTypeVertex **pvertices)
+// Should be used to put glyph shapes into interpreter.points.Original
+STBTT_DEF int extractGlyphShape(const stbtt_fontinfo *info, int glyph_index, float fontScale, TrueTypeVertex *ttverts)
 {
    stbtt_int16 numberOfContours;
    stbtt_uint8 *endPtsOfContours;
@@ -29,10 +30,6 @@ STBTT_DEF int getGlyphShape(const stbtt_fontinfo *info, int glyph_index, float f
    stbtt_vertex *vertices=0;
    int num_vertices=0;
    int g = stbtt__GetGlyfOffset(info, glyph_index);
-
-   TrueTypeVertex* ttverts;
-
-   *pvertices = NULL;
 
    if (g < 0) return 0;
 
@@ -51,7 +48,6 @@ STBTT_DEF int getGlyphShape(const stbtt_fontinfo *info, int glyph_index, float f
 
       m = n + 2*numberOfContours;  // a loose bound on how many vertices we might need
       vertices = (stbtt_vertex *) STBTT_malloc(m * sizeof(vertices[0]), info->userdata);
-      ttverts = mallocArray(TrueTypeVertex, m * sizeof(stbtt_vertex) + 4);
 
       if (vertices == 0)
          return 0;
@@ -148,7 +144,8 @@ STBTT_DEF int getGlyphShape(const stbtt_fontinfo *info, int glyph_index, float f
       // numberOfCounters == 0, do nothing
    }
 
-   *pvertices = ttverts;
+   stbtt_FreeShape(info, vertices);	
+
    return num_vertices;
 }
 
@@ -577,46 +574,49 @@ struct TrueTypeInterpreter {
 	};
 
 	struct Zone {
-	    TrueTypeVertex* Current;
-	    int CurrentCount;
-	    TrueTypeVertex* Original;
-	    int OriginalCount;
-	    int* TouchState;
-	    int TouchStateCount;
 	    bool IsTwilight;
+	    TrueTypeVertex* Current;
+	    TrueTypeVertex* Original;
+	    int* TouchState;
+	    int Count;
+	    int MaxCount;
 
-	    Zone() {};
-	    Zone(TrueTypeVertex* points, int pointsCount, bool isTwilight) {
-	    	this->IsTwilight = isTwilight;
-			if(isTwilight) {
-				// twilight setup, assuming we just want an empty array.
-				Current = mallocArray(TrueTypeVertex, pointsCount);
-				for(int i = 0; i < pointsCount; i++) Current[i] = {};
-				CurrentCount = pointsCount;
+	    void init(int maxCount, bool isTwilight) {
+			this->IsTwilight = isTwilight;
+			this->Count = 0;
+			this->MaxCount = maxCount;
 
-				Original = mallocArray(TrueTypeVertex, pointsCount);
-				for(int i = 0; i < pointsCount; i++) Original[i] = {};
-				OriginalCount = pointsCount;
-			} else {
-				// normal setup.
-				Current = mallocArray(TrueTypeVertex, pointsCount);
-				for(int i = 0; i < pointsCount; i++) Current[i] = points[i];
-				CurrentCount = pointsCount;
+			Current = mallocArray(TrueTypeVertex, maxCount);
+			for(int i = 0; i < maxCount; i++) Current[i] = {};
 
-				Original = mallocArray(TrueTypeVertex, pointsCount);
-				for(int i = 0; i < pointsCount; i++) Original[i] = points[i];
-				OriginalCount = pointsCount;
+			Original = mallocArray(TrueTypeVertex, maxCount);
+			for(int i = 0; i < maxCount; i++) Original[i] = {};
 
-				// Round last 4 points for current.
-				for(int i = 0; i < 4; i++) {
-					Current[CurrentCount-1-i].p.x = roundFloat(Current[CurrentCount-1-i].p.x);
-					Current[CurrentCount-1-i].p.y = roundFloat(Current[CurrentCount-1-i].p.y);
-				}
+			TouchState = mallocArray(int, maxCount);
+			for(int i = 0; i < maxCount; i++) TouchState[i] = TOUCH_STATE_None;
+	    }
+
+	    void free() {
+	    	::free(Current);
+	    	::free(Original);
+	    	::free(TouchState);
+	    }
+
+	    void setupPoints(TrueTypeVertex* points, int pointCount) {
+	    	assert(pointCount <= this->MaxCount);
+
+	    	this->Count = pointCount;
+
+			for(int i = 0; i < pointCount; i++) {
+				Current[i] = points[i];
+				Original[i] = points[i];
 			}
 
-	        TouchState = mallocArray(int, pointsCount);
-	        for(int i = 0; i < pointsCount; i++) TouchState[i] = TOUCH_STATE_None;
-	        TouchStateCount = pointsCount;
+			// Round last 4 phantom points for current.
+			for(int i = 0; i < 4; i++) {
+				Current[pointCount-1-i].p.x = roundFloat(Current[pointCount-1-i].p.x);
+				Current[pointCount-1-i].p.y = roundFloat(Current[pointCount-1-i].p.y);
+			}
 	    }
 
 	    Vec2 GetCurrent(int index) { 
@@ -789,7 +789,7 @@ struct TrueTypeInterpreter {
 
     int* storage;
     int storageCount;
-    ushort* contours;
+    ushort contours[20]; // Should be enough?.
     int contoursCount;
     float scale;
     int ppem;
@@ -802,8 +802,15 @@ struct TrueTypeInterpreter {
 
 
 
-    void init(int maxStack, int maxStorage, int maxFunctions, int maxInstructionDefs, int maxTwilightPoints) {
+    void init() {
     	*this = {};
+
+    	int maxStack = 10000;
+    	int maxStorage = 300;
+    	int maxFunctions = 300;
+    	int maxInstructionDefs = 100;
+    	int maxTwilightPoints = 200;
+    	int maxPoints = 500;
 
         stack = ExecutionStack(maxStack);
         storage = mallocArray(int, maxStorage);
@@ -815,10 +822,20 @@ struct TrueTypeInterpreter {
         cvtState = GraphicsState();
         controlValueTable = 0;
 
-        twilight = Zone(0, maxTwilightPoints, true);
-        points = {};
-        points.Current = 0;
-        points.Original = 0;
+        points.init(maxPoints, false);
+        twilight.init(maxTwilightPoints, true);
+    }
+
+    void setupFunctionsAndCvt(stbtt_fontinfo* info, float height) {
+		float scale = stbtt_ScaleForPixelHeight(info, height);
+
+    	if (info->fpgm != 0) {
+    	    InitializeFunctionDefs(info->data + info->fpgm, info->fpgmSize);
+    	}
+
+    	if (info->cvt != 0) {
+    	    SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, height, info->data + info->prep, info->prepSize);
+    	}
     }
 
     void free() {
@@ -826,18 +843,12 @@ struct TrueTypeInterpreter {
         ::free(storage);
         ::free(functions);
         ::free(instructionDefs);
-        if(points.Current) {
-	        ::free(points.Current);
-        }
-        if(points.Original) { 
-        	::free(points.Original);
-        }
-        ::free(twilight.Current);
-        ::free(twilight.Original);
+        points.free();
+        twilight.free();
     }
 
     void InitializeFunctionDefs(uchar* instructions, int count) {
-        Execute(InstructionStream(instructions, count), false, true);
+		Execute(InstructionStream(instructions, count), false, true);
     }
 
     void SetControlValueTable(short* cvt, int cvtCount, float scale, float ppem, uchar* cvProgram, int cvProgramCount) {
@@ -880,29 +891,50 @@ struct TrueTypeInterpreter {
         }
     }
 
-    void HintGlyph(TrueTypeVertex* glyphPoints, int glyphPointsCount, ushort* contours, int contoursCount, uchar* instructions, int instructionsCount) {
-        points = Zone(glyphPoints, glyphPointsCount, false);
+    int HintGlyph(stbtt_fontinfo* info, int glyph, TrueTypeVertex** glyphPoints) {
 
-        if (instructions == 0 || instructionsCount == 0) return;
+    	// Points.
+    	// Weird, should be its own temp array.
+    	int vertexCount = extractGlyphShape(info, glyph, scale, points.Original);
+    	if(vertexCount == 0) return 0;
+
+    	points.Count = vertexCount;
+
+    	glyphAddPhantomPoints(info, glyph, scale, points.Original, &points.Count);
+
+    	points.setupPoints(points.Original, points.Count);
+
+    	for(int i = 0; i < points.Count; i++) points.TouchState[i] = TOUCH_STATE_None;
+
+
+    	// Contours.
+    	int goff = stbtt__GetGlyfOffset(info, glyph);
+    	this->contoursCount = ttSHORT(info->data + goff);
+    	stbtt_uint8* contourData = (info->data + goff + 10);
+    	for(int i = 0; i < contoursCount; i++) {
+			contours[i] = ttUSHORT(contourData + i*2);
+    	}
+
+    	// Instructions.
+		int instructionOffset = 5*(sizeof(short)) + contoursCount*(sizeof(short));
+		int instructionsCount = ttSHORT(info->data + goff + instructionOffset);
+		stbtt_uint8* instructions = info->data + goff + instructionOffset + sizeof(short);
+
+        if (instructions == 0 || instructionsCount == 0) return 0;
+
+
 
         // check if the CVT program disabled hinting
-        if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return;
+        if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return 0;
 
         // TODO: composite glyphs
-        // TODO: round the phantom points?
-
-        // save contours and points
-        this->contours = contours;
-        this->contoursCount = contoursCount;
 
         zp0 = zp1 = zp2 = &points;
 
         // reset all of our shared state
         state = cvtState;
         callStackSize = 0;
-#if DEBUG
-        debugList.Clear();
-#endif
+
         stack.Clear();
         OnVectorsUpdated();
 
@@ -913,20 +945,63 @@ struct TrueTypeInterpreter {
         }
 
         Execute(InstructionStream(instructions, instructionsCount), false, false);
+
+
+
+        if(glyphPoints) *glyphPoints = points.Current;
+        return points.Count;
     }
 
-#if DEBUG
-    System.Collections.Generic.List<OpCode> debugList = new System.Collections.Generic.List<OpCode>();
-#endif
+    int calcBoundingBox(int* x0, int* y0, int* x1, int* y1) {
+    	TrueTypeVertex* vertices = points.Current;
+    	int vertexCount = points.Count - 4;
+
+    	if(vertexCount == 0) {
+    		*x0 = 0;
+    		*y0 = 0;
+
+    		if(x1) *x1 = 0;
+    		if(y1) *y1 = 0;
+
+	    	return 0;
+    	}
+
+    	float xMin = FLT_MAX, yMin = FLT_MAX;
+    	float xMax = FLT_MIN, yMax = FLT_MIN;
+
+    	for(int i = 0; i < vertexCount; i++) {
+    		TrueTypeVertex v = vertices[i];
+
+    		if(v.onCurve) {
+    			Vec2 p = v.p;
+
+				if(p.x < xMin) xMin = p.x; 
+				if(p.y < yMin) yMin = p.y; 
+				if(p.x > xMax) xMax = p.x; 
+				if(p.y > yMax) yMax = p.y; 
+    		}
+    	}
+
+    	*x0 = STBTT_ifloor(xMin);
+    	*y0 = STBTT_ifloor(yMin);
+
+    	if(x1) *x1 = STBTT_iceil(xMax);
+    	if(y1) *y1 = STBTT_iceil(yMax);
+
+    	return 1;
+    }
+
+	void getMetrics(int* xAdvance) {
+		float advance = points.Current[points.Count-3].p.x;
+		*xAdvance = advance;
+	}
+
     void Execute(InstructionStream stream, bool inFunction, bool allowFunctionDefs)
     {
         // dispatch each instruction in the stream
         while (!stream.Done())
         {
             int opcode = stream.NextOpCode();
-#if DEBUG
-            debugList.Add(opcode);
-#endif
             switch (opcode) {
 	            // ==== PUSH INSTRUCTIONS ====
 	            case OPCODE_NPUSHB:
@@ -1155,7 +1230,7 @@ struct TrueTypeInterpreter {
 	                    auto touch = GetTouchState();
 	                    auto contour = stack.Pop();
 	                    auto start = contour == 0 ? 0 : contours[contour - 1] + 1;
-	                    auto count = zp2->IsTwilight ? zp2->CurrentCount : contours[contour] + 1;
+	                    auto count = zp2->IsTwilight ? zp2->Count : contours[contour] + 1;
 
 	                    for (int i = start; i < count; i++)
 	                    {
@@ -1176,7 +1251,7 @@ struct TrueTypeInterpreter {
 	                    auto displacement = ComputeDisplacement((int)opcode, &zone, &point);
 	                    auto count = 0;
 	                    if (zp2->IsTwilight)
-	                        count = zp2->CurrentCount;
+	                        count = zp2->Count;
 	                    else if (contoursCount > 0)
 	                        count = contours[contoursCount - 1] + 1;
 
@@ -2123,54 +2198,121 @@ struct TrueTypeInterpreter {
 
 
 
+// void hintGlyph(TrueTypeInterpreter* interpreter, stbtt_fontinfo* info, float scale, int glyph, TrueTypeVertex** vertices, int* vertexCount) {
+// 	TrueTypeVertex* ttvertices = 0;
+// 	int vertexCount = getGlyphShape(info, glyph, scale, &ttvertices);
+// 	if(vertexCount > 0) {
+// 		glyphAddPhantomPoints((stbtt_fontinfo*) info, glyph, scale, ttvertices, &vertexCount);
+
+// 		int goff = stbtt__GetGlyfOffset(info, glyph);
+// 		int numberOfContours = ttSHORT(info->data + goff);
+// 		stbtt_uint8* contourData = (info->data + goff + 10);
+// 		ushort* contoursEndpoints = mallocArray(ushort, numberOfContours);
+// 		for(int i = 0; i < numberOfContours; i++) {
+// 			contoursEndpoints[i] = ttUSHORT(contourData + i*2);
+// 		}
+
+// 		int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
+// 		int instructionCount = ttSHORT(info->data + goff + instructionOffset);
+// 		stbtt_uint8* instructions = info->data + goff + instructionOffset + sizeof(short);
+
+// 		if(true) {
+// 			info->interpreter->HintGlyph(ttvertices, vertexCount, contoursEndpoints, numberOfContours, instructions, instructionCount);
+
+// 			num_verts = trueTypeGlyphToStb(info, glyph, &vertices, info->interpreter->points.Current, vertexCount, scale);
+// 		} else {
+// 			num_verts = trueTypeGlyphToStb(info, glyph, &vertices, ttvertices, vertexCount, scale);
+// 		}
+
+// 		free(ttvertices);
+// 			free(contoursEndpoints);
+// 		}
+// 	}
+// }
 
 
-void stbtt_MakeGlyphBitmapHinted(const stbtt_fontinfo *info, unsigned char *output, int out_w, int out_h, int out_stride, float scale_x, float scale_y, float shift_x, float shift_y, int glyph)
+
+// void stbtt_MakeGlyphBitmapHinted(const stbtt_fontinfo *info, unsigned char *output, int out_w, int out_h, int out_stride, float scale_x, float scale_y, float shift_x, float shift_y, int glyph)
+// {
+//    int ix0,iy0;
+//    stbtt_vertex *vertices;
+//    int num_verts = stbtt_GetGlyphShape(info, glyph, &vertices);
+//    stbtt__bitmap gbm;
+
+//    if(true)
+// 	{
+// 		// Font* font = font;
+// 		// stbtt_fontinfo* info = &font->info;
+// 		stbtt_uint8 *data = info->data;
+// 		// float scale = stbtt_ScaleForPixelHeight(info, font->height);
+// 		float scale = scale_x;
+
+// 		TrueTypeVertex* ttvertices = 0;
+// 		int vertexCount = getGlyphShape(info, glyph, scale, &ttvertices);
+// 		if(vertexCount > 0) {
+// 			glyphAddPhantomPoints((stbtt_fontinfo*) info, glyph, scale, ttvertices, &vertexCount);
+
+// 			int goff = stbtt__GetGlyfOffset(info, glyph);
+// 			int numberOfContours = ttSHORT(data + goff);
+// 			stbtt_uint8* contourData = (data + goff + 10);
+// 			ushort* contoursEndpoints = mallocArray(ushort, numberOfContours);
+// 			for(int i = 0; i < numberOfContours; i++) {
+// 				contoursEndpoints[i] = ttUSHORT(contourData + i*2);
+// 			}
+
+// 			int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
+// 			int instructionCount = ttSHORT(data + goff + instructionOffset);
+// 			stbtt_uint8* instructions = data + goff + instructionOffset + sizeof(short);
+
+// 			if(true) {
+// 				info->interpreter->HintGlyph(ttvertices, vertexCount, contoursEndpoints, numberOfContours, instructions, instructionCount);
+
+// 				num_verts = trueTypeGlyphToStb(info, glyph, &vertices, info->interpreter->points.Current, vertexCount, scale);
+// 			} else {
+// 				num_verts = trueTypeGlyphToStb(info, glyph, &vertices, ttvertices, vertexCount, scale);
+// 			}
+
+// 			free(ttvertices);
+// 	   		free(contoursEndpoints);
+//    		}
+// 	}
+
+//    stbtt_GetGlyphBitmapBoxSubpixel(info, glyph, scale_x, scale_y, shift_x, shift_y, &ix0,&iy0,0,0);
+//    gbm.pixels = output;
+//    gbm.w = out_w;
+//    gbm.h = out_h;
+//    gbm.stride = out_stride;
+
+//    if (gbm.w && gbm.h)
+//       stbtt_Rasterize(&gbm, 0.35f, vertices, num_verts, scale_x, scale_y, shift_x, shift_y, ix0,iy0, 1, info->userdata);
+
+//    STBTT_free(vertices, info->userdata);
+// }
+
+
+
+
+void stbtt_MakeGlyphBitmapHinted(TrueTypeInterpreter* interpreter, const stbtt_fontinfo *info, unsigned char *output, int out_w, int out_h, int out_stride, float scale_x, float scale_y, float shift_x, float shift_y, int glyph)
 {
-   int ix0,iy0;
-   stbtt_vertex *vertices;
-   int num_verts = stbtt_GetGlyphShape(info, glyph, &vertices);
-   stbtt__bitmap gbm;
+   int ix0=0,iy0=0;
+   stbtt__bitmap gbm;   
 
-   if(true)
-	{
-		// Font* font = font;
-		// stbtt_fontinfo* info = &font->info;
-		stbtt_uint8 *data = info->data;
-		// float scale = stbtt_ScaleForPixelHeight(info, font->height);
-		float scale = scale_x;
+   TrueTypeVertex* ttvertices = 0;
+   int vertexCount = interpreter->HintGlyph((stbtt_fontinfo *)info, glyph, &ttvertices);
+   if(vertexCount == 0) return;
 
-		TrueTypeVertex* ttvertices = 0;
-		int vertexCount = getGlyphShape(info, glyph, scale, &ttvertices);
-		if(vertexCount > 0) {
-			glyphAddPhantomPoints((stbtt_fontinfo*) info, glyph, scale, ttvertices, &vertexCount);
-
-			int goff = stbtt__GetGlyfOffset(info, glyph);
-			int numberOfContours = ttSHORT(data + goff);
-			stbtt_uint8* contourData = (data + goff + 10);
-			ushort* contoursEndpoints = mallocArray(ushort, numberOfContours);
-			for(int i = 0; i < numberOfContours; i++) {
-				contoursEndpoints[i] = ttUSHORT(contourData + i*2);
-			}
-
-			int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
-			int instructionCount = ttSHORT(data + goff + instructionOffset);
-			stbtt_uint8* instructions = data + goff + instructionOffset + sizeof(short);
-
-			if(true) {
-				info->interpreter->HintGlyph(ttvertices, vertexCount, contoursEndpoints, numberOfContours, instructions, instructionCount);
-
-				num_verts = trueTypeGlyphToStb(info, glyph, &vertices, info->interpreter->points.Current, vertexCount, scale);
-			} else {
-				num_verts = trueTypeGlyphToStb(info, glyph, &vertices, ttvertices, vertexCount, scale);
-			}
-
-			free(ttvertices);
-	   		free(contoursEndpoints);
-   		}
+	int xmin, xmax, ymin, ymax;
+	int result = interpreter->calcBoundingBox(&xmin, &ymin, &xmax, &ymax);
+	if(result) {
+		ix0 = ( xmin /** scale_x*/ + shift_x);
+		iy0 = (-ymax /** scale_y*/ + shift_y);
+	} else {
+		return;
 	}
 
-   stbtt_GetGlyphBitmapBoxSubpixel(info, glyph, scale_x, scale_y, shift_x, shift_y, &ix0,&iy0,0,0);
+   stbtt_vertex* vertices;
+	int num_verts = trueTypeGlyphToStb((stbtt_fontinfo*)info, glyph, &vertices, ttvertices, vertexCount, scale_x);
+
    gbm.pixels = output;
    gbm.w = out_w;
    gbm.h = out_h;
@@ -2180,4 +2322,184 @@ void stbtt_MakeGlyphBitmapHinted(const stbtt_fontinfo *info, unsigned char *outp
       stbtt_Rasterize(&gbm, 0.35f, vertices, num_verts, scale_x, scale_y, shift_x, shift_y, ix0,iy0, 1, info->userdata);
 
    STBTT_free(vertices, info->userdata);
+}
+
+
+
+int stbtt_PackFontRangesHinted(TrueTypeInterpreter* interpreter, stbtt_fontinfo* info, stbtt_pack_context *spc, stbtt_pack_range *ranges, int num_ranges)
+{
+   int i,j,n, return_value = 1;
+   //stbrp_context *context = (stbrp_context *) spc->pack_info;
+   stbrp_rect    *rects;
+
+   // flag all characters as NOT packed
+   for (i=0; i < num_ranges; ++i)
+      for (j=0; j < ranges[i].num_chars; ++j)
+         ranges[i].chardata_for_range[j].x0 =
+         ranges[i].chardata_for_range[j].y0 =
+         ranges[i].chardata_for_range[j].x1 =
+         ranges[i].chardata_for_range[j].y1 = 0;
+
+   n = 0;
+   for (i=0; i < num_ranges; ++i)
+      n += ranges[i].num_chars;
+         
+   rects = (stbrp_rect *) STBTT_malloc(sizeof(*rects) * n, spc->user_allocator_context);
+   if (rects == NULL)
+      return 0;
+
+   info->userdata = spc->user_allocator_context;
+
+	// Get rects.
+	{
+	    int k = 0;
+		for (i=0; i < num_ranges; ++i) {
+			int height = ranges[i].font_size;
+			float scale = stbtt_ScaleForPixelHeight(info, height);
+
+			ranges[i].h_oversample = (unsigned char) spc->h_oversample;
+			ranges[i].v_oversample = (unsigned char) spc->v_oversample;
+
+			for (j=0; j < ranges[i].num_chars; ++j) {
+				int x0,y0,x1,y1;
+   				int codepoint = ranges[i].array_of_unicode_codepoints == NULL ? ranges[i].first_unicode_codepoint_in_range + j : ranges[i].array_of_unicode_codepoints[j];
+   				int glyph = stbtt_FindGlyphIndex(info, codepoint);
+
+
+				TrueTypeVertex* ttvertices = 0;
+				int vertexCount = interpreter->HintGlyph(info, glyph, &ttvertices);
+
+				if(vertexCount == 0) {
+					rects[k].w = (stbrp_coord) 1 + spc->padding + spc->h_oversample-1;
+					rects[k].h = (stbrp_coord) 1 + spc->padding + spc->v_oversample-1;
+				} else {
+					interpreter->calcBoundingBox(&x0, &y0, &x1, &y1);
+
+					rects[k].w = (stbrp_coord) (x1-x0 + spc->padding + spc->h_oversample-1);
+					rects[k].h = (stbrp_coord) (y1-y0 + spc->padding + spc->v_oversample-1);
+				}
+
+				++k;
+			}
+
+			n = k;
+		}
+	}
+   // n = stbtt_PackFontRangesGatherRects(spc, info, ranges, num_ranges, rects);
+
+   stbtt_PackFontRangesPackRects(spc, rects, n);
+  
+   // return_value = stbtt_PackFontRangesRenderIntoRects(spc, info, ranges, num_ranges, rects);
+
+
+
+   // STBTT_DEF int stbtt_PackFontRangesRenderIntoRects(stbtt_pack_context *spc, stbtt_fontinfo *info, stbtt_pack_range *ranges, int num_ranges, stbrp_rect *rects)
+   {
+      int i,j,k;
+
+      return_value = 1;
+
+      // save current values
+      int old_h_over = spc->h_oversample;
+      int old_v_over = spc->v_oversample;
+
+      k = 0;
+      for (i=0; i < num_ranges; ++i) {
+         float fh = ranges[i].font_size;
+         float scale = fh > 0 ? stbtt_ScaleForPixelHeight(info, fh) : stbtt_ScaleForMappingEmToPixels(info, -fh);
+         float recip_h,recip_v,sub_x,sub_y;
+         spc->h_oversample = ranges[i].h_oversample;
+         spc->v_oversample = ranges[i].v_oversample;
+         recip_h = 1.0f / spc->h_oversample;
+         recip_v = 1.0f / spc->v_oversample;
+         sub_x = stbtt__oversample_shift(spc->h_oversample);
+         sub_y = stbtt__oversample_shift(spc->v_oversample);
+         for (j=0; j < ranges[i].num_chars; ++j) {
+            stbrp_rect *r = &rects[k];
+            if (r->was_packed) {
+               stbtt_packedchar *bc = &ranges[i].chardata_for_range[j];
+               int advance, lsb, x0,y0,x1,y1;
+               int codepoint = ranges[i].array_of_unicode_codepoints == NULL ? ranges[i].first_unicode_codepoint_in_range + j : ranges[i].array_of_unicode_codepoints[j];
+               int glyph = stbtt_FindGlyphIndex(info, codepoint);
+               stbrp_coord pad = (stbrp_coord) spc->padding;
+
+               // pad on left and top
+               r->x += pad;
+               r->y += pad;
+               r->w -= pad;
+               r->h -= pad;
+
+
+               stbtt_MakeGlyphBitmapHinted(interpreter, info,
+                                             spc->pixels + r->x + r->y*spc->stride_in_bytes,
+                                             r->w - spc->h_oversample+1,
+                                             r->h - spc->v_oversample+1,
+                                             spc->stride_in_bytes,
+                                             scale * spc->h_oversample,
+                                             scale * spc->v_oversample,
+                                             0,0,
+                                             glyph);
+
+               {
+               	// stbtt_GetGlyphBitmapBox(info, glyph,
+               	//                         scale * spc->h_oversample,
+               	//                         scale * spc->v_oversample,
+               	//                         &x0,&y0,&x1,&y1);
+
+               	   int xmin, xmax, ymin, ymax;
+               	   int result = interpreter->calcBoundingBox(&xmin, &ymin, &xmax, &ymax);
+
+               	   x0 = ( xmin /** (scale * spc->h_oversample)*/ + 0);
+               	   y0 = (-ymax /** (scale * spc->v_oversample)*/ + 0);
+               	   x1 = ( xmax /** (scale * spc->h_oversample)*/ + 0);
+               	   y1 = (-ymin /** (scale * spc->v_oversample)*/ + 0);
+
+               	   if(result) {
+		               interpreter->getMetrics(&advance);
+               	   } else {
+		               stbtt_GetGlyphHMetrics(info, glyph, &advance, &lsb);
+		               advance *= scale;
+               	   }
+               }
+
+
+
+
+               if (spc->h_oversample > 1)
+                  stbtt__h_prefilter(spc->pixels + r->x + r->y*spc->stride_in_bytes,
+                                     r->w, r->h, spc->stride_in_bytes,
+                                     spc->h_oversample);
+
+               if (spc->v_oversample > 1)
+                  stbtt__v_prefilter(spc->pixels + r->x + r->y*spc->stride_in_bytes,
+                                     r->w, r->h, spc->stride_in_bytes,
+                                     spc->v_oversample);
+
+               bc->x0       = (stbtt_int16)  r->x;
+               bc->y0       = (stbtt_int16)  r->y;
+               bc->x1       = (stbtt_int16) (r->x + r->w);
+               bc->y1       = (stbtt_int16) (r->y + r->h);
+               bc->xadvance =                /*scale **/ advance;
+               bc->xoff     =       (float)  x0 * recip_h + sub_x;
+               bc->yoff     =       (float)  y0 * recip_v + sub_y;
+               bc->xoff2    =                (x0 + r->w) * recip_h + sub_x;
+               bc->yoff2    =                (y0 + r->h) * recip_v + sub_y;
+            } else {
+               return_value = 0; // if any fail, report failure
+            }
+
+            ++k;
+         }
+      }
+
+      // restore original values
+      spc->h_oversample = old_h_over;
+      spc->v_oversample = old_v_over;
+   }
+
+
+
+
+   STBTT_free(rects, spc->user_allocator_context);
+   return return_value;
 }

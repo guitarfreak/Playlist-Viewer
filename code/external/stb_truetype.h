@@ -657,7 +657,6 @@ struct stbtt_fontinfo
 
    int fpgm, cvt, prep;
    int fpgmSize, cvtSize, prepSize;
-   TrueTypeInterpreter* interpreter;
 };
 
 STBTT_DEF int stbtt_InitFont(stbtt_fontinfo *info, const unsigned char *data, int offset);
@@ -1077,6 +1076,16 @@ STBTT_DEF int stbtt_InitFont(stbtt_fontinfo *info, const unsigned char *data2, i
       info->numGlyphs = ttUSHORT(data+t+4);
    else
       info->numGlyphs = 0xffff;
+
+   info->fpgm = stbtt__find_table(info->data, info->fontstart, "fpgm");
+   info->fpgmSize = stbtt__find_table_length(info->data, info->fontstart, "fpgm");
+
+   info->cvt = stbtt__find_table(info->data, info->fontstart, "cvt ");
+   info->cvtSize = stbtt__find_table_length(info->data, info->fontstart, "cvt ") / 2; // Apple doc says div by 4?
+
+   info->prep = stbtt__find_table(info->data, info->fontstart, "prep");
+   info->prepSize = stbtt__find_table_length(info->data, info->fontstart, "prep");
+
 
    // find a cmap encoding table we understand *now* to avoid searching
    // later. (todo: could make this installable)
@@ -2992,8 +3001,6 @@ STBTT_DEF int stbtt_PackFontRangesGatherRects(stbtt_pack_context *spc, stbtt_fon
    return k;
 }
 
-void stbtt_MakeGlyphBitmapHinted(const stbtt_fontinfo *info, unsigned char *output, int out_w, int out_h, int out_stride, float scale_x, float scale_y, float shift_x, float shift_y, int glyph);
-
 // rects array must be big enough to accommodate all characters in the given ranges
 STBTT_DEF int stbtt_PackFontRangesRenderIntoRects(stbtt_pack_context *spc, stbtt_fontinfo *info, stbtt_pack_range *ranges, int num_ranges, stbrp_rect *rects)
 {
@@ -3034,29 +3041,15 @@ STBTT_DEF int stbtt_PackFontRangesRenderIntoRects(stbtt_pack_context *spc, stbtt
                                     scale * spc->v_oversample,
                                     &x0,&y0,&x1,&y1);
 
-            if(!spc->useHinting) {
-            	stbtt_MakeGlyphBitmapSubpixel(info,
-            	                              spc->pixels + r->x + r->y*spc->stride_in_bytes,
-            	                              r->w - spc->h_oversample+1,
-            	                              r->h - spc->v_oversample+1,
-            	                              spc->stride_in_bytes,
-            	                              scale * spc->h_oversample,
-            	                              scale * spc->v_oversample,
-            	                              0,0,
-            	                              glyph);
-            } else {
-            	stbtt_MakeGlyphBitmapHinted(info,
-            	                              spc->pixels + r->x + r->y*spc->stride_in_bytes,
-            	                              r->w - spc->h_oversample+1,
-            	                              r->h - spc->v_oversample+1,
-            	                              spc->stride_in_bytes,
-            	                              scale * spc->h_oversample,
-            	                              scale * spc->v_oversample,
-            	                              0,0,
-            	                              glyph);
-            }
-
-
+        	stbtt_MakeGlyphBitmapSubpixel(info,
+        	                              spc->pixels + r->x + r->y*spc->stride_in_bytes,
+        	                              r->w - spc->h_oversample+1,
+        	                              r->h - spc->v_oversample+1,
+        	                              spc->stride_in_bytes,
+        	                              scale * spc->h_oversample,
+        	                              scale * spc->v_oversample,
+        	                              0,0,
+        	                              glyph);
 
             if (spc->h_oversample > 1)
                stbtt__h_prefilter(spc->pixels + r->x + r->y*spc->stride_in_bytes,
@@ -3127,7 +3120,6 @@ STBTT_DEF int stbtt_PackFontRanges(stbtt_pack_context *spc, unsigned char *fontd
 
    stbtt_PackFontRangesPackRects(spc, rects, n);
   
-   info.interpreter = spc->interpreter;
    return_value = stbtt_PackFontRangesRenderIntoRects(spc, &info, ranges, num_ranges, rects);
 
    STBTT_free(rects, spc->user_allocator_context);

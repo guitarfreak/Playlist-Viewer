@@ -29,6 +29,7 @@
 	- Tooltips?
 	- Split main and settings panel.
 	- Runs poorly when aero is enabled.
+	- Scale alpha when drawing fonts based on brightness to avoid the gamma problem?
 
 	- Total cleanup of the code.
 
@@ -7219,6 +7220,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 	}
 
+	#if 0
 	if(false)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1.0f));
@@ -7392,6 +7394,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 		// stbtt_FreeShape(&ad->font->info, verts);
 	}
+	#endif
 
 	if(false)
 	{
