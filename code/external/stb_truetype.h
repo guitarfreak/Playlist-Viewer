@@ -3095,7 +3095,7 @@ STBTT_DEF int stbtt_PackFontRanges(stbtt_pack_context *spc, unsigned char *fontd
    stbtt_fontinfo info;
    int i,j,n, return_value = 1;
    //stbrp_context *context = (stbrp_context *) spc->pack_info;
-   stbrp_rect    *rects;
+stbrp_rect    *rects;
 
    // flag all characters as NOT packed
    for (i=0; i < num_ranges; ++i)

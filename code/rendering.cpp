@@ -223,7 +223,8 @@ struct Font {
 
 	char* fileBuffer;
 	Texture tex;
-	Vec2i glyphRanges[4];
+	Texture brightTex, darkTex;
+	Vec2i glyphRanges[5];
 	int glyphRangeCount;
 	stbtt_packedchar* cData;
 	int height;
@@ -434,6 +435,7 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 
 	// Vec2i size = vec2i(512,512);
 	Vec2i size = vec2i(256,256);
+	// Vec2i size = vec2i(64,64);
 	uchar* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
 	uchar* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
 
@@ -452,28 +454,21 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	// font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
 	// font.glyphRangeCount++;
 
+	int rc = 0;
 	font.glyphRangeCount = 0;
-	font.glyphRanges[0].x = (int)0x41;
-	font.glyphRanges[0].y = 0x5A - font.glyphRanges[0].x + 1;
-	font.glyphRangeCount++;
-	font.glyphRanges[1].x = (int)0x61;
-	font.glyphRanges[1].y = 0x7A - font.glyphRanges[1].x + 1;
-	font.glyphRangeCount++;
-	font.glyphRanges[2].x = (int)0x20;
-	font.glyphRanges[2].y = 1;
-	font.glyphRangeCount++;
-	font.glyphRanges[3].x = (int)0x30;
-	font.glyphRanges[3].y = 10;
-	font.glyphRangeCount++;
+	font.glyphRanges[rc].x = (int)0x41;
+	font.glyphRanges[rc++].y = 0x5A - font.glyphRanges[0].x + 1;
+	font.glyphRanges[rc].x = (int)0x61;
+	font.glyphRanges[rc++].y = 0x7A - font.glyphRanges[1].x + 1;
+	font.glyphRanges[rc].x = (int)0x20;
+	font.glyphRanges[rc++].y = 1;
+	font.glyphRanges[rc].x = (int)0x27;
+	font.glyphRanges[rc++].y = 0x39 - font.glyphRanges[rc].x + 1; 
 
-	// font.glyphRanges[0].x = 0x4c;
-	// font.glyphRanges[0].x = 0x49;
-	// font.glyphRanges[0].x = 0x20;
-	// font.glyphRanges[0].y = 1;
-	// font.glyphRangeCount = 1;
-	// font.glyphRanges[1].x = 0x4c;
-	// font.glyphRanges[1].y = 1;
-	// font.glyphRangeCount = 2;
+	// font.glyphRanges[rc].x = (int)0x22;
+	// font.glyphRanges[rc++].y = 1; 
+
+	font.glyphRangeCount = rc;
 
 
 	int totalGlyphCount = 0;
@@ -495,7 +490,7 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		int result = stbtt_PackBegin(&context, fontBitmapBuffer, size.w, size.h, 0, 1, 0);
 		stbtt_PackSetOversampling(&context, 1, 1);
 
-		stbtt_pack_range ranges[4];
+		stbtt_pack_range ranges[5];
 		int cDataOffset = 0;
 		for(int i = 0; i < font.glyphRangeCount; i++) {
 			ranges[i].first_unicode_codepoint_in_range = font.glyphRanges[i].x;
@@ -523,20 +518,45 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 
 
 
-	for(int i = 0; i < size.w*size.h; i++) {
-		fontBitmap[i*4]   = 255;
-		fontBitmap[i*4+1] = 255;
-		fontBitmap[i*4+2] = 255;
-		// Trying to negate gamma correction because fonts look better without it.
-		fontBitmap[i*4+3] = fontBitmapBuffer[i]; // Black to thin?
-		// fontBitmap[i*4+3] = sqrt(fontBitmapBuffer[i]/(float)255) * 255; // White to bold?
-	}
+
 
 	Texture tex;
+
+	// Clear to white, we only care about alpha.
+	memSet(fontBitmap, 255, size.w*size.h*4);
+
+	// Normal texture.
+	for(int i = 0; i < size.w*size.h; i++) {
+		fontBitmap[i*4+3] = fontBitmapBuffer[i];
+	}
+	// GL_RGBA8
 	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
-	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
 	font.tex = tex;
-	addTexture(tex);
+
+	// Bright texture.
+	for(int i = 0; i < size.w*size.h; i++) {
+		float v = colorIntToFloat(fontBitmapBuffer[i]);
+		if(v > 0) {
+			// v = v*v;
+		}
+		v = clampMax(v, 1.0f);
+		fontBitmap[i*4+3] = colorFloatToInt(v);
+	}
+	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	font.brightTex = tex;
+
+	// Dark texture.
+	for(int i = 0; i < size.w*size.h; i++) {
+		float v = colorIntToFloat(fontBitmapBuffer[i]);
+		if(v > 0) {
+			v = sqrt(v);
+			// v = sqrt(sqrt(v));
+		}
+		v = clampMax(v, 1.0f);
+		fontBitmap[i*4+3] = colorFloatToInt(v);
+	}
+	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	font.darkTex = tex;
 
 	*fontSlot = font;
 	return fontSlot;
@@ -1075,7 +1095,9 @@ float getCharAdvance(int c, int c2, Font* font) {
 	int unicodeOffset = getUnicodeRangeOffset(c, font);
 	float result = font->cData[unicodeOffset].xadvance;
 	float kernAdvance = stbtt_GetCodepointKernAdvance(&font->info, c, c2) * font->pixelScale;
-	result += kernAdvance;
+
+	// result += kernAdvance;
+	// result = roundFloat(result);
 
 	return result;
 }
@@ -1328,7 +1350,12 @@ void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSetting
 	Vec4 sc = COLOR_SRGB(settings.shadowColor);
 
 	pushColor(c);
-	glBindTexture(GL_TEXTURE_2D, font->tex.id);
+	// Choose texture based on color brightness.
+	int texId = font->tex.id;
+	float colorSum = c.x + c.y + c.z;
+	if(colorSum <= 1.0f) texId = font->darkTex.id;
+	else if(colorSum >= 2.0f) texId = font->brightTex.id;
+	glBindTexture(GL_TEXTURE_2D, texId);
 	glBegin(GL_QUADS);
 
 	TextSimInfo tsi = initTextSimInfo(startPos);

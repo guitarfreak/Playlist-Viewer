@@ -30,6 +30,7 @@
 	- Split main and settings panel.
 	- Runs poorly when aero is enabled.
 	- Scale alpha when drawing fonts based on brightness to avoid the gamma problem?
+	- If scaling doesnt work, have 2 different textures of font alpha blends and choose then based on brightness.
 
 	- Total cleanup of the code.
 
@@ -7127,28 +7128,44 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 	}
 
 
-	if(true) {
+	if(false) {
 		// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
 		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
-		Vec4 textColor = vec4(1,1);
-		NewGui* gui = ad->gui;
-		// newGuiSetHotAll(gui, 5);
 
-		Texture* t = &ad->font->tex;
-		float scale = 4;
-		Vec2 size = vec2(t->dim * scale);
-		Rect r = rectTLDim( vec2(100,-100), size);
-		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
-		drawRect(r, textColor, rect(0,0,1,1), t->id);
-		
-		// "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~";
 		TextSettings set = ad->gui->textSettings;
-		set.color = textColor;
-		drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", vec2(500,-500), set);
-		drawText("The Quick Brown Fox Jumps Over The Lazy Dog", vec2(500,-550), set);
-		drawText("The quick brown fox jumps over the lazy dog", vec2(500,-600), set);
-		// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
-		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
+		float fh = ad->font->height;
+
+		for(int i = 0; i < 2; i++) {
+			Vec4 textColor, bgColor;
+			if (i == 0) textColor = vec4(1,1);
+			else textColor = vec4(0,1);
+			set.color = textColor;
+
+			bgColor = i==0?vec4(0,1):vec4(1,1);
+
+			Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
+			float scale = 4;
+			Vec2 size = vec2(t->dim * scale);
+			Rect r = rectTLDim( vec2(100,i==0?-100:-300), size);
+			drawRect(rectSetB(r, r.top - 200), bgColor);
+			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
+			drawRect(r, textColor, rect(0,0,1,1), t->id);
+
+			Vec2 pos;
+			pos = vec2(100,i==0?-500:-700);
+			r = rectTLDim(pos, vec2(1000,200));
+			drawRect(r, bgColor);
+			rectExpand(&r, vec2(-20,0));
+			pos.x += 10;
+			drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
+			drawText("The Quick Brown Fox Jumps Over The Lazy Dog", pos-=vec2(0,fh), set);
+			drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
+			drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end.", pos-=vec2(0,fh), vec2i(-1,1), rectW(r), set);
+
+			// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
+			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
+		}
+
 
 	}
 
