@@ -7128,7 +7128,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 	}
 
 
-	if(false) {
+	if(true) {
 		// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
 		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
 
@@ -7146,21 +7146,25 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
 			float scale = 4;
 			Vec2 size = vec2(t->dim * scale);
-			Rect r = rectTLDim( vec2(100,i==0?-100:-300), size);
-			drawRect(rectSetB(r, r.top - 200), bgColor);
+			Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
+			drawRect(rectSetB(r, r.top - 400), bgColor);
 			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
 			drawRect(r, textColor, rect(0,0,1,1), t->id);
 
 			Vec2 pos;
-			pos = vec2(100,i==0?-500:-700);
-			r = rectTLDim(pos, vec2(1000,200));
+			pos = vec2(size.x+40,i==0?-20:-520);
+			r = rectTLDim(pos, vec2(800,500));
 			drawRect(r, bgColor);
 			rectExpand(&r, vec2(-20,0));
 			pos.x += 10;
 			drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
-			drawText("The Quick Brown Fox Jumps Over The Lazy Dog", pos-=vec2(0,fh), set);
+			drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
 			drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
-			drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end.", pos-=vec2(0,fh), vec2i(-1,1), rectW(r), set);
+
+			drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
+			drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
+
+			drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
 
 			// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
 			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);

@@ -31,7 +31,7 @@ void scaleGlyphShape(TrueTypeVertex* vertices, int vertexCount, float scale) {
 }
 
 // Should be used to put glyph shapes into interpreter.points.Original
-STBTT_DEF int getGlyphShapeStraight(const stbtt_fontinfo *info, int glyph_index, TrueTypeVertex** pvertices, int* glyphs, int* glyphCount)
+STBTT_DEF int getGlyphShapeStraight(const stbtt_fontinfo *info, int glyph_index, TrueTypeVertex** pvertices)
 {
    stbtt_int16 numberOfContours;
    stbtt_uint8 *endPtsOfContours;
@@ -144,11 +144,8 @@ STBTT_DEF int getGlyphShapeStraight(const stbtt_fontinfo *info, int glyph_index,
 
    	stbtt_FreeShape(info, vertices);	
 
-   	glyphs[*glyphCount] = glyph_index;
-   	(*glyphCount)++;
-
    } else if (numberOfContours == -1) {
-   	  // assert(false); // We dont want to handle these right now.
+   	  assert(false); // We dont want to handle these right now.
 
    	  // Compound shapes.
    	  int more = 1;
@@ -197,7 +194,7 @@ STBTT_DEF int getGlyphShapeStraight(const stbtt_fontinfo *info, int glyph_index,
    	     n = (float) STBTT_sqrt(mtx[2]*mtx[2] + mtx[3]*mtx[3]);
 
    	     // Get indexed glyph.
-   	     comp_num_verts = getGlyphShapeStraight(info, gidx, &comp_verts, glyphs, glyphCount);
+   	     comp_num_verts = getGlyphShapeStraight(info, gidx, &comp_verts);
    	     if (comp_num_verts > 0) {
    	        // Transform vertices.
    	        for (i = 0; i < comp_num_verts; ++i) {
@@ -225,7 +222,7 @@ STBTT_DEF int getGlyphShapeStraight(const stbtt_fontinfo *info, int glyph_index,
    	     more = flags & (1<<5);
 
    	     // Don't want to handle compound glyph instructions right now.
-   	     assert(!(flags & (1<<8))); 
+   	     // assert(!(flags & (1<<8))); 
    	  }
 
    } else if (numberOfContours < 0) {
@@ -324,11 +321,12 @@ int trueTypeGlyphToStb(const stbtt_fontinfo *info, TrueTypeVertex* ttvertices, i
 	}
 	num_vertices = stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx,sy,scx,scy,cx,cy);
 
+	*pvertices = vertices;
 
-	return vertexCount;
+	return num_vertices;
 }
 
-#if 1
+#if 0
 int trueTypeGlyphToStb(const stbtt_fontinfo *info, int glyph_index, stbtt_vertex **pvertices, TrueTypeVertex* ttvertices, int ttcount, float scale) {
 
    stbtt_int16 numberOfContours;
@@ -986,7 +984,8 @@ struct TrueTypeInterpreter {
 
     TrueTypeVertex* finalPoints;
     int finalPointCount;
-    ushort finalContours[20];
+    TrueTypeVertex finalPhantomPoints[4];
+    int finalContours[20];
     int finalContourCount;
 
 
@@ -1084,85 +1083,184 @@ struct TrueTypeInterpreter {
         }
     }
 
+  //   int HintGlyph(stbtt_fontinfo* info, int glyph, TrueTypeVertex** glyphPoints) {
+
+  //   	// // Points.
+  //   	// TrueTypeVertex* vertices;
+  //   	// int vertexCount = getGlyphShapeStraight(info, glyph, &vertices);
+
+  //   	// if(vertexCount == 0) return 0;
+
+  //   	// vertexCount = glyphAddPhantomPoints(info, glyph, vertices, vertexCount);
+
+  //   	// scaleGlyphShape(vertices, vertexCount, scale);
+
+  //   	// points.setupPoints(vertices, vertexCount);
+  //  		// stbtt_FreeShapeStraight(info, vertices);
+
+
+
+  //  // 		// Contours and Instructions.
+
+  //  // 		int instructionsCount = 0;
+  //  // 		stbtt_uint8* instructions = 0;
+
+  //  // 		uchar* data = info->data;
+  //  //  	int goff = stbtt__GetGlyfOffset(info, glyph);
+  //  // 		int numberOfContours = ttSHORT(data + goff);
+  //  // 		if(numberOfContours > 0) {
+  //  // 			stbtt_uint8* contourData = (info->data + goff + 10);
+  //  //  		this->contoursCount = ttSHORT(info->data + goff);
+	 //  //   	for(int i = 0; i < contoursCount; i++) 
+		// 	// 	contours[i] = ttUSHORT(contourData + i*2);
+
+		// 	// int instructionOffset = 5*(sizeof(short)) + contoursCount*(sizeof(short));
+		// 	// instructionsCount = ttSHORT(info->data + goff + instructionOffset);
+		// 	// stbtt_uint8* instructions = info->data + goff + instructionOffset + sizeof(short);
+
+  //  // 		} else {
+  //  // 			bool more = true;
+
+  // 	// 		stbtt_uint8 *comp = data + goff + 10;
+  //  // 			this->contoursCount = 0;
+  //  // 			while(more) {
+  //  // 	     		stbtt_uint16 flags, gidx;
+  //  // 	  			flags = ttSHORT(comp); comp+=2;
+  //  // 	  			gidx = ttSHORT(comp); comp+=2;
+  //  // 	     		more = flags & (1<<5);
+
+		//  //    	int goffComp = stbtt__GetGlyfOffset(info, glyph);
+		// 	// 	stbtt_uint8* contourData = (info->data + goffComp + 10);
+		// 	// 	int compContourCount = ttSHORT(info->data + goffComp);
+		// 	// 	for(int i = this->contoursCount; i < compContourCount; i++) 
+		// 	// 		contours[i] = ttUSHORT(contourData + i*2);
+		// 	// 	this->contoursCount += compContourCount;
+
+  //  // 	     		// Get to next comp.
+  //  // 	     		if (flags & 2) { // XY values
+  //  // 	     		   if (flags & 1) comp+=4; // shorts
+  //  // 	     		   else comp+=2;
+  //  // 	     		} 
+  //  // 	     		else {
+  //  // 	     		   // @TODO handle matching point
+  //  // 	     		   STBTT_assert(0);
+  //  // 	     		}
+  //  // 	     		if (flags & (1<<3)) comp+=2; // WE_HAVE_A_SCALE
+  //  // 	     		else if (flags & (1<<6)) comp+=4; // WE_HAVE_AN_X_AND_YSCALE
+  //  // 	     		else if (flags & (1<<7)) comp+=8; // WE_HAVE_A_TWO_BY_TWO
+
+
+  //  // 	     		bool haveInstructions = (flags & (1<<8)); // WE_HAVE_INSTRUCTIONS
+
+  //  // 	     		// Don't want to handle this right now;
+  //  // 	     		assert(!haveInstructions);
+
+		// 	// 	// if(!more && haveInstructions) {
+		// 	// 	// 	instructionsCount = ttSHORT(comp); comp += sizeof(short);
+		// 	// 	// 	stbtt_uint8* instructions = comp;
+		// 	// 	// }
+  //  // 			}
+  //  // 		}
+
+
+
+		// uchar* data = info->data;
+
+		// finalPointCount = 0;
+		// finalContourCount = 0;
+
+		// // Points.
+		// TrueTypeVertex* vertices;
+		// int glyphs[10];
+		// int glyphCount = 0;
+		// int vertexCount = getGlyphShapeStraight(info, glyph, &vertices, glyphs, &glyphCount);
+
+		// if(vertexCount == 0) return 0;
+
+		// for(int i = 0; i < glyphCount; i++) {
+		// 	int g = glyphs[i];
+
+		// 	int goff = stbtt__GetGlyfOffset(info, g);
+		// 	int numberOfContours = ttSHORT(data + goff);
+		// 	stbtt_uint8* contourData = (data + goff + 10);
+
+		// 	this->contoursCount = numberOfContours;
+		// 	for(int i = 0; i < contoursCount; i++) 
+		// 		contours[i] = ttUSHORT(contourData + i*2);
+
+		// 	int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
+		// 	int instructionsCount = ttSHORT(data + goff + instructionOffset);
+		// 	stbtt_uint8* instructions = data + goff + instructionOffset + sizeof(short);
+
+
+
+		// 	int numOfVertices = contours[contoursCount-1]+1;
+		// 	for(int i = 0; i < numOfVertices; i++) {
+		// 		points.Original[i] = vertices[finalPointCount + i];
+		// 	}
+		// 	points.Count = numOfVertices;
+		// 	points.Count = glyphAddPhantomPoints(info, glyph, points.Original, points.Count);
+		// 	scaleGlyphShape(points.Original, points.Count, scale);
+		// 	points.setupPoints();
+
+
+
+		// 	if (instructions == 0 || instructionsCount == 0) return 0;
+
+		// 	// check if the CVT program disabled hinting
+		// 	if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return 0;
+
+		// 	zp0 = zp1 = zp2 = &points;
+		// 	state = cvtState;
+		// 	callStackSize = 0;
+		// 	stack.Clear();
+		// 	OnVectorsUpdated();
+
+		// 	// normalize the round state settings
+		// 	switch (state.RoundState) {
+		// 	    case ROUND_MODE_Super: SetSuperRound(1.0f); break;
+		// 	    case ROUND_MODE_Super45: SetSuperRound(Sqrt2Over2); break;
+		// 	}
+
+		// 	Execute(InstructionStream(instructions, instructionsCount), false, false);
+
+
+
+		// 	for(int i = 0; i < contoursCount; i++) {
+		// 		finalContours[finalContourCount++] = contours[i] + finalPointCount;
+		// 	}
+		// 	for(int i = 0; i < points.Count-4; i++) {
+		// 		finalPoints[finalPointCount++] = points.Current[i];
+		// 	}
+		// }
+		// stbtt_FreeShapeStraight(info, vertices);
+
+		// if(glyphCount == 1) {
+		// 	for(int i = 0; i < 4; i++) {
+		// 		finalPoints[finalPointCount+i] = points.Current[finalPointCount+i];
+		// 	}
+		// 	finalPointCount += 4;
+		// } else {
+		// 	// If compound we add phantom points after hinting and hope it's fine.
+		// 	finalPointCount = glyphAddPhantomPoints(info, glyph, finalPoints, finalPointCount);
+		// 	for(int i = 0; i < 4; i++) {
+		// 		Vec2 p = finalPoints[finalPointCount-i-1].p;
+		// 		p.x = roundFloat(p.x*scale);
+		// 		p.y = roundFloat(p.y*scale);
+		// 		finalPoints[finalPointCount-i-1].p = p;
+		// 	}
+		// }
+
+		// // 0,0 9,0 0,15 0,-4
+		// // 0,2 9,2 0,17 0,-2
+
+  //       if(glyphPoints) *glyphPoints = finalPoints;
+  //       return finalPointCount;
+  //   }
+
+
+
     int HintGlyph(stbtt_fontinfo* info, int glyph, TrueTypeVertex** glyphPoints) {
-
-    	// // Points.
-    	// TrueTypeVertex* vertices;
-    	// int vertexCount = getGlyphShapeStraight(info, glyph, &vertices);
-
-    	// if(vertexCount == 0) return 0;
-
-    	// vertexCount = glyphAddPhantomPoints(info, glyph, vertices, vertexCount);
-
-    	// scaleGlyphShape(vertices, vertexCount, scale);
-
-    	// points.setupPoints(vertices, vertexCount);
-   		// stbtt_FreeShapeStraight(info, vertices);
-
-
-
-   // 		// Contours and Instructions.
-
-   // 		int instructionsCount = 0;
-   // 		stbtt_uint8* instructions = 0;
-
-   // 		uchar* data = info->data;
-   //  	int goff = stbtt__GetGlyfOffset(info, glyph);
-   // 		int numberOfContours = ttSHORT(data + goff);
-   // 		if(numberOfContours > 0) {
-   // 			stbtt_uint8* contourData = (info->data + goff + 10);
-   //  		this->contoursCount = ttSHORT(info->data + goff);
-	  //   	for(int i = 0; i < contoursCount; i++) 
-			// 	contours[i] = ttUSHORT(contourData + i*2);
-
-			// int instructionOffset = 5*(sizeof(short)) + contoursCount*(sizeof(short));
-			// instructionsCount = ttSHORT(info->data + goff + instructionOffset);
-			// stbtt_uint8* instructions = info->data + goff + instructionOffset + sizeof(short);
-
-   // 		} else {
-   // 			bool more = true;
-
-  	// 		stbtt_uint8 *comp = data + goff + 10;
-   // 			this->contoursCount = 0;
-   // 			while(more) {
-   // 	     		stbtt_uint16 flags, gidx;
-   // 	  			flags = ttSHORT(comp); comp+=2;
-   // 	  			gidx = ttSHORT(comp); comp+=2;
-   // 	     		more = flags & (1<<5);
-
-		 //    	int goffComp = stbtt__GetGlyfOffset(info, glyph);
-			// 	stbtt_uint8* contourData = (info->data + goffComp + 10);
-			// 	int compContourCount = ttSHORT(info->data + goffComp);
-			// 	for(int i = this->contoursCount; i < compContourCount; i++) 
-			// 		contours[i] = ttUSHORT(contourData + i*2);
-			// 	this->contoursCount += compContourCount;
-
-   // 	     		// Get to next comp.
-   // 	     		if (flags & 2) { // XY values
-   // 	     		   if (flags & 1) comp+=4; // shorts
-   // 	     		   else comp+=2;
-   // 	     		} 
-   // 	     		else {
-   // 	     		   // @TODO handle matching point
-   // 	     		   STBTT_assert(0);
-   // 	     		}
-   // 	     		if (flags & (1<<3)) comp+=2; // WE_HAVE_A_SCALE
-   // 	     		else if (flags & (1<<6)) comp+=4; // WE_HAVE_AN_X_AND_YSCALE
-   // 	     		else if (flags & (1<<7)) comp+=8; // WE_HAVE_A_TWO_BY_TWO
-
-
-   // 	     		bool haveInstructions = (flags & (1<<8)); // WE_HAVE_INSTRUCTIONS
-
-   // 	     		// Don't want to handle this right now;
-   // 	     		assert(!haveInstructions);
-
-			// 	// if(!more && haveInstructions) {
-			// 	// 	instructionsCount = ttSHORT(comp); comp += sizeof(short);
-			// 	// 	stbtt_uint8* instructions = comp;
-			// 	// }
-   // 			}
-   // 		}
-
 
 
 		uchar* data = info->data;
@@ -1172,95 +1270,270 @@ struct TrueTypeInterpreter {
 
 		// Points.
 		TrueTypeVertex* vertices;
-		int glyphs[10];
 		int glyphCount = 0;
-		int vertexCount = getGlyphShapeStraight(info, glyph, &vertices, glyphs, &glyphCount);
 
-		if(vertexCount == 0) return 0;
+		int goff = stbtt__GetGlyfOffset(info, glyph);
+   		int numberOfContours = ttSHORT(data + goff);
 
-		for(int i = 0; i < glyphCount; i++) {
-			int g = glyphs[i];
+   		// Single glyph.
+   		if(numberOfContours > 0) {
+   			stbtt_uint8* contourData = (data + goff + 10);
 
-			int goff = stbtt__GetGlyfOffset(info, g);
-			int numberOfContours = ttSHORT(data + goff);
-			stbtt_uint8* contourData = (data + goff + 10);
+   			this->contoursCount = numberOfContours;
+   			for(int i = 0; i < contoursCount; i++) 
+   				contours[i] = ttUSHORT(contourData + i*2);
 
-			this->contoursCount = numberOfContours;
-			for(int i = 0; i < contoursCount; i++) 
-				contours[i] = ttUSHORT(contourData + i*2);
+   			int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
+   			int instructionsCount = ttSHORT(data + goff + instructionOffset);
+   			stbtt_uint8* instructions = data + goff + instructionOffset + sizeof(short);
 
-			int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
-			int instructionsCount = ttSHORT(data + goff + instructionOffset);
-			stbtt_uint8* instructions = data + goff + instructionOffset + sizeof(short);
+   			TrueTypeVertex* vertices;
+   			int vertexCount = getGlyphShapeStraight(info, glyph, &vertices);
+   			if(vertexCount == 0) return 0;
 
+   			for(int i = 0; i < vertexCount; i++) {
+   				points.Original[i] = vertices[i];
+   			}
+   			points.Count = vertexCount;
+   			points.Count = glyphAddPhantomPoints(info, glyph, points.Original, points.Count);
+   			scaleGlyphShape(points.Original, points.Count, scale);
+   			points.setupPoints();
 
-
-			int numOfVertices = contours[contoursCount-1]+1;
-			for(int i = 0; i < numOfVertices; i++) {
-				points.Original[i] = vertices[finalPointCount + i];
-			}
-			points.Count = numOfVertices;
-			points.Count = glyphAddPhantomPoints(info, glyph, points.Original, points.Count);
-			scaleGlyphShape(points.Original, points.Count, scale);
-			points.setupPoints();
-
-
-
-			if (instructions == 0 || instructionsCount == 0) return 0;
-
-			// check if the CVT program disabled hinting
-			if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return 0;
-
-			zp0 = zp1 = zp2 = &points;
-			state = cvtState;
-			callStackSize = 0;
-			stack.Clear();
-			OnVectorsUpdated();
-
-			// normalize the round state settings
-			switch (state.RoundState) {
-			    case ROUND_MODE_Super: SetSuperRound(1.0f); break;
-			    case ROUND_MODE_Super45: SetSuperRound(Sqrt2Over2); break;
-			}
-
-			Execute(InstructionStream(instructions, instructionsCount), false, false);
+			STBTT_free(vertices, info->userdata);
 
 
 
-			for(int i = 0; i < contoursCount; i++) {
-				finalContours[finalContourCount++] = contours[i] + finalPointCount;
-			}
-			for(int i = 0; i < points.Count-4; i++) {
-				finalPoints[finalPointCount++] = points.Current[i];
-			}
-		}
-		stbtt_FreeShapeStraight(info, vertices);
+   			if (instructions == 0 || instructionsCount == 0) return 0;
 
-		if(glyphCount == 1) {
-			for(int i = 0; i < 4; i++) {
-				finalPoints[finalPointCount+i] = points.Current[finalPointCount+i];
-			}
-			finalPointCount += 4;
-		} else {
-			// If compound we add phantom points after hinting and hope it's fine.
-			finalPointCount = glyphAddPhantomPoints(info, glyph, finalPoints, finalPointCount);
-			for(int i = 0; i < 4; i++) {
-				Vec2 p = finalPoints[finalPointCount-i-1].p;
-				p.x = roundFloat(p.x*scale);
-				p.y = roundFloat(p.y*scale);
-				finalPoints[finalPointCount-i-1].p = p;
-			}
-		}
+   			// check if the CVT program disabled hinting
+   			if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return 0;
+
+   			zp0 = zp1 = zp2 = &points;
+   			state = cvtState;
+   			callStackSize = 0;
+   			stack.Clear();
+   			OnVectorsUpdated();
+
+   			// normalize the round state settings
+   			switch (state.RoundState) {
+   			    case ROUND_MODE_Super: SetSuperRound(1.0f); break;
+   			    case ROUND_MODE_Super45: SetSuperRound(Sqrt2Over2); break;
+   			}
+
+   			Execute(InstructionStream(instructions, instructionsCount), false, false);
 
 
 
-		// 0,0 9,0 0,15 0,-4
-		// 0,2 9,2 0,17 0,-2
+   			for(int i = 0; i < contoursCount; i++) {
+   				finalContours[finalContourCount++] = contours[i];
+   			}
+   			for(int i = 0; i < points.Count-4; i++) {
+   				finalPoints[finalPointCount++] = points.Current[i];
+   			}
+   			for(int i = 0; i < 4; i++) {
+   				finalPhantomPoints[i] = points.Current[points.Count-4+i];
+   			}
+
+		} else if (numberOfContours == -1) {
+			// Compound glyph.
+
+  			stbtt_uint8 *comp = data + goff + 10;
+   			bool more = true;
+   			bool haveInstructions = false;
+   			while(more) {
+   	     		stbtt_uint16 flags, gidx;
+   	  			flags = ttSHORT(comp); comp+=2;
+   	  			gidx = ttSHORT(comp); comp+=2;
+   	     		TrueTypeVertex *comp_verts = 0, *tmp = 0;
+   	     		float mtx[6] = {1,0,0,1,0,0}, m, n;
+   	     		more = flags & (1<<5);
+
+   	     		if (flags & 2) { // XY values
+   	     		   if (flags & 1) { // shorts
+   	     		      mtx[4] = ttSHORT(comp); comp+=2;
+   	     		      mtx[5] = ttSHORT(comp); comp+=2;
+   	     		   } else {
+   	     		      mtx[4] = ttCHAR(comp); comp+=1;
+   	     		      mtx[5] = ttCHAR(comp); comp+=1;
+   	     		   }
+   	     		}
+   	     		else {
+   	     		   // @TODO handle matching point
+   	     		   STBTT_assert(0);
+   	     		}
+   	     		if (flags & (1<<3)) { // WE_HAVE_A_SCALE
+   	     		   mtx[0] = mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
+   	     		   mtx[1] = mtx[2] = 0;
+   	     		} else if (flags & (1<<6)) { // WE_HAVE_AN_X_AND_YSCALE
+   	     		   mtx[0] = ttSHORT(comp)/16384.0f; comp+=2;
+   	     		   mtx[1] = mtx[2] = 0;
+   	     		   mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
+   	     		} else if (flags & (1<<7)) { // WE_HAVE_A_TWO_BY_TWO
+   	     		   mtx[0] = ttSHORT(comp)/16384.0f; comp+=2;
+   	     		   mtx[1] = ttSHORT(comp)/16384.0f; comp+=2;
+   	     		   mtx[2] = ttSHORT(comp)/16384.0f; comp+=2;
+   	     		   mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
+   	     		}
+   	     		
+   	     		// Find transformation scales.
+   	     		m = (float) STBTT_sqrt(mtx[0]*mtx[0] + mtx[1]*mtx[1]);
+   	     		n = (float) STBTT_sqrt(mtx[2]*mtx[2] + mtx[3]*mtx[3]);
+
+		
+				int comp_num_verts = getGlyphShapeStraight(info, gidx, &comp_verts);
+				if (comp_num_verts > 0) {
+
+					for(int i = 0; i < comp_num_verts; i++) {
+						points.Original[i] = comp_verts[i];
+					}
+ 		  			points.Count = comp_num_verts;
+					points.Count = glyphAddPhantomPoints(info, gidx, points.Original, points.Count);
+
+					// Transform vertices.
+					for (int i = 0; i < points.Count; ++i) {
+					   TrueTypeVertex* v = &points.Original[i];
+					   float x,y;
+					   x=v->p.x; y=v->p.y;
+					   v->p.x = (m * (mtx[0]*x + mtx[2]*y + mtx[4]));
+					   v->p.y = (n * (mtx[1]*x + mtx[3]*y + mtx[5]));
+					}
+
+					scaleGlyphShape(points.Original, points.Count, scale);
+					points.setupPoints();
+
+
+
+
+					int goff = stbtt__GetGlyfOffset(info, gidx);
+
+					stbtt_uint8* contourData = (data + goff + 10);
+			   		int numberOfContours = ttSHORT(data + goff);
+
+					this->contoursCount = numberOfContours;
+					for(int i = 0; i < contoursCount; i++) 
+						contours[i] = ttUSHORT(contourData + i*2);
+
+					int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
+					int instructionsCount = ttSHORT(data + goff + instructionOffset);
+					stbtt_uint8* instructions = data + goff + instructionOffset + sizeof(short);
+
+
+
+
+					if (instructions == 0 || instructionsCount == 0) return 0;
+
+					// check if the CVT program disabled hinting
+					if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return 0;
+
+					zp0 = zp1 = zp2 = &points;
+					state = cvtState;
+					callStackSize = 0;
+					stack.Clear();
+					OnVectorsUpdated();
+
+					// normalize the round state settings
+					switch (state.RoundState) {
+					    case ROUND_MODE_Super: SetSuperRound(1.0f); break;
+					    case ROUND_MODE_Super45: SetSuperRound(Sqrt2Over2); break;
+					}
+
+					Execute(InstructionStream(instructions, instructionsCount), false, false);
+
+
+
+					for(int i = 0; i < contoursCount; i++) {
+						finalContours[finalContourCount++] = finalPointCount + contours[i];
+					}
+					for(int i = 0; i < points.Count-4; i++) {
+						finalPoints[finalPointCount++] = points.Current[i];
+					}
+
+				}
+   	        	STBTT_free(comp_verts, info->userdata);
+
+   	     		// Don't want to handle this right now;
+   	     		haveInstructions = (flags & (1<<8)); // WE_HAVE_INSTRUCTIONS
+   	     		// assert(!haveInstructions);
+   	     		// int stop = 234;
+   			}
+
+   			if(finalPointCount == 0) return 0;
+
+   			if(haveInstructions) {
+   				int instructionsCount = ttSHORT(comp); comp+= 2;
+   				stbtt_uint8* instructions = comp;
+
+   				for(int i = 0; i < finalPointCount; i++) {
+   					points.Original[i] = finalPoints[i];
+   				}
+   				points.Count = finalPointCount;
+   				points.Count = glyphAddPhantomPoints(info, glyph, points.Original, points.Count);
+
+   				for(int i = 0; i < 4; i++) {
+   					points.Original[points.Count-4+i].p *= scale;
+   				}
+
+   				for(int i = 0; i < finalContourCount; i++) {
+   					contours[i] = finalContours[i];
+   				}
+   				contoursCount = finalContourCount;
+
+   				points.setupPoints();
+
+
+   				if (instructions == 0 || instructionsCount == 0) return 0;
+
+   				// check if the CVT program disabled hinting
+   				if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return 0;
+
+   				zp0 = zp1 = zp2 = &points;
+   				state = cvtState;
+   				callStackSize = 0;
+   				stack.Clear();
+   				OnVectorsUpdated();
+
+   				// normalize the round state settings
+   				switch (state.RoundState) {
+   				    case ROUND_MODE_Super: SetSuperRound(1.0f); break;
+   				    case ROUND_MODE_Super45: SetSuperRound(Sqrt2Over2); break;
+   				}
+
+   				Execute(InstructionStream(instructions, instructionsCount), false, false);
+
+
+
+   				finalContourCount = 0;
+   				finalPointCount = 0;
+   				for(int i = 0; i < contoursCount; i++) {
+   					finalContours[finalContourCount++] = finalPointCount + contours[i];
+   				}
+   				for(int i = 0; i < points.Count-4; i++) {
+   					finalPoints[finalPointCount++] = points.Current[i];
+   				}
+   				for(int i = 0; i < 4; i++) {
+   					finalPhantomPoints[i] = points.Current[points.Count-4+i];
+   				}
+
+   			} else {
+	   			// No extra instructions so just add untouched phantom points and round.
+	   			glyphAddPhantomPoints(info, glyph, finalPhantomPoints, 0);
+	   			for(int i = 0; i < 4; i++) {
+	   				Vec2 p = finalPhantomPoints[i].p;
+	   				p.x = roundFloat(p.x*scale);
+	   				p.y = roundFloat(p.y*scale);
+	   				finalPhantomPoints[i].p = p;
+	   			}
+   			}
+
+   		}
+
+
 
 
         if(glyphPoints) *glyphPoints = finalPoints;
         return finalPointCount;
     }
+
 
     int calcBoundingBox(int* x0, int* y0, int* x1, int* y1) {
     	TrueTypeVertex* vertices = finalPoints;
@@ -1275,7 +1548,7 @@ struct TrueTypeInterpreter {
 	    	return 0;
     	}
 
-    	int vertexCount = finalPointCount - 4;
+    	int vertexCount = finalPointCount;
 
     	float xMin = FLT_MAX, yMin = FLT_MAX;
     	float xMax = FLT_MIN, yMax = FLT_MIN;
@@ -1303,7 +1576,7 @@ struct TrueTypeInterpreter {
     }
 
 	void getMetrics(int* xAdvance) {
-		float advance = finalPoints[finalPointCount-3].p.x;
+		float advance = finalPhantomPoints[1].p.x;
 		*xAdvance = advance;
 	}
 
@@ -2529,7 +2802,7 @@ void stbtt_MakeGlyphBitmapHinted(TrueTypeInterpreter* interpreter, const stbtt_f
 	}
 
    stbtt_vertex* vertices;
-	int num_verts = trueTypeGlyphToStb((stbtt_fontinfo*)info, glyph, &vertices, ttvertices, vertexCount, scale_x);
+	int num_verts = trueTypeGlyphToStb((stbtt_fontinfo*)info, ttvertices, vertexCount, interpreter->finalContours, interpreter->finalContourCount, scale_x, &vertices);
 
    gbm.pixels = output;
    gbm.w = out_w;

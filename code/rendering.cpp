@@ -454,12 +454,18 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
  
 
 	int rc = 0;
-	// font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
-	// font.glyphRanges[rc++] = setupRange(0xA0, 0xFF);
+	font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
+	font.glyphRanges[rc++] = setupRange(0xA1, 0xFF);
+
+	// font.glyphRanges[rc++] = setupRange(0x100, 0x1A0-1);
+	// font.glyphRanges[rc++] = setupRangeCount(0x380, 200);
+
+	// font.glyphRanges[rc++] = setupRangeCount(0xA0, 29);
+	// font.glyphRanges[rc++] = setupRangeCount(0xBD, 1);
 
 	// font.glyphRanges[rc++] = setupRangeCount(0x20, 26);
 
-		font.glyphRanges[rc++] = setupRangeCount(0x3A, 1);
+		// font.glyphRanges[rc++] = setupRangeCount(0x3A, 1);
 
 	// font.glyphRanges[rc++] = setupRange(0x21, 0x7F);
 	// font.glyphRanges[rc++] = setupRange(0xA0, 0xFF);
@@ -471,7 +477,9 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	// font.glyphRanges[rc++] = setupRangeCount(0x20, 1);
 	// font.glyphRanges[rc++] = setupRange(0x27, 0x39);
 
-	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
+	// font.glyphRanges[rc++] = setupRangeCount(0x48, 1);
+
+	// font.glyphRanges[rc++] = setupRangeCount(0x3A, 1);
 	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
 	// font.glyphRanges[rc++] = setupRangeCount(0x49, 1);
 	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
@@ -565,6 +573,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		if(v > 0) {
 			v = sqrt(v);
 			// v = sqrt(sqrt(v));
+			// v += 0.5f;
+			// v += 0.5f;
 		}
 		v = clampMax(v, 1.0f);
 		fontBitmap[i*4+3] = colorFloatToInt(v);
