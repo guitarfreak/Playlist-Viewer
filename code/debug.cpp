@@ -397,7 +397,7 @@ Token typeGetToken(char** buffer, bool advance = true) {
 				b = eatWhiteSpaces(b);
 				continue;
 			}
-			if(b[0] == '\\' && b[1] == '\\') {
+			if(b[0] == '/' && b[1] == '/') {
 				b += 2;
 				while(*b != '\n') *b++;
 				continue;

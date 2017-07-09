@@ -31,6 +31,7 @@
 	- Runs poorly when aero is enabled.
 	- Scale alpha when drawing fonts based on brightness to avoid the gamma problem?
 	- If scaling doesnt work, have 2 different textures of font alpha blends and choose then based on brightness.
+	- Need a different blending method, black text just doesn't work.
 
 	- Total cleanup of the code.
 
@@ -223,28 +224,27 @@ struct AppSettings {
 
 #include "debug.cpp"
 
-
 void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppColorsRelative* appColorsRelativeLight, AppColorsRelative* appColorsRelativeDark) {
 	char* buffer, *temp;
 	buffer = getTString(kiloBytes(10));
 	temp = buffer;
 
-	strCpyInc(&temp, "\\\\ Notes: \r\n");
-	strCpyInc(&temp, "\\\\ - Settings are hotloaded. \r\n");
-	strCpyInc(&temp, "\\\\ - App and windows font folders are checked for fonts. \r\n");
+	strCpyInc(&temp, "// Notes: \r\n");
+	strCpyInc(&temp, "// - Settings are hotloaded. \r\n");
+	strCpyInc(&temp, "// - App and windows font folders are checked for fonts. \r\n");
 	strCpyInc(&temp, "\r\n");
 
-	strCpyInc(&temp, "\\\\ ==================== App Settings. ==================== \\\\\r\n\r\n");
+	strCpyInc(&temp, "// ==================== App Settings. ==================== //\r\n\r\n");
 	writeTypeSimple(&temp, STRUCTTYPE_AppSettings, appSettings);
 	strCpyInc(&temp, "\r\n");
 
-	strCpyInc(&temp, "\\\\ ==================== App Colors. ==================== \\\\\r\n\r\n");
+	strCpyInc(&temp, "// ==================== App Colors. ==================== //\r\n\r\n");
 	
-	strCpyInc(&temp, "\\\\ Light Theme:\r\n");
+	strCpyInc(&temp, "// Light Theme:\r\n");
 	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelativeLight);
 
 	strCpyInc(&temp, "\r\n");
-	strCpyInc(&temp, "\\\\ Dark Theme:\r\n");
+	strCpyInc(&temp, "// Dark Theme:\r\n");
 	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelativeDark);
 
 	writeBufferToFile(buffer, settingsFile);

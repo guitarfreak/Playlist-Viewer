@@ -433,9 +433,7 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	char* fileBuffer = mallocString(fileSize(path) + 1);
 	readFileToBuffer(fileBuffer, path);
 
-	// Vec2i size = vec2i(512,512);
 	Vec2i size = vec2i(256,256);
-	// Vec2i size = vec2i(64,64);
 	uchar* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
 	uchar* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
 
@@ -447,49 +445,11 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	font.pixelAlign = true;
 
 
-
 	#define setupRange(a,b) vec2i(a, b - a + 1)
 	#define setupRangeCount(a,b) vec2i(a, b)
-
- 
-
 	int rc = 0;
 	font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
 	font.glyphRanges[rc++] = setupRange(0xA1, 0xFF);
-
-	// font.glyphRanges[rc++] = setupRange(0x100, 0x1A0-1);
-	// font.glyphRanges[rc++] = setupRangeCount(0x380, 200);
-
-	// font.glyphRanges[rc++] = setupRangeCount(0xA0, 29);
-	// font.glyphRanges[rc++] = setupRangeCount(0xBD, 1);
-
-	// font.glyphRanges[rc++] = setupRangeCount(0x20, 26);
-
-		// font.glyphRanges[rc++] = setupRangeCount(0x3A, 1);
-
-	// font.glyphRanges[rc++] = setupRange(0x21, 0x7F);
-	// font.glyphRanges[rc++] = setupRange(0xA0, 0xFF);
-
-
-
-	// font.glyphRanges[rc++] = setupRange(0x41, 0x5A);
-	// font.glyphRanges[rc++] = setupRange(0x61, 0x7A);
-	// font.glyphRanges[rc++] = setupRangeCount(0x20, 1);
-	// font.glyphRanges[rc++] = setupRange(0x27, 0x39);
-
-	// font.glyphRanges[rc++] = setupRangeCount(0x48, 1);
-
-	// font.glyphRanges[rc++] = setupRangeCount(0x3A, 1);
-	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
-	// font.glyphRanges[rc++] = setupRangeCount(0x49, 1);
-	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
-
-	// font.glyphRanges[rc].x = (int)0x22;
-	// font.glyphRanges[rc++].y = 1; 
-
-	// font.glyphRanges[rc].x = (int)0x49;
-	// font.glyphRanges[rc++].y = 1; 
-
 	font.glyphRangeCount = rc;
 
 
@@ -504,7 +464,6 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	int ascent = 0;
 	stbtt_GetFontVMetrics(&font.info, &ascent,0,0);
 	font.baseOffset = (ascent*font.pixelScale);
-
 
 
 	{
@@ -528,18 +487,13 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		interpreter.init();
 		interpreter.setupFunctionsAndCvt(&font.info, font.height);
 
-		// stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, ranges, font.glyphRangeCount);
+		// stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, ranges, font.glyphRangeCount);		
 		stbtt_PackFontRangesHinted(&interpreter, &font.info, &context, ranges, font.glyphRangeCount);
 
-		// 1, -11, 8, 0
-		// 1.4, 0, 7.2, 10.48
 
 		stbtt_PackEnd(&context);
 		interpreter.freeInterpreter();
 	}
-
-
-
 
 
 	Texture tex;
@@ -559,7 +513,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	for(int i = 0; i < size.w*size.h; i++) {
 		float v = colorIntToFloat(fontBitmapBuffer[i]);
 		if(v > 0) {
-			// v = v*v;
+			v += 0.1f;
+			v = pow(v, 2.2f);
 		}
 		v = clampMax(v, 1.0f);
 		fontBitmap[i*4+3] = colorFloatToInt(v);
@@ -571,16 +526,17 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	for(int i = 0; i < size.w*size.h; i++) {
 		float v = colorIntToFloat(fontBitmapBuffer[i]);
 		if(v > 0) {
-			v = sqrt(v);
+			v += 0.1f;
+			// v = sqrt(v);
 			// v = sqrt(sqrt(v));
-			// v += 0.5f;
-			// v += 0.5f;
+			v = pow(v, 1/2.2f);
 		}
 		v = clampMax(v, 1.0f);
 		fontBitmap[i*4+3] = colorFloatToInt(v);
 	}
 	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
 	font.darkTex = tex;
+
 
 	*fontSlot = font;
 	return fontSlot;
