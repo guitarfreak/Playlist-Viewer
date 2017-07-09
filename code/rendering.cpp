@@ -446,26 +446,40 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	font.height = height;
 	font.pixelAlign = true;
 
-	// font.glyphRangeCount = 0;
-	// font.glyphRanges[0].x = (int)0x20-1;
-	// font.glyphRanges[0].y = 0x7F - font.glyphRanges[0].x;
-	// font.glyphRangeCount++;
-	// font.glyphRanges[1].x = 0xA0;
-	// font.glyphRanges[1].y = 0xFF - font.glyphRanges[1].x;
-	// font.glyphRangeCount++;
+
+
+	#define setupRange(a,b) vec2i(a, b - a + 1)
+	#define setupRangeCount(a,b) vec2i(a, b)
+
+ 
 
 	int rc = 0;
-	font.glyphRangeCount = 0;
-	font.glyphRanges[rc].x = (int)0x41;
-	font.glyphRanges[rc++].y = 0x5A - font.glyphRanges[0].x + 1;
-	font.glyphRanges[rc].x = (int)0x61;
-	font.glyphRanges[rc++].y = 0x7A - font.glyphRanges[1].x + 1;
-	font.glyphRanges[rc].x = (int)0x20;
-	font.glyphRanges[rc++].y = 1;
-	font.glyphRanges[rc].x = (int)0x27;
-	font.glyphRanges[rc++].y = 0x39 - font.glyphRanges[rc].x + 1; 
+	// font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
+	// font.glyphRanges[rc++] = setupRange(0xA0, 0xFF);
+
+	// font.glyphRanges[rc++] = setupRangeCount(0x20, 26);
+
+		font.glyphRanges[rc++] = setupRangeCount(0x3A, 1);
+
+	// font.glyphRanges[rc++] = setupRange(0x21, 0x7F);
+	// font.glyphRanges[rc++] = setupRange(0xA0, 0xFF);
+
+
+
+	// font.glyphRanges[rc++] = setupRange(0x41, 0x5A);
+	// font.glyphRanges[rc++] = setupRange(0x61, 0x7A);
+	// font.glyphRanges[rc++] = setupRangeCount(0x20, 1);
+	// font.glyphRanges[rc++] = setupRange(0x27, 0x39);
+
+	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
+	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
+	// font.glyphRanges[rc++] = setupRangeCount(0x49, 1);
+	// font.glyphRanges[rc++] = setupRangeCount(0x3D, 1);
 
 	// font.glyphRanges[rc].x = (int)0x22;
+	// font.glyphRanges[rc++].y = 1; 
+
+	// font.glyphRanges[rc].x = (int)0x49;
 	// font.glyphRanges[rc++].y = 1; 
 
 	font.glyphRangeCount = rc;
@@ -513,7 +527,7 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		// 1.4, 0, 7.2, 10.48
 
 		stbtt_PackEnd(&context);
-		interpreter.free();
+		interpreter.freeInterpreter();
 	}
 
 
