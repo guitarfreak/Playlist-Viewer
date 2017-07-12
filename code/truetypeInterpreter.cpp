@@ -286,13 +286,304 @@ int getNextCompoundGlyph(stbtt_uint16* flags, stbtt_uint16* gidx, float mtx[6], 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+char* OPCODE_STRINGS[] = {
+"SVTCA0",
+"SVTCA1",
+"SPVTCA0",
+"SPVTCA1",
+"SFVTCA0",
+"SFVTCA1",
+"SPVTL0",
+"SPVTL1",
+"SFVTL0",
+"SFVTL1",
+"SPVFS",
+"SFVFS",
+"GPV",
+"GFV",
+"SFVTPV",
+"ISECT",
+"SRP0",
+"SRP1",
+"SRP2",
+"SZP0",
+"SZP1",
+"SZP2",
+"SZPS",
+"SLOOP",
+"RTG",
+"RTHG",
+"SMD",
+"ELSE",
+"JMPR",
+"SCVTCI",
+"SSWCI",
+"SSW",
+"DUP",
+"POP",
+"CLEAR",
+"SWAP",
+"DEPTH",
+"CINDEX",
+"MINDEX",
+"ALIGNPTS",
+"UNUSED",
+"UTP",
+"LOOPCALL",
+"CALL",
+"FDEF",
+"ENDF",
+"MDAP0",
+"MDAP1",
+"IUP0",
+"IUP1",
+"SHP0",
+"SHP1",
+"SHC0",
+"SHC1",
+"SHZ0",
+"SHZ1",
+"SHPIX",
+"IP",
+"MSIRP0",
+"MSIRP1",
+"ALIGNRP",
+"RTDG",
+"MIAP0",
+"MIAP1",
+"NPUSHB",
+"NPUSHW",
+"WS",
+"RS",
+"WCVTP",
+"RCVT",
+"GC0",
+"GC1",
+"SCFS",
+"MD0",
+"MD1",
+"MPPEM",
+"MPS",
+"FLIPON",
+"FLIPOFF",
+"DEBUG",
+"LT",
+"LTEQ",
+"GT",
+"GTEQ",
+"EQ",
+"NEQ",
+"ODD",
+"EVEN",
+"IF",
+"EIF",
+"AND",
+"OR",
+"NOT",
+"DELTAP1",
+"SDB",
+"SDS",
+"ADD",
+"SUB",
+"DIV",
+"MUL",
+"ABS",
+"NEG",
+"FLOOR",
+"CEILING",
+"ROUND0",
+"ROUND1",
+"ROUND2",
+"ROUND3",
+"NROUND0",
+"NROUND1",
+"NROUND2",
+"NROUND3",
+"WCVTF",
+"DELTAP2",
+"DELTAP3," 
+"DELTAC1",
+"DELTAC2",
+"DELTAC3",
+"SROUND",
+"S45ROUND",
+"JROT",
+"JROF",
+"ROFF",
+"UNUSED",
+"RUTG",
+"RDTG",
+"SANGW",
+"AA",
+"FLIPPT",
+"FLIPRGON",
+"FLIPRGOFF",
+"UNUSED",
+"UNUSED",
+"SCANCTRL",
+"SDPVTL0",
+"SDPVTL1",
+"GETINFO",
+"IDEF",
+"ROLL",
+"MAX",
+"MIN",
+"SCANTYPE",
+"INSTCTRL",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"UNUSED",
+"PUSHB1",
+"PUSHB2",
+"PUSHB3",
+"PUSHB4",
+"PUSHB5",
+"PUSHB6",
+"PUSHB7",
+"PUSHB8",
+"PUSHW1",
+"PUSHW2",
+"PUSHW3",
+"PUSHW4",
+"PUSHW5",
+"PUSHW6",
+"PUSHW7",
+"PUSHW8",
+"MDRP_0",
+"MDRP_1",
+"MDRP_2",
+"MDRP_3",
+"MDRP_4",
+"MDRP_5",
+"MDRP_6",
+"MDRP_7",
+"MDRP_8",
+"MDRP_9",
+"MDRP_10",
+"MDRP_11",
+"MDRP_12",
+"MDRP_13",
+"MDRP_14",
+"MDRP_15",
+"MDRP_16",
+"MDRP_17",
+"MDRP_18",
+"MDRP_19",
+"MDRP_20",
+"MDRP_21",
+"MDRP_22",
+"MDRP_23",
+"MDRP_24",
+"MDRP_25",
+"MDRP_26",
+"MDRP_27",
+"MDRP_28",
+"MDRP_29",
+"MDRP_30",
+"MDRP_31",
+"MIRP_0",
+"MIRP_1",
+"MIRP_2",
+"MIRP_3",
+"MIRP_4",
+"MIRP_5",
+"MIRP_6",
+"MIRP_7",
+"MIRP_8",
+"MIRP_9",
+"MIRP_10",
+"MIRP_11",
+"MIRP_12",
+"MIRP_13",
+"MIRP_14",
+"MIRP_15",
+"MIRP_16",
+"MIRP_17",
+"MIRP_18",
+"MIRP_19",
+"MIRP_20",
+"MIRP_21",
+"MIRP_22",
+"MIRP_23",
+"MIRP_24",
+"MIRP_25",
+"MIRP_26",
+"MIRP_27",
+"MIRP_28",
+"MIRP_29",
+"MIRP_30",
+"MIRP_31",
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #define Sqrt2Over2 ((float)(sqrt(2) / 2))
 #define MaxCallStack 128
 #define Epsilon 0.000001f
 
 struct TrueTypeInterpreter {
 	enum OpCode {
-	    OPCODE_SVTCA0,
+	    OPCODE_SVTCA0 = 0x00,
 	    OPCODE_SVTCA1,
 	    OPCODE_SPVTCA0,
 	    OPCODE_SPVTCA1,
@@ -672,7 +963,7 @@ struct TrueTypeInterpreter {
 
     int* storage;
     int storageCount;
-    ushort contours[20]; // Should be enough?.
+    int contours[20]; // Should be enough?.
     int contoursCount;
     float scale;
     int ppem;
@@ -688,6 +979,11 @@ struct TrueTypeInterpreter {
     TrueTypeVertex finalPhantomPoints[4];
     int finalContours[20];
     int finalContourCount;
+
+    // Debug
+    bool noExecution;
+    int opCodeList[200];
+    int opCodeListCount;
 
 
 
@@ -734,7 +1030,7 @@ struct TrueTypeInterpreter {
 		Execute(false, true);
     }
 
-    void SetControlValueTable(short* cvt, int cvtCount, float scale, float ppem, uchar* cvProgram, int cvProgramCount) {
+    void SetControlValueTable(short* cvt, int cvtCount, float scale, int ppem, uchar* cvProgram, int cvProgramCount) {
 
         if (this->scale == scale || cvt == 0) return;
 
@@ -748,14 +1044,13 @@ struct TrueTypeInterpreter {
         }
 
         this->scale = scale;
-        this->ppem = roundInt(ppem);
-
+        this->ppem = ppem;
 
 
         // Execute cvprogram.
 
-        state.Init();
         setupRest();
+        state.Init();
 
         if(setupCVInstructions(cvProgram, cvProgramCount)) {
 
@@ -783,7 +1078,23 @@ struct TrueTypeInterpreter {
 		}
 
 		if (info->cvt != 0) {
-		    SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, height, info->data + info->prep, info->prepSize);
+			// int pointSize = 15;
+			// float scale1 = stbtt_ScaleForPixelHeight(&font.info, 15);
+			// float scale2 = stbtt_ScaleForMappingEmToPixels(&font.info, 15);
+
+			// printf("%i, %f %f\n", pointSize, (pointSize/scale1) * scale2, (pointSize/scale2) * scale1);
+			// exit(1);
+
+			float scale1 = stbtt_ScaleForPixelHeight(info, height);
+			float scale2 = stbtt_ScaleForMappingEmToPixels(info, height);
+			// int ppem = roundInt((height/scale2) * scale1);
+
+			// int ppem = roundInt(height * (float)72 / (float)96);
+
+
+			float ppem = roundInt((height/scale2)*scale1);
+
+		    SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, ppem, info->data + info->prep, info->prepSize);
 		}
 	}
 
@@ -793,7 +1104,7 @@ struct TrueTypeInterpreter {
 
     	this->contoursCount = numberOfContours;
     	for(int i = 0; i < contoursCount; i++) 
-    		contours[i] = ttUSHORT(contourData + i*2);
+    		contours[i] = (int)ttUSHORT(contourData + i*2);
     }
 
     bool setupInstructions(uchar* data) {
@@ -839,6 +1150,75 @@ struct TrueTypeInterpreter {
 
     	return 1;
     }
+
+    int HintGlyphDebugStart(stbtt_fontinfo* info, int glyph, TrueTypeVertex** glyphPoints) {
+		uchar* data = info->data;
+
+		noExecution = false;
+		opCodeListCount = 0;
+
+		finalPointCount = 0;
+		finalContourCount = 0;
+
+		int goff = stbtt__GetGlyfOffset(info, glyph);
+		if(goff == -1) return 0;
+
+   		int numberOfContours = ttSHORT(data + goff);
+   		if(numberOfContours > 0) {
+
+	   		// Simple glyph.
+
+   			TrueTypeVertex* vertices;
+   			int vertexCount = getGlyphShapeStraight(info, glyph, &vertices);
+   			if(vertexCount == 0) return 0;
+
+   			for(int i = 0; i < vertexCount; i++) points.Original[i] = vertices[i];
+   			points.Count = vertexCount;
+   			points.Count = glyphAddPhantomPoints(info, glyph, points.Original, points.Count);
+   			scaleGlyphShape(points.Original, points.Count, scale);
+   			points.setupPointsFromOriginal();
+
+			STBTT_free(vertices, info->userdata);
+
+
+   			setupContours(data, goff);
+   			if(!setupInstructions(data, goff)) {
+   				noExecution = true;
+	   			return 0;
+   			}
+   			if(!setupRest()) {
+   				noExecution = true;
+	   			return 0;
+   			}
+   		} else {
+   			noExecution = true;
+   		}
+
+   		debugGetNextOpCode();
+
+   		return 1;
+	}
+
+	void debugGetNextOpCode() {
+		if(!noExecution) {
+			InstructionStream* stream = &callStack[callStackSize];
+
+			if(!stream->Done()) {
+			    int opcode = stream->instructions[stream->ip];
+			    opCodeList[opCodeListCount++] = opcode;
+			}
+		}
+	}
+
+	int HintGlyphDebugStep() {
+		if(!noExecution) {
+			Execute(false, false, true);
+		}
+
+   		debugGetNextOpCode();
+
+		return 0;
+	}
 
     int HintGlyph(stbtt_fontinfo* info, int glyph, TrueTypeVertex** glyphPoints) {
 
@@ -898,16 +1278,6 @@ struct TrueTypeInterpreter {
 					for(int i = 0; i < comp_num_verts; i++) points.Original[i] = comp_verts[i];
  		  			points.Count = comp_num_verts;
 					points.Count = glyphAddPhantomPoints(info, gidx, points.Original, points.Count);
-
-					// Transform vertices.
-					for (int i = 0; i < points.Count; ++i) {
-					   TrueTypeVertex* v = &points.Original[i];
-					   float x,y;
-					   x=v->p.x; y=v->p.y;
-					   v->p.x = (m * (mtx[0]*x + mtx[2]*y + mtx[4]));
-					   v->p.y = (n * (mtx[1]*x + mtx[3]*y + mtx[5]));
-					}
-
 					scaleGlyphShape(points.Original, points.Count, scale);
 					points.setupPointsFromOriginal();
 
@@ -919,6 +1289,22 @@ struct TrueTypeInterpreter {
 
 					Execute(false, false);
 
+					// controlvaluetable 545 is 13 instead of 12
+
+					// Transform vertices.
+					for (int i = 0; i < points.Count; ++i) {
+					   TrueTypeVertex* v = &points.Current[i];
+					   double x = roundFloat(v->p.x/scale);
+					   double y = roundFloat(v->p.y/scale);
+					   x = ((double)m * (mtx[0]*x + (double)mtx[2]*y + mtx[4]));
+					   y = ((double)n * (mtx[1]*x + (double)mtx[3]*y + mtx[5]));
+
+					   x *= scale;
+					   y *= scale;
+
+						v->p.x = roundFloat(x); // This is wrong. I don't know how to scale the matrix properly.
+						v->p.y = roundFloat(y); // This is wrong. I don't know how to scale the matrix properly.
+					}
 
 					for(int i = 0; i < contoursCount; i++) finalContours[finalContourCount++] = finalPointCount + contours[i];
 					for(int i = 0; i < points.Count-4; i++) finalPoints[finalPointCount++] = points.Current[i];
@@ -1018,13 +1404,16 @@ struct TrueTypeInterpreter {
 		*xAdvance = advance;
 	}
 
-    void Execute(bool inFunction, bool allowFunctionDefs)
+    void Execute(bool inFunction, bool allowFunctionDefs, bool step = false)
     {
     	InstructionStream* stream = &callStack[callStackSize];
 
         // dispatch each instruction in the stream
         while (!stream->Done())
         {
+        	if(stream->ip >= 1900 && inFunction == false) {
+        		int stop = 234;
+        	}
             int opcode = stream->NextOpCode();
             switch (opcode) {
 	            // ==== PUSH INSTRUCTIONS ====
@@ -1238,7 +1627,7 @@ struct TrueTypeInterpreter {
 	            case OPCODE_SHP0:
 	            case OPCODE_SHP1:
 	                {
-	                    Zone zone;
+	                    Zone* zone;
 	                    int point;
 	                    auto displacement = ComputeDisplacement((int)opcode, &zone, &point);
 	                    ShiftPoints(displacement);
@@ -1248,7 +1637,7 @@ struct TrueTypeInterpreter {
 	            case OPCODE_SHC0:
 	            case OPCODE_SHC1:
 	                {
-	                    Zone zone;
+	                    Zone* zone;
 	                    int point;
 	                    auto displacement = ComputeDisplacement((int)opcode, &zone, &point);
 	                    auto touch = GetTouchState();
@@ -1259,7 +1648,7 @@ struct TrueTypeInterpreter {
 	                    for (int i = start; i < count; i++)
 	                    {
 	                        // don't move the reference point
-	                        if (zone.Current != zp2->Current || point != i)
+	                        if (zone->Current != zp2->Current || point != i)
 	                        {
 	                            zp2->Current[i].p += displacement;
 	                            zp2->TouchState[i] |= touch;
@@ -1270,7 +1659,7 @@ struct TrueTypeInterpreter {
 	            case OPCODE_SHZ0:
 	            case OPCODE_SHZ1:
 	                {
-	                    Zone zone;
+	                    Zone* zone;
 	                    int point;
 	                    auto displacement = ComputeDisplacement((int)opcode, &zone, &point);
 	                    auto count = 0;
@@ -1282,7 +1671,7 @@ struct TrueTypeInterpreter {
 	                    for (int i = 0; i < count; i++)
 	                    {
 	                        // don't move the reference point
-	                        if (zone.Current != zp2->Current || point != i)
+	                        if (zone->Current != zp2->Current || point != i)
 	                            zp2->Current[i].p += displacement;
 	                    }
 	                }
@@ -1860,6 +2249,8 @@ struct TrueTypeInterpreter {
 	                    callStackSize--;
 	                }
             }
+
+            if(step) break;
         }
     }
 
@@ -2066,17 +2457,17 @@ struct TrueTypeInterpreter {
         if ((flags & 0x10) != 0) state.Rp0 = pointIndex;
     }
 
-    Vec2 ComputeDisplacement(int mode, Zone* zone, int* point) {
+    Vec2 ComputeDisplacement(int mode, Zone** zone, int* point) {
         // compute displacement of the reference point
         if ((mode & 1) == 0) {
-            zone = zp1;
+            *zone = zp1;
             *point = state.Rp2;
         } else {
-            zone = zp0;
+            *zone = zp0;
             *point = state.Rp1;
         }
 
-        float distance = Project(zone->GetCurrent(*point) - zone->GetOriginal(*point));
+        float distance = Project((*zone)->GetCurrent(*point) - (*zone)->GetOriginal(*point));
         return distance * state.Freedom / fdotp;
     }
 

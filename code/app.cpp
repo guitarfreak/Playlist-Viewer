@@ -3687,6 +3687,10 @@ struct AppData {
 	TrueTypeInterpreter interpreter;
 	stbtt_vertex* verts;
 	int vertCount;
+
+	char glyphChar[2];
+	bool drawCurrent;
+	bool drawOriginal;
 };
 
 
@@ -7128,50 +7132,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 	}
 
 
-	if(true) {
-		// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
-		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
-
-		TextSettings set = ad->gui->textSettings;
-		float fh = ad->font->height;
-
-		for(int i = 0; i < 2; i++) {
-			Vec4 textColor, bgColor;
-			if (i == 0) textColor = vec4(1,1);
-			else textColor = vec4(0,1);
-			set.color = textColor;
-
-			bgColor = i==0?vec4(0,1):vec4(1,1);
-
-			Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
-			float scale = 4;
-			Vec2 size = vec2(t->dim * scale);
-			Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
-			drawRect(rectSetB(r, r.top - 400), bgColor);
-			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
-			drawRect(r, textColor, rect(0,0,1,1), t->id);
-
-			Vec2 pos;
-			pos = vec2(size.x+40,i==0?-20:-520);
-			r = rectTLDim(pos, vec2(800,500));
-			drawRect(r, bgColor);
-			rectExpand(&r, vec2(-20,0));
-			pos.x += 10;
-			drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
-			drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
-			drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
-
-			drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
-			drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
-
-			drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
-
-			// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
-			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
-		}
-
-
-	}
 
 	if(false) {
 		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
@@ -7241,179 +7201,279 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 	}
 
-	#if 0
-	if(false)
+	bool swt = true;
+	if(swt) {
+		// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+
+		TextSettings set = ad->gui->textSettings;
+		float fh = ad->font->height;
+
+		for(int i = 0; i < 2; i++) {
+			Vec4 textColor, bgColor;
+			if (i == 0) textColor = vec4(1,1);
+			else textColor = vec4(0,1);
+			set.color = textColor;
+
+			bgColor = i==0?vec4(0,1):vec4(1,1);
+
+			Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
+			float scale = 4;
+			Vec2 size = vec2(t->dim * scale);
+			Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
+			drawRect(rectSetB(r, r.top - 400), bgColor);
+			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
+			drawRect(r, textColor, rect(0,0,1,1), t->id);
+
+			Vec2 pos;
+			pos = vec2(size.x+40,i==0?-20:-520);
+			r = rectTLDim(pos, vec2(800,500));
+			drawRect(r, bgColor);
+			rectExpand(&r, vec2(-20,0));
+			pos.x += 10;
+			drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
+			drawText("ÄäÖöÜü", pos-=vec2(0,fh), set);
+			drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
+			drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
+
+			drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
+			drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
+
+			drawText("ILTHilth", pos-=vec2(0,fh*2), set);
+
+			drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
+
+			// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
+			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
+		}
+
+
+	}
+
+	#if 1
+	if(!swt)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1.0f));
 
+		Font* font = ad->font;
+		TextSettings ts = ad->gui->textSettings;
+
 		if(init) {
-			Font* font = ad->font;
 			stbtt_fontinfo* info = &font->info;
 			float scale = stbtt_ScaleForPixelHeight(&ad->font->info, ad->font->height);
 			float fontHeight = font->height;
 
 			TrueTypeInterpreter* interpreter = &ad->interpreter;
+			interpreter->init();
+			interpreter->setupFunctionsAndCvt(info, fontHeight);
 
-			int max = 10000;
-			interpreter->init(max,max,max,max,max);
+			// ad->glyphChar[0] = 'H';
+			ad->glyphChar[0] = 'H';
+			ad->glyphChar[1] = '\0';
 
-			info->fpgm = stbtt__find_table(info->data, info->fontstart, "fpgm");
-			info->cvt = stbtt__find_table(info->data, info->fontstart, "cvt ");
-			info->prep = stbtt__find_table(info->data, info->fontstart, "prep");
-			info->fpgmSize = stbtt__find_table_length(info->data, info->fontstart, "fpgm");
-			int cvtCountDiv = 2; // 4?
-			info->cvtSize = stbtt__find_table_length(info->data, info->fontstart, "cvt ") / cvtCountDiv;
-			info->prepSize = stbtt__find_table_length(info->data, info->fontstart, "prep");
-
-			if (info->fpgm != 0) {
-			    interpreter->InitializeFunctionDefs(info->data + info->fpgm, info->fpgmSize);
-			}
-
-			if (info->cvt != 0) {
-			    interpreter->SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, fontHeight, info->data + info->prep, info->prepSize);
-			}
-
-			int * ddd = (int*)malloc(1);
+			ad->drawCurrent = true;
+			ad->drawOriginal = true;
 		}
 
-		// C
-		int glyph = 'X';
+		bool reloadGlyph = false;
+
+		Vec2 gp = vec2(globalGraphicsState->screenRes.x - 200, -20);
+		float rh = font->height;
+		float rw = 100;
+		float roff = 2;
+
+		drawText(fillString("%i", ad->interpreter.ppem), gp, ts); gp.y -= rh+roff;
+
+		if(newGuiQuickTextEdit(ad->gui, rectTLDim(gp, vec2(rw, rh)), ad->glyphChar, 2)) reloadGlyph = true; gp.y -= rh+roff;
+		if(newGuiQuickButton(ad->gui, rectTLDim(gp, vec2(rw, rh)), "Original")) ad->drawOriginal = !ad->drawOriginal; gp.y -= rh+roff;
+		if(newGuiQuickButton(ad->gui, rectTLDim(gp, vec2(rw, rh)), "Current")) ad->drawCurrent = !ad->drawCurrent; gp.y -= rh+roff;
+
+
+		int glyph = ad->glyphChar[0];
         int glyphIndex = stbtt_FindGlyphIndex(&ad->font->info, glyph);
 
-		// static stbtt_vertex* verts;
-		// static int vertCount;
-		// if(init) {
-		// 	vertCount = stbtt_GetGlyphShape(&ad->font->info, glyphIndex, &verts);
-		// }
-
-		// Hinting.
-		// if(false)
-		// if(init)
-		if(init || reload)
+		if(init || reload || input->keysPressed[KEYCODE_UP] || reloadGlyph)
 		{
-			Font* font = ad->font;
-			uchar *data = font->info.data;
-			stbtt_fontinfo* info = &font->info;
-			float scale = stbtt_ScaleForPixelHeight(&ad->font->info, ad->font->height);
+			// ad->interpreter.HintGlyph(&font->info, glyphIndex, 0);
+			
+			ad->interpreter.HintGlyphDebugStart(&font->info, glyphIndex, 0);
+		}
 
-			TrueTypeVertex* vertices = 0;
-			int vertexCount = getGlyphShape(info, glyphIndex, scale, &vertices);
-			glyphAddPhantomPoints(info, glyphIndex, scale, vertices, &vertexCount);
+		if(input->keysPressed[KEYCODE_RIGHT]) {
+    		TrueTypeInterpreter::InstructionStream* stream = &ad->interpreter.callStack[ad->interpreter.callStackSize];
 
-			int goff = stbtt__GetGlyfOffset(&font->info, glyphIndex);
-			int numberOfContours = ttSHORT(font->info.data + goff);
-			uchar* contourData = (data + goff + 10);
-			ushort* contoursEndpoints = getTArray(ushort, numberOfContours);
-			for(int i = 0; i < numberOfContours; i++) {
-				contoursEndpoints[i] = ttUSHORT(contourData + i*2);
+			if(stream->ip == 190) {
+				int stop = 234;
 			}
+			ad->interpreter.HintGlyphDebugStep();
+		}
 
-			int instructionOffset = 5*(sizeof(short)) + numberOfContours*(sizeof(short));
-			int instructionCount = ttSHORT(font->info.data + goff + instructionOffset);
-			uchar* instructions = font->info.data + goff + instructionOffset + sizeof(short);
+		if(input->keysPressed[KEYCODE_DOWN]) {
+    		TrueTypeInterpreter::InstructionStream* stream = &ad->interpreter.callStack[ad->interpreter.callStackSize];
 
-			if(true) {
-				ad->interpreter.HintGlyph(vertices, vertexCount, contoursEndpoints, numberOfContours, instructions, instructionCount);
-
-				ad->vertCount = trueTypeGlyphToStb(info, glyphIndex, &ad->verts, ad->interpreter.points.Current, vertexCount, scale);
-			} else {
-				ad->vertCount = trueTypeGlyphToStb(info, glyphIndex, &ad->verts, vertices, vertexCount, scale);
+			while(!stream->Done()) {
+				ad->interpreter.HintGlyphDebugStep();
 			}
 		}
 
-		float pSize = 5.0f;
-		glPointSize(pSize);
+		TrueTypeInterpreter* interpreter = &ad->interpreter;
 
-		float mod = 32.0f;
-		float scale = ad->font->pixelScale*mod;
-		Vec2 offset = vec2(800,-600);
+		Vec2 textPos = vec2(20,-20);
+		Vec2 textPos2 = textPos + vec2(120,0);
+		Vec2 textPos3 = textPos2 + vec2(120,0);
 
-		// Startpoint.
-		drawPoint((vec2(0,0)*scale) + offset, vec4(1,1));
+		float rowHeight = font->height;
+		for(int i = 0; i < interpreter->points.Count; i++) {
+			Vec2 p;
+			p = interpreter->points.Current[i].p;
+			drawText(fillString("{ %f %f }", PVEC2(p)), textPos, ts);
+			textPos.y -= rowHeight;
 
-		// Grid.
-		{
-			glPointSize(1.0f);
-			float alpha = 0.1f;
-			glLineWidth(0.5f);
-			int lineCount = 20;
-			for(int i = 0; i < lineCount; i++) {
-				float val = i*mod + offset.y;
-				val = roundInt(val)+0.5f;
-				drawLine(vec2(-1000000,val), vec2(1000000,val), vec4(1,alpha));
-
-				val = i*mod + offset.x;
-				val = roundInt(val)+0.5f;
-				drawLine(vec2(val,-1000000), vec2(val,1000000), vec4(1,alpha));
-
-				for(int j = 0; j < lineCount; j++) {
-					drawPoint(vec2(i+0.5f,j+0.5f)*mod + offset, vec4(1,0.2f));
-				}
-			}
+			p = interpreter->points.Original[i].p;
+			drawText(fillString("{ %f %f }", PVEC2(p)), textPos2, ts);
+			textPos2.y -= rowHeight;
 		}
 
-		int vertCount = ad->vertCount;
-		stbtt_vertex* verts = ad->verts;
+		for(int i = 0; i < interpreter->opCodeListCount; i++) {
+			int opcode = interpreter->opCodeList[i];
+			char* opcodeString = OPCODE_STRINGS[opcode];
+			// drawText(fillString("%s - %i", opcodeString, opcode), textPos3, ts);
+			drawText(fillString("%s", opcodeString), textPos3, ts);
+			textPos3.y -= rowHeight;
+		}
 
-		// Glyph outline.
+
+
+
+
 		{
-			Vec2 prevPoint;
-			for(int i = 0; i < vertCount; i++) {
-				stbtt_vertex v = verts[i];
-				Vec2 p = (vec2(v.x, v.y)*scale) + offset;
+			stbtt_vertex* verts = 0;
+			// int vertCount = trueTypeGlyphToStb(&font->info, ad->interpreter.finalPoints, ad->interpreter.finalPointCount, ad->interpreter.finalContours, ad->interpreter.finalContourCount, font->pixelScale, &verts);
 
-				if(v.type == 1) {
-					prevPoint = p;
-				} else if(v.type == 2) {
-					// Line.
-					drawLine(prevPoint, p, vec4(1,1));
-					prevPoint = p;
-				} else {
-					// Curve
-					int pointCount = 30;
-					Vec2 p0 = prevPoint;
-					Vec2 p1 = (vec2(v.cx, v.cy)*scale) + offset;
-					Vec2 p2 = p;
-					for(int i = 0; i < pointCount; i++) {
-						Vec2 pa = lerpVec2(p0, p1, (float)i/(pointCount-1));
-						Vec2 pb = lerpVec2(p1, p2, (float)i/(pointCount-1));
-						
-						p = lerpVec2(pa, pb, (float)i/(pointCount-1));
-						// drawLine(prevPoint, p, vec4(1,1));
-						glPointSize(1.0f);
-						drawPoint(p, vec4(1,1));
-						glPointSize(pSize);
+			int vertCount = trueTypeGlyphToStb(&font->info, ad->interpreter.points.Current, ad->interpreter.points.Count-4, ad->interpreter.contours, ad->interpreter.contoursCount, font->pixelScale, &verts);
+
+			stbtt_vertex* vertsOriginal = 0;
+			trueTypeGlyphToStb(&font->info, ad->interpreter.points.Original, ad->interpreter.points.Count-4, 
+			                   ad->interpreter.contours, ad->interpreter.contoursCount, font->pixelScale, &vertsOriginal);
+
+
+
+			float pSize = 3.0f;
+			glPointSize(pSize);
+
+			float mod = 32.0f;
+			float scale = ad->font->pixelScale*mod;
+			Vec2 startPoint = vec2(400,-500);
+
+			// Startpoint.
+			drawPoint((vec2(0,0)*scale) + startPoint, vec4(1,1));
+
+			// Grid.
+			{
+				glPointSize(1.0f);
+				float alpha = 0.1f;
+				glLineWidth(0.5f);
+				int lineCount = 20;
+				for(int i = 0; i < lineCount; i++) {
+					float val = i*mod + startPoint.y;
+					val = roundInt(val)+0.5f;
+					drawLine(vec2(startPoint.x,val), vec2(1000000,val), vec4(1,alpha));
+
+					val = i*mod + startPoint.x;
+					val = roundInt(val)+0.5f;
+					drawLine(vec2(val,-1000000), vec2(val,1000000), vec4(1,alpha));
+
+					for(int j = 0; j < lineCount; j++) {
+						drawPoint(vec2(i+0.5f,j+0.5f)*mod + startPoint, vec4(1,0.2f));
 					}
-
-					prevPoint = p;
 				}
 			}
-		}
 
-		// Glyph points.
-		for(int i = 0; i < vertCount; i++) {
-			stbtt_vertex v = verts[i];
-			Vec2 p = (vec2(v.x, v.y)*scale) + offset;
-			if(v.type == 1) {
-				glPointSize(pSize*1.5f);
-				drawPoint(p, vec4(1,1,1,1));
-				glPointSize(pSize);
 
-			} else if(v.type == 2) {
-				drawPoint(p, vec4(1,0,0,1));
+			for(int g = 0; g < 2; g++) {
+				stbtt_vertex* vertexArray = g==1? verts : vertsOriginal;
+				Vec4 outlineColor = g==0?vec4(1,1):vec4(0,1,0,1);
 
-			} else if(v.type == 3) {
-				drawPoint(p, vec4(1,0.5f,0,1));
+				if(!ad->drawOriginal && g == 0) continue;
+				if(!ad->drawCurrent && g == 1) continue;
 
-				Vec2 bp = (vec2(v.cx, v.cy)*scale) + offset;
-				drawPoint(bp, vec4(1,0,1,1));
-			} else {
-				drawPoint(p, vec4(0,0,1,1));
+				int vc = interpreter->points.Count-4;
+				TrueTypeVertex* phantomPoints = g==1? interpreter->points.Current+vc : interpreter->points.Original+vc;
+
+				// Glyph outline.
+				{
+					Vec2 prevPoint;
+					for(int i = 0; i < vertCount; i++) {
+						stbtt_vertex v = vertexArray[i];
+						Vec2 p = (vec2(v.x, v.y)*scale) + startPoint;
+
+						if(v.type == 1) {
+							prevPoint = p;
+						} else if(v.type == 2) {
+							// Line.
+							drawLine(prevPoint, p, outlineColor);
+							prevPoint = p;
+						} else {
+							// Curve
+							int pointCount = 30;
+							Vec2 p0 = prevPoint;
+							Vec2 p1 = (vec2(v.cx, v.cy)*scale) + startPoint;
+							Vec2 p2 = p;
+							for(int i = 0; i < pointCount; i++) {
+								Vec2 pa = lerpVec2(p0, p1, (float)i/(pointCount-1));
+								Vec2 pb = lerpVec2(p1, p2, (float)i/(pointCount-1));
+								
+								p = lerpVec2(pa, pb, (float)i/(pointCount-1));
+								// drawLine(prevPoint, p, vec4(1,1));
+								glPointSize(1.0f);
+								drawPoint(p, outlineColor);
+								glPointSize(pSize);
+							}
+
+							prevPoint = p;
+						}
+					}
+				}
+
+				// Glyph points.
+				for(int i = 0; i < vertCount; i++) {
+					stbtt_vertex v = vertexArray[i];
+					Vec2 p = (vec2(v.x, v.y)*scale) + startPoint;
+					if(v.type == 1) {
+						glPointSize(pSize*1.5f);
+						drawPoint(p, vec4(1,1,1,1));
+						glPointSize(pSize);
+
+					} else if(v.type == 2) {
+						drawPoint(p, vec4(1,0,0,1));
+
+					} else if(v.type == 3) {
+						drawPoint(p, vec4(1,0.5f,0,1));
+
+						Vec2 bp = (vec2(v.cx, v.cy)*scale) + startPoint;
+						drawPoint(bp, vec4(1,0,1,1));
+					} else {
+						drawPoint(p, vec4(0,0,1,1));
+
+					}
+				}
+
+				// Phantom points.
+				for(int i = 0; i < 4; i++) {
+					TrueTypeVertex v = phantomPoints[i];
+					Vec2 p = (v.p*mod) + startPoint;
+
+					glPointSize(pSize*1.5f);
+					drawPoint(p, vec4(0,g==0?0.4f:0.7f,1,1));
+					glPointSize(pSize);
+				}
 
 			}
+
+		   STBTT_free(verts, font->info.userdata);
+		   STBTT_free(vertsOriginal, font->info.userdata);
 		}
 
-		// stbtt_FreeShape(&ad->font->info, verts);
 	}
 	#endif
 
@@ -7583,6 +7643,71 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		#if USE_SRGB
 		glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
+
+
+
+		if(true)
+		{
+
+		glLoadIdentity();
+		res = ws->currentRes;
+		glViewport(0,0, res.w, res.h);
+		glOrtho(0, res.w, -res.h, 0, -10,10);
+
+		drawRect(getScreenRect(ws), vec4(1,1));
+
+		// TextSettings set = ad->gui->textSettings;
+		// set.color = vec4(0,1);
+		// Vec2 pos = vec2(100,-100);
+		// drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos, set);
+
+
+			// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+			drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+
+			TextSettings set = ad->gui->textSettings;
+			float fh = ad->font->height;
+
+			for(int i = 0; i < 2; i++) {
+				Vec4 textColor, bgColor;
+				if (i == 0) textColor = vec4(1,1);
+				else textColor = vec4(0,1);
+				set.color = textColor;
+
+				bgColor = i==0?vec4(0,1):vec4(1,1);
+
+				Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
+				float scale = 4;
+				Vec2 size = vec2(t->dim * scale);
+				Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
+				drawRect(rectSetB(r, r.top - 400), bgColor);
+				glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
+				drawRect(r, textColor, rect(0,0,1,1), t->id);
+
+				Vec2 pos;
+				pos = vec2(size.x+40,i==0?-20:-520);
+				r = rectTLDim(pos, vec2(800,500));
+				drawRect(r, bgColor);
+				rectExpand(&r, vec2(-20,0));
+				pos.x += 10;
+				drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
+				drawText("ÄäÖöÜü", pos-=vec2(0,fh), set);
+				drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
+				drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
+
+				drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
+				drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
+
+				drawText("ILTHilth", pos-=vec2(0,fh*2), set);
+
+				drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
+
+				// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
+				glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
+			}
+		}
+
+
 	}
 
 

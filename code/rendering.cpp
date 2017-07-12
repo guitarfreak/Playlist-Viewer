@@ -450,6 +450,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	int rc = 0;
 	font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
 	font.glyphRanges[rc++] = setupRange(0xA1, 0xFF);
+	// font.glyphRanges[rc++] = setupRangeCount(0xA1, 1);
+	// font.glyphRanges[rc++] = setupRangeCount(0xDC, 1);
 	font.glyphRangeCount = rc;
 
 
@@ -465,6 +467,21 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	stbtt_GetFontVMetrics(&font.info, &ascent,0,0);
 	font.baseOffset = (ascent*font.pixelScale);
 
+
+	float pixelSize = font.height;
+	float scale1 = stbtt_ScaleForPixelHeight(&font.info, pixelSize);
+	float scale2 = stbtt_ScaleForMappingEmToPixels(&font.info, pixelSize);
+
+
+
+	// int unitsPerEm = ttUSHORT(font.info.data + font.info.head + 18);
+
+	// float points = pixelSize * (float)72 / (float)96;
+	// printf("%f, %f\n", pixelSize, points);
+	// printf("%f, %f, %f\n", pixelSize, (pixelSize/scale1)*scale2, (pixelSize/scale2)*scale1);
+	// printf("%f, %f\n", scale1, scale2);
+	// printf("%i\n", unitsPerEm);
+	// exit(1);
 
 	{
 		stbtt_pack_context context;
@@ -513,30 +530,37 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	for(int i = 0; i < size.w*size.h; i++) {
 		float v = colorIntToFloat(fontBitmapBuffer[i]);
 		if(v > 0) {
-			v += 0.1f;
-			v = pow(v, 2.2f);
+			// v += 0.2f;
+			// v = pow(v, 2.2f);
+			// v = pow(v, 1/2.2f);
 		}
 		v = clampMax(v, 1.0f);
 		fontBitmap[i*4+3] = colorFloatToInt(v);
 	}
-	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
 	font.brightTex = tex;
 
 	// Dark texture.
 	for(int i = 0; i < size.w*size.h; i++) {
 		float v = colorIntToFloat(fontBitmapBuffer[i]);
 		if(v > 0) {
-			v += 0.1f;
-			// v = sqrt(v);
-			// v = sqrt(sqrt(v));
-			v = pow(v, 1/2.2f);
+			// v += 0.2f;
+			// v = pow(v, 2.2f);
+
+			// v = pow(v, 1/2.2f);
+			// v = pow(v, 1/2.2f);
+			// v = pow(v, 1/2.2f);
 		}
 		v = clampMax(v, 1.0f);
 		fontBitmap[i*4+3] = colorFloatToInt(v);
 	}
-	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
 	font.darkTex = tex;
 
+	// GL_RGBA8
+	// INTERNAL_TEXTURE_FORMAT
 
 	*fontSlot = font;
 	return fontSlot;
