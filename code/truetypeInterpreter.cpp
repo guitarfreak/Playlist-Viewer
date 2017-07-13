@@ -956,7 +956,9 @@ struct TrueTypeInterpreter {
     InstructionStream* instructionDefs;
     int instructionDefsCount;
     float* controlValueTable;
+    float* controlValueTableOriginal;
     int controlValueTableCount;
+
     Zone points, twilight;
 
     InstructionStream callStack[20]; // Enough?
@@ -1006,6 +1008,7 @@ struct TrueTypeInterpreter {
         state = GraphicsState();
         cvtState = GraphicsState();
         controlValueTable = 0;
+        controlValueTableOriginal = 0;
 
         points.init(maxPoints, false);
         twilight.init(maxTwilightPoints, true);
@@ -1035,6 +1038,7 @@ struct TrueTypeInterpreter {
         if (this->scale == scale || cvt == 0) return;
 
         if (controlValueTable == 0) controlValueTable = mallocArray(float, cvtCount);
+        if (controlValueTableOriginal == 0) controlValueTableOriginal = mallocArray(float, cvtCount);
         
         controlValueTableCount = cvtCount;
         //copy cvt and apply scale
@@ -1049,12 +1053,16 @@ struct TrueTypeInterpreter {
 
         // Execute cvprogram.
 
-        setupRest();
+        setupRest(false);
         state.Init();
 
         if(setupCVInstructions(cvProgram, cvProgramCount)) {
 
 			Execute(false, false);
+
+			for(int i = 0; i < controlValueTableCount; i++) {
+				controlValueTableOriginal[i] = controlValueTable[i];
+			}			
 
 			// save off the CVT graphics state so that we can restore it for each glyph we hint
 			if ((state.InstructionControl & CONTROL_FLAG_UseDefaultGraphicsState) != 0) cvtState.Init();
@@ -1087,12 +1095,7 @@ struct TrueTypeInterpreter {
 
 			float scale1 = stbtt_ScaleForPixelHeight(info, height);
 			float scale2 = stbtt_ScaleForMappingEmToPixels(info, height);
-			// int ppem = roundInt((height/scale2) * scale1);
-
-			// int ppem = roundInt(height * (float)72 / (float)96);
-
-
-			float ppem = roundInt((height/scale2)*scale1);
+			int ppem = roundInt((height/scale2)*scale1);
 
 		    SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, ppem, info->data + info->prep, info->prepSize);
 		}
@@ -1133,9 +1136,15 @@ struct TrueTypeInterpreter {
     	return hasInstructions;
     }
 
-    int setupRest() {
+    int setupRest(bool setupCVT = true) {
     	// check if the CVT program disabled hinting
     	if ((state.InstructionControl & CONTROL_FLAG_InhibitGridFitting) != 0) return 0;
+
+    	if(setupCVT) {
+	    	for(int i = 0; i < controlValueTableCount; i++) {
+	    		controlValueTable[i] = controlValueTableOriginal[i];
+	    	}
+    	}
 
     	zp0 = zp1 = zp2 = &points;
     	state = cvtState;
@@ -1289,8 +1298,6 @@ struct TrueTypeInterpreter {
 
 					Execute(false, false);
 
-					// controlvaluetable 545 is 13 instead of 12
-
 					// Transform vertices.
 					for (int i = 0; i < points.Count; ++i) {
 					   TrueTypeVertex* v = &points.Current[i];
@@ -1380,7 +1387,8 @@ struct TrueTypeInterpreter {
     	for(int i = 0; i < vertexCount; i++) {
     		TrueTypeVertex v = vertices[i];
 
-    		if(v.onCurve) {
+    		// if(v.onCurve) {
+    		{
     			Vec2 p = v.p;
 
 				if(p.x < xMin) xMin = p.x; 

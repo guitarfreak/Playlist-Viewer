@@ -2447,13 +2447,15 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 
 	if(ctrl && v) {
 		char* clipboard = (char*)getClipboard();
-		int clipboardSize = strLen(clipboard);
-		if(clipboardSize + strLen(text) < textMaxSize) {
-			strInsert(text, cursorIndex, clipboard);
-			cursorIndex += clipboardSize;
-			markerIndex = cursorIndex;
+		if(clipboard) {
+			int clipboardSize = strLen(clipboard);
+			if(clipboardSize + strLen(text) < textMaxSize) {
+				strInsert(text, cursorIndex, clipboard);
+				cursorIndex += clipboardSize;
+				markerIndex = cursorIndex;
+			}
+			closeClipboard();
 		}
-		closeClipboard();
 	}
 
 	// Add input characters to input buffer.
@@ -3691,6 +3693,16 @@ struct AppData {
 	char glyphChar[2];
 	bool drawCurrent;
 	bool drawOriginal;
+
+	// For font showcase demo.
+
+	char fontFileString[50];
+	Font testFonts[100];
+	bool colorSwitch;
+	char* folderFiles[500];
+	int folderFilesCount;
+	float folderScrollValue;
+	char* showcaseString;
 };
 
 
@@ -5487,7 +5499,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		}
 
 
-
+		if(false)
 		{
 			TIMER_BLOCK_BEGIN_NAMED(appIntro, "appIntro");
 
@@ -7203,49 +7215,204 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 	bool swt = true;
 	if(swt) {
+
+		char* showcaseString = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789üäöÜÄÖ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~";
+
+		if(init) {
+			strCpy(ad->fontFileString, "arial");
+
+
+			char* windowsFontFolder = globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount-1];
+			ad->folderFilesCount = 0;
+
+			int fileCount = 0;
+			{
+				char* folderPath = fillString("%s*",windowsFontFolder);
+				WIN32_FIND_DATA findData;
+				HANDLE folderHandle = FindFirstFile(folderPath, &findData);
+
+				if(INVALID_HANDLE_VALUE != folderHandle) {
+					fileCount = 0;
+					for(;;) {
+						bool result = FindNextFile(folderHandle, &findData);
+						if(!result) break;
+
+						char* fileName = findData.cFileName;
+
+						if(strFind(fileName, ".ttf") != -1) {
+							ad->folderFiles[ad->folderFilesCount++] = getPStringCpy(fileName);
+						}
+
+					}
+				}
+			}
+
+			ad->folderScrollValue = 0;
+
+			ad->showcaseString = getPString(200);
+			strCpy(ad->showcaseString, showcaseString);
+		}
+
 		// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
-		drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+		Rect sr = getScreenRect(ws);
+		Vec4 bgColor = !ad->colorSwitch?vec4(0.2f,1.0):vec4(0.8f,1.0f);
+		drawRect(sr, bgColor);
+
 
 		TextSettings set = ad->gui->textSettings;
-		float fh = ad->font->height;
+		set.color = !ad->colorSwitch?vec4(1,1):vec4(0,1);
 
-		for(int i = 0; i < 2; i++) {
-			Vec4 textColor, bgColor;
-			if (i == 0) textColor = vec4(1,1);
-			else textColor = vec4(0,1);
-			set.color = textColor;
+		// char* fontFile = "arial.ttf";
 
-			bgColor = i==0?vec4(0,1):vec4(1,1);
+		float pt = 9;
+		Vec2 sp = vec2(20,-20);
+		Vec2 p = sp;
 
-			Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
-			float scale = 4;
-			Vec2 size = vec2(t->dim * scale);
-			Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
-			drawRect(rectSetB(r, r.top - 400), bgColor);
-			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
-			drawRect(r, textColor, rect(0,0,1,1), t->id);
+		scissorState();
 
-			Vec2 pos;
-			pos = vec2(size.x+40,i==0?-20:-520);
-			r = rectTLDim(pos, vec2(800,500));
-			drawRect(r, bgColor);
-			rectExpand(&r, vec2(-20,0));
-			pos.x += 10;
-			drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
-			drawText("ÄäÖöÜü", pos-=vec2(0,fh), set);
-			drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
-			drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
+		bool clearFonts = false;
 
-			drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
-			drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
-
-			drawText("ILTHilth", pos-=vec2(0,fh*2), set);
-
-			drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
-
-			// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
-			glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
+		NewGui* gui = ad->gui;
+		// LayoutData ld = layoutData
+		Vec2 ld = vec2(100, ad->font->height*1.2f);
+		Vec2 lp = vec2(10,10);
+		if(newGuiQuickButton(gui, rectTLDim(p, ld), "Black/White")) ad->colorSwitch = !ad->colorSwitch;
+		p.x += ld.x + lp.x;
+		if(newGuiQuickTextEdit(gui, rectTLDim(p, mulVec2(ld, vec2(2,1))), ad->fontFileString, arrayCount(ad->fontFileString)-1)) {
+			clearFonts = true;
 		}
+		p.x += ld.x*2 + lp.x;
+		newGuiQuickTextEdit(gui, rectTLDim(p, mulVec2(ld, vec2(10,1))), ad->showcaseString, 199);
+
+		scissorState(false);
+
+
+		p.x = sp.x;
+		p.y -= ld.y;
+
+		p.y -= 10;
+
+
+		int fontIndex = 0;
+		for(int i = 0; i < 18; i++) {
+
+			for(int j = 0; j < 2; j++) {
+				pushTMemoryStack();
+				Font* font = ad->testFonts + fontIndex;
+				if(font->height == 0) {
+					font = fontInit(font, fillString("%s.ttf", ad->fontFileString), -pt, j==0?false:true);
+					if(font == 0) {
+						font = ad->testFonts + fontIndex;
+						fontInit(font, "arial.ttf", -pt, j==0?false:true);
+					}
+				}
+
+				set.font = font;
+				char* text = fillString("%f pt: %s", font->pointHeight, ad->showcaseString);
+				drawText(text, p, set); p.y -= font->height;
+
+				fontIndex++;
+		
+				clearTMemoryToStackIndex();
+				popTMemoryStack();
+			}
+
+			pt += 1;
+			p.y -= 10;
+		}
+
+
+		{
+			scissorState();
+
+			Rect r = getScreenRect(ws);
+			r.left = r.right - 400;
+			r.top -= 20;
+			r.right -= 20;
+			r.bottom += 20;
+
+			float rh = 20;
+			float lo = 0;
+
+			ScrollRegionValues scrollValues = {};
+			newGuiQuickScroll(gui, r, ad->folderFilesCount * (rh+lo) + gui->scrollSettings.border.y*2, &ad->folderScrollValue, &scrollValues);
+
+			// newGuiLayoutPush(gui, layoutData(rectExpand(insideRect, -clientBorder*2), rowHeight, rowOffset, 0));
+			newGuiLayoutPush(gui, layoutData(rect(0,0,1,1), 20, 1, 0));
+			// LayoutData* ld = gui->ld;
+
+			LayoutData* ld = newGuiLayoutPush(gui, scrollValues.region);
+			ld->pos = scrollValues.pos;
+			newGuiScissorPush(gui, scrollValues.scissor);
+			ld->yPadding = lo;
+			ld->defaultHeight = rh;
+
+				for(int i = 0; i < ad->folderFilesCount; i++) {
+					char* file = ad->folderFiles[i];
+					Rect r = newGuiLRectAdv(gui);
+					char* buttonText = fillString("%i: %s", i, file);
+					if(newGuiQuickButton(gui, r, buttonText, vec2i(-1,0), &ad->scrollButtonSettings)) {
+						clearFonts = true;
+						strCpy(ad->fontFileString, file);
+						int l = strLen(ad->fontFileString);
+						ad->fontFileString[l-4] = '\0';
+					}
+				}
+
+			ld = newGuiLayoutPop(gui);
+			newGuiScissorPop(gui);
+			ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
+
+			scissorState(false);
+		}
+
+		if(clearFonts) {
+			int i = 0;
+			for(;;) {
+				Font* font = ad->testFonts + i;
+				if(font->height != 0) {
+					freeFont(font);
+				} else break;
+				i++;
+			}
+		}
+
+
+		// for(int i = 0; i < 2; i++) {
+		// 	Vec4 textColor, bgColor;
+		// 	if (i == 0) textColor = vec4(1,1);
+		// 	else textColor = vec4(0,1);
+		// 	set.color = textColor;
+
+		// 	bgColor = i==0?vec4(0,1):vec4(1,1);
+
+		// 	Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
+		// 	float scale = 4;
+		// 	Vec2 size = vec2(t->dim * scale);
+		// 	Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
+		// 	drawRect(rectSetB(r, r.top - 400), bgColor);
+		// 	glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
+		// 	drawRect(r, textColor, rect(0,0,1,1), t->id);
+		// 	glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
+
+		// 	Vec2 pos;
+		// 	pos = vec2(size.x+40,i==0?-20:-520);
+		// 	r = rectTLDim(pos, vec2(800,500));
+		// 	drawRect(r, bgColor);
+		// 	rectExpand(&r, vec2(-20,0));
+		// 	pos.x += 10;
+		// 	drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZüäöÜÄÖ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
+
+		// 	drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
+		// 	drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
+
+		// 	drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
+		// 	drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
+
+		// 	drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
+		// }
+
+
 
 
 	}
@@ -7646,66 +7813,172 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 
 
-		if(true)
-		{
+		// if(false)
+		// {
 
-		glLoadIdentity();
-		res = ws->currentRes;
-		glViewport(0,0, res.w, res.h);
-		glOrtho(0, res.w, -res.h, 0, -10,10);
+		// glLoadIdentity();
+		// res = ws->currentRes;
+		// glViewport(0,0, res.w, res.h);
+		// glOrtho(0, res.w, -res.h, 0, -10,10);
 
-		drawRect(getScreenRect(ws), vec4(1,1));
+		// drawRect(getScreenRect(ws), vec4(1,1));
 
-		// TextSettings set = ad->gui->textSettings;
-		// set.color = vec4(0,1);
-		// Vec2 pos = vec2(100,-100);
-		// drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos, set);
+		// // TextSettings set = ad->gui->textSettings;
+		// // set.color = vec4(0,1);
+		// // Vec2 pos = vec2(100,-100);
+		// // drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos, set);
 
 
-			// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
-			drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+		// 	// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
+		// 	drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
 
-			TextSettings set = ad->gui->textSettings;
-			float fh = ad->font->height;
+		// 	TextSettings set = ad->gui->textSettings;
+		// 	float fh = ad->font->height;
 
-			for(int i = 0; i < 2; i++) {
-				Vec4 textColor, bgColor;
-				if (i == 0) textColor = vec4(1,1);
-				else textColor = vec4(0,1);
-				set.color = textColor;
+		// 	for(int i = 0; i < 2; i++) {
+		// 		Vec4 textColor, bgColor;
+		// 		if (i == 0) textColor = vec4(1,1);
+		// 		else textColor = vec4(0,1);
+		// 		set.color = textColor;
 
-				bgColor = i==0?vec4(0,1):vec4(1,1);
+		// 		bgColor = i==0?vec4(0,1):vec4(1,1);
 
-				Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
-				float scale = 4;
-				Vec2 size = vec2(t->dim * scale);
-				Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
-				drawRect(rectSetB(r, r.top - 400), bgColor);
-				glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
-				drawRect(r, textColor, rect(0,0,1,1), t->id);
+		// 		Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
+		// 		float scale = 4;
+		// 		Vec2 size = vec2(t->dim * scale);
+		// 		Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
+		// 		drawRect(rectSetB(r, r.top - 400), bgColor);
+		// 		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
+		// 		drawRect(r, textColor, rect(0,0,1,1), t->id);
 
-				Vec2 pos;
-				pos = vec2(size.x+40,i==0?-20:-520);
-				r = rectTLDim(pos, vec2(800,500));
-				drawRect(r, bgColor);
-				rectExpand(&r, vec2(-20,0));
-				pos.x += 10;
-				drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
-				drawText("ÄäÖöÜü", pos-=vec2(0,fh), set);
-				drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
-				drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
+		// 		Vec2 pos;
+		// 		pos = vec2(size.x+40,i==0?-20:-520);
+		// 		r = rectTLDim(pos, vec2(800,500));
+		// 		drawRect(r, bgColor);
+		// 		rectExpand(&r, vec2(-20,0));
+		// 		pos.x += 10;
+		// 		drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
+		// 		drawText("ÄäÖöÜü", pos-=vec2(0,fh), set);
+		// 		drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
+		// 		drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
 
-				drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
-				drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
+		// 		drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
+		// 		drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
 
-				drawText("ILTHilth", pos-=vec2(0,fh*2), set);
+		// 		drawText("ILTHilth", pos-=vec2(0,fh*2), set);
 
-				drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
+		// 		drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
 
-				// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
-				glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
-			}
-		}
+		// 		// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
+		// 		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
+		// 	}
+		// }
+
+		// if(true) {
+
+
+
+		// 	glLoadIdentity();
+		// 	res = ws->currentRes;
+		// 	glViewport(0,0, res.w, res.h);
+		// 	glOrtho(0, res.w, -res.h, 0, -10,10);
+
+
+		// 		// bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
+		// 		// glClearColor(0,0,0,1);
+		// 		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		// 		// bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
+
+		// 	Vec4 bgColor = vec4(1,1,1,1);
+		// 	drawRect(getScreenRect(ws), bgColor);
+
+
+		// 	bool useSrgb = true;
+		// 	if(useSrgb) 
+		// 		glEnable(GL_FRAMEBUFFER_SRGB);
+
+		// 	// Rect r = rectTLDim(100,-100,400,400);
+		// 	Rect sr = getScreenRect(ws);
+
+		// 	Vec2 p = vec2(0,0);
+		// 	Vec2 dim = vec2(rectW(sr), 50);
+		// 	Rect r = rectExpand(sr, vec2(0));
+		// 	drawRectNewColoredW(rectTLDim(p, dim), vec4(1,0,0,1), vec4(0,1,0,1)); p.y -= dim.y;
+		// 	drawRectNewColoredW(rectTLDim(p, dim), vec4(0,1,0,1), vec4(0,0,1,1)); p.y -= dim.y;
+		// 	drawRectNewColoredW(rectTLDim(p, dim), vec4(0,0,1,1), vec4(1,0,0,1)); p.y -= dim.y;
+
+		// 	Vec2 bd = vec2(100,400);
+		// 	p.x += bd.x*0.25f;
+		// 	drawRect(rectTLDim(p, bd), vec4(0,1,0,1)); p.x += bd.x*1.25f;
+		// 	drawRect(rectTLDim(p, bd), vec4(1,1,0,1)); p.x += bd.x*1.25f;
+		// 	drawRect(rectTLDim(p, bd), vec4(0,1,1,1)); p.x += bd.x*1.25f;
+		// 	drawRect(rectTLDim(p, bd), vec4(1,0,1,1)); p.x += bd.x*1.25f;
+
+
+
+		// 	p.x = 0;
+		// 	dim.y *= 0.5f;
+		// 	p.y -= dim.y;
+		// 	drawRect(rectTLDim(p, dim), vec4(1,0,0,1)); p.y -= dim.y;
+		// 	drawRect(rectTLDim(p, dim), vec4(1,0,0,0.5f)); p.y -= dim.y;
+		// 	p.y -= dim.y;
+
+		// 	drawRect(rectTLDim(p, dim), vec4(0,0,1,1)); p.y -= dim.y;
+		// 	drawRect(rectTLDim(p, dim), vec4(0,0,1,0.5f)); p.y -= dim.y;
+		// 	p.y -= dim.y;
+
+		// 	drawRect(rectTLDim(p, dim), vec4(0,1,0,1)); p.y -= dim.y;
+		// 	drawRect(rectTLDim(p, dim), vec4(0,1,0,0.5f)); p.y -= dim.y;
+
+
+
+		// 	glDisable(GL_FRAMEBUFFER_SRGB);
+
+		// 	TextSettings set = ad->gui->textSettings;
+		// 	// float fh = ad->font->height;
+		// 	// drawText("Hello World!", vec2(100,-100), set);
+
+		// 	Rect tr = rectTLDim(100,-125,500,30);
+		// 	drawRect(tr, vec4(0,1));
+		// 	set.color = vec4(1,1);
+		// 	drawText("H$T34gserhe5g45hsre9g8hzu04pt8zsepr9g8sbzep49t834t", rectTL(tr), set);
+
+		// 	rectTrans(&tr, vec2(0,-rectH(tr)));
+		// 	drawRect(tr, vec4(1,1));
+		// 	set.color = vec4(0,1);
+		// 	drawText("H$T34gserhe5g45hsre9g8hzu04pt8zsepr9g8sbzep49t834t", rectTL(tr), set);
+
+		// 	rectTrans(&tr, vec2(0,-rectH(tr)));
+		// 	drawRect(tr, vec4(0,1,0,1));
+		// 	set.color = vec4(1,0,0,1);
+		// 	drawText("H$T34gserhe5g45hsre9g8hzu04pt8zsepr9g8sbzep49t834t", rectTL(tr), set);
+
+		// 	glEnable(GL_FRAMEBUFFER_SRGB);
+
+		// 	rectTrans(&tr, vec2(0,-rectH(tr)));
+		// 	drawRect(tr, vec4(0,1,0,1));
+		// 	set.color = vec4(1,0,0,1);
+		// 	drawText("abcdefghijklmABCDEFGHIJKLMnopqrstuv", rectTL(tr), set);
+
+
+
+
+		// 		// glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		// 		// glLoadIdentity();
+		// 		// glViewport(0,0, res.w, res.h);
+		// 		// glOrtho(0,1,1,0, -1, 1);
+		// 		// drawRect(rect(0, 1, 1, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
+
+
+		// 	// drawRectNewColored(r, vec4(0,1), vec4(0,1), vec4(1,1), vec4(1,1));
+
+		// 	// Rect mr = rectCenDim(300,-300,300,300);
+		// 	// drawRect(mr, vec4(0.5f,1));
+
+		// 	if(useSrgb) 
+		// 		glDisable(GL_FRAMEBUFFER_SRGB);
+
+		// }
 
 
 	}

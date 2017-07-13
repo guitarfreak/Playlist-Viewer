@@ -220,6 +220,7 @@ struct Font {
 
 	stbtt_fontinfo info;
 	float pixelScale;
+	float emScale;
 
 	char* fileBuffer;
 	Texture tex;
@@ -227,8 +228,11 @@ struct Font {
 	Vec2i glyphRanges[5];
 	int glyphRangeCount;
 	stbtt_packedchar* cData;
-	int height;
+	float height;
 	float baseOffset;
+
+	float pointHeight;
+	bool usePointHeight;
 
 	Font* boldFont;
 	Font* italicFont;
@@ -416,7 +420,7 @@ FrameBuffer* getFrameBuffer(int id) {
 
 #define Font_Error_Glyph (int)0x20-1
 
-Font* fontInit(Font* fontSlot, char* file, int height) {
+Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = false) {
 	TIMER_BLOCK();
 
 	char* fontFolder = 0;
@@ -433,46 +437,58 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	char* fileBuffer = mallocString(fileSize(path) + 1);
 	readFileToBuffer(fileBuffer, path);
 
-	Vec2i size = vec2i(256,256);
+	// Vec2i size = vec2i(256,256);
+	Vec2i size = vec2i(512,512);
+	// Vec2i size = vec2i(750,750);
 	uchar* fontBitmapBuffer = (unsigned char*)getTMemory(size.x*size.y);
 	uchar* fontBitmap = (unsigned char*)getTMemory(size.x*size.y*4);
 
+
 	Font font;
+	stbtt_InitFont(&font.info, (const unsigned char*)fileBuffer, 0);
 	font.file = getPString(strLen(file)+1);
 	strCpy(font.file, file);
 
-	font.height = height;
-	font.pixelAlign = true;
+	// Use point size instead of pixel size.
+	if(height < 0) {
+		height *= -1;
+		float pointSize = height;
+		float pixelScale = stbtt_ScaleForPixelHeight(&font.info, height);
+		float emScale = stbtt_ScaleForMappingEmToPixels(&font.info, height);
+		height = (pointSize/pixelScale)*emScale;
+	} 
 
+	font.height = height;
+	font.pixelScale = stbtt_ScaleForPixelHeight(&font.info, font.height);
+	font.emScale = stbtt_ScaleForMappingEmToPixels(&font.info, font.height);
+	font.pointHeight = (font.height/font.emScale)*font.pixelScale;
 
 	#define setupRange(a,b) vec2i(a, b - a + 1)
 	#define setupRangeCount(a,b) vec2i(a, b)
 	int rc = 0;
 	font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
 	font.glyphRanges[rc++] = setupRange(0xA1, 0xFF);
+	// font.glyphRanges[rc++] = setupRangeCount(0x2E, 1);
+
 	// font.glyphRanges[rc++] = setupRangeCount(0xA1, 1);
 	// font.glyphRanges[rc++] = setupRangeCount(0xDC, 1);
 	font.glyphRangeCount = rc;
-
 
 	int totalGlyphCount = 0;
 	for(int i = 0; i < font.glyphRangeCount; i++) totalGlyphCount += font.glyphRanges[i].y;
 	font.cData = mallocArray(stbtt_packedchar, totalGlyphCount);
 
 
-	stbtt_InitFont(&font.info, (const unsigned char*)fileBuffer, 0);
-
-	font.pixelScale = stbtt_ScaleForPixelHeight(&font.info, font.height);
 	int ascent = 0;
 	stbtt_GetFontVMetrics(&font.info, &ascent,0,0);
 	font.baseOffset = (ascent*font.pixelScale);
+	font.pixelAlign = true;
 
 
-	float pixelSize = font.height;
-	float scale1 = stbtt_ScaleForPixelHeight(&font.info, pixelSize);
-	float scale2 = stbtt_ScaleForMappingEmToPixels(&font.info, pixelSize);
 
-
+	// float pixelSize = font.height;
+	// float scale1 = stbtt_ScaleForPixelHeight(&font.info, pixelSize);
+	// float scale2 = stbtt_ScaleForMappingEmToPixels(&font.info, pixelSize);
 
 	// int unitsPerEm = ttUSHORT(font.info.data + font.info.head + 18);
 
@@ -504,9 +520,11 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		interpreter.init();
 		interpreter.setupFunctionsAndCvt(&font.info, font.height);
 
-		// stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, ranges, font.glyphRangeCount);		
-		stbtt_PackFontRangesHinted(&interpreter, &font.info, &context, ranges, font.glyphRangeCount);
-
+		if(!enableHinting) {
+			stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, ranges, 	font.glyphRangeCount);
+		} else {
+			stbtt_PackFontRangesHinted(&interpreter, &font.info, &context, ranges, font.	glyphRangeCount);
+		}
 
 		stbtt_PackEnd(&context);
 		interpreter.freeInterpreter();
@@ -544,7 +562,9 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 	// Dark texture.
 	for(int i = 0; i < size.w*size.h; i++) {
 		float v = colorIntToFloat(fontBitmapBuffer[i]);
+		// if(v < 0.8
 		if(v > 0) {
+			// v = 1;
 			// v += 0.2f;
 			// v = pow(v, 2.2f);
 
@@ -555,8 +575,8 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 		v = clampMax(v, 1.0f);
 		fontBitmap[i*4+3] = colorFloatToInt(v);
 	}
-	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
-	loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+	loadTexture(&tex, fontBitmap, size.w, size.h, 1, INTERNAL_TEXTURE_FORMAT, GL_RGBA, GL_UNSIGNED_BYTE);
+	// loadTexture(&tex, fontBitmap, size.w, size.h, 1, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
 	font.darkTex = tex;
 
 	// GL_RGBA8
@@ -569,10 +589,13 @@ Font* fontInit(Font* fontSlot, char* file, int height) {
 void freeFont(Font* font) {
 	freeZero(font->cData);
 	freeZero(font->info.data);
+	// freeZero(font->cData);
+	// free(font->info.data);
 	glDeleteTextures(1, &font->tex.id);
+	font->height = 0;
 }
 
-Font* getFont(char* fontFile, int height, char* boldFontFile = 0, char* italicFontFile = 0) {
+Font* getFont(char* fontFile, float height, char* boldFontFile = 0, char* italicFontFile = 0) {
 
 	int fontCount = arrayCount(globalGraphicsState->fonts);
 	int fontSlotCount = arrayCount(globalGraphicsState->fonts[0]);
@@ -753,6 +776,7 @@ void drawRect(Rect r, Vec4 color) {
 	float z = globalGraphicsState->zOrder;
 
 	Vec4 c = COLOR_SRGB(color);
+	// Vec4 c = color;
 	glColor4f(c.r, c.g, c.b, c.a);
 	glBegin(GL_QUADS);
 		glVertex3f(r.left, r.bottom, z);
@@ -794,6 +818,11 @@ void drawRectNewColored(Rect r, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3) {
 	Vec4 cs2 = COLOR_SRGB(c2);
 	Vec4 cs3 = COLOR_SRGB(c3);
 
+	// Vec4 cs0 = c0;
+	// Vec4 cs1 = c1;
+	// Vec4 cs2 = c2;
+	// Vec4 cs3 = c3;
+
 	glColor4f(1,1,1,1);
 	glBegin(GL_QUADS);
 		glColor4f(cs0.r, cs0.g, cs0.b, cs0.a); glVertex3f(r.left, r.bottom, z);
@@ -805,6 +834,9 @@ void drawRectNewColored(Rect r, Vec4 c0, Vec4 c1, Vec4 c2, Vec4 c3) {
 
 void drawRectNewColoredH(Rect r, Vec4 c0, Vec4 c1) {	
 	drawRectNewColored(r, c0, c1, c1, c0);
+}
+void drawRectNewColoredW(Rect r, Vec4 c0, Vec4 c1) {	
+	drawRectNewColored(r, c0, c0, c1, c1);
 }
 
 #define Rounding_Mod 1/2
