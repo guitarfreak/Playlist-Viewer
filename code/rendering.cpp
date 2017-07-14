@@ -468,10 +468,12 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 	int rc = 0;
 	font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
 	font.glyphRanges[rc++] = setupRange(0xA1, 0xFF);
-	// font.glyphRanges[rc++] = setupRangeCount(0x2E, 1);
 
-	// font.glyphRanges[rc++] = setupRangeCount(0xA1, 1);
+	// font.glyphRanges[rc++] = setupRangeCount(0x48, 1);
 	// font.glyphRanges[rc++] = setupRangeCount(0xDC, 1);
+	// font.glyphRanges[rc++] = setupRangeCount(0xE4, 1);
+
+	// font.glyphRanges[rc++] = setupRangeCount(0xF2, 1);
 	font.glyphRangeCount = rc;
 
 	int totalGlyphCount = 0;
@@ -516,6 +518,10 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 			cDataOffset += font.glyphRanges[i].y;
 		}
 
+		if(strCompare(file, "kaiu.ttf")) {
+			int stop = 234;
+		}
+
 		TrueTypeInterpreter interpreter;
 		interpreter.init();
 		interpreter.setupFunctionsAndCvt(&font.info, font.height);
@@ -523,7 +529,7 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 		if(!enableHinting) {
 			stbtt_PackFontRanges(&context, (uchar*)fileBuffer, 0, ranges, 	font.glyphRangeCount);
 		} else {
-			stbtt_PackFontRangesHinted(&interpreter, &font.info, &context, ranges, font.	glyphRangeCount);
+			stbtt_PackFontRangesHinted(&interpreter, &font.info, &context, ranges, font.glyphRangeCount);
 		}
 
 		stbtt_PackEnd(&context);
@@ -589,8 +595,6 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 void freeFont(Font* font) {
 	freeZero(font->cData);
 	freeZero(font->info.data);
-	// freeZero(font->cData);
-	// free(font->info.data);
 	glDeleteTextures(1, &font->tex.id);
 	font->height = 0;
 }

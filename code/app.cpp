@@ -3518,28 +3518,7 @@ Layout* layoutQuickRowArray(Layout* node, Rect region, float* s, float count) {
 	return node->list;
 }
 
-// struct TrueTypeInterpreter {
-// 	bool autoFlip = true;
-// 	float cutIn = (float)17/16; // F26Dot6, pixels
-// 	int deltaBase = 9;
-// 	int deltaShift = 3;
-// 	void* dualProjectionVector;
-// 	bool freedomVector = 0; //0 - x-axis, 1 - y-axis
-// 	bool instructionControl = false;
-// 	int loop = 1;	
-// 	float minimumDistance = 1; // F26Dot6, pixels
-// 	bool projectionVector = false; //0 - x-axis, 1 - y-axis
-// 	int roundState = 1; // 1 - grid, ...
-// 	int referencePoints[3]; // = {0,0,0};
-// 	bool scanControl = false;
-// 	float singleWidthCutIn = 0; // F26Dot6, pixels	
-// 	float singleWidthValue = 0; // F26Dot6, pixels	
-// 	int zonePointers[3]; // {1,1,1};
 
-// 	int stack[32];
-// 	int stackCount;
-// 	int instructionIndex = 0;
-// };
 
 struct AppData {
 	// General.
@@ -7216,11 +7195,17 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 	bool swt = true;
 	if(swt) {
 
-		char* showcaseString = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789üäöÜÄÖ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~";
+		// char* showcaseString = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789üäöÜÄÖ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~";
+		char* basicLatin = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~␡";
+		char* latinSupplement = "¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
+
+		char* basicText = "My family, my friend, I have criss-crossed this great land of our countless times. I hold a map of it here, in my heart next to the joyful memories o the carefree days I spent as a young boy here in your beautiful town of Twin Peaks.";
+
+		// char* basicText = "My family, my friend, I have criss-crossed this great land of our countless times. I hold a map of it here, in my heart next to the joyful memories o the carefree days I spent as a young boy here in your beautiful town of Twin Peaks. From Alexandria, Virginia to Stockton, California. I think about Lewis and his friend Clark, the first Caucasians to see this part of the world; their footsteps have been the highways and byways of my days on the road. My shadow is always with me, sometimes ahead, sometimes behind, sometimes to the left or sometimes toe the right. Except on cloudy days or at night.";
+
 
 		if(init) {
 			strCpy(ad->fontFileString, "arial");
-
 
 			char* windowsFontFolder = globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount-1];
 			ad->folderFilesCount = 0;
@@ -7249,8 +7234,55 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			ad->folderScrollValue = 0;
 
-			ad->showcaseString = getPString(200);
-			strCpy(ad->showcaseString, showcaseString);
+			ad->showcaseString = getPString(500);
+			strCpy(ad->showcaseString, basicLatin);
+
+
+
+			// Load all the fonts to see if anything breaks and keep track of the results.
+			if(false)
+			{
+				char* resultFileName = "resultFile.txt";
+				FILE* file = fopen(resultFileName, "wb");
+				fclose(file);
+
+				// fwrite("", sizeof(), 1, file);
+
+				pushTMemoryStack();
+				for(int i = 0; i < ad->folderFilesCount; i++) {
+					char* fileName = ad->folderFiles[i];
+					Font font;
+					// font = fontInit(&font, fillString("%s.ttf", fileName), -pt, j==0?false:true);
+
+					// printf(fillString("%s\n", fileName));
+
+					file = fopen(resultFileName, "ab");
+					fwrite(fileName, strlen(fileName), 1, file);
+					fwrite("\n", 1, 1, file);
+					fclose(file);
+
+					if(strCompare(fileName, "DejaVuSansMono-Bold.ttf")) continue; // Recursive compound glyphs.
+					if(strCompare(fileName, "dokchamp.ttf")) continue; // Recursive compound glyphs.
+
+					if(strCompare(fileName, "marlett.ttf")) continue; // STBTT fail on findGlyphIndex.
+					if(strCompare(fileName, "symbol.ttf")) continue; // STBTT fail on findGlyphIndex.
+					if(strCompare(fileName, "webdings.ttf")) continue; // STBTT fail on findGlyphIndex.
+					if(strCompare(fileName, "wingding.ttf")) continue; // STBTT fail on findGlyphIndex.
+					
+					fontInit(&font, fileName, -20, true);
+					freeFont(&font);
+
+					clearTMemoryToStackIndex();
+				}
+
+				popTMemoryStack();
+				exit(1);
+			}
+
+			// Font font;
+			// fontInit(&font, "DejaVuSansMono-Bold.ttf", -20, true);
+			
+
 		}
 
 		// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
@@ -7278,11 +7310,17 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		Vec2 lp = vec2(10,10);
 		if(newGuiQuickButton(gui, rectTLDim(p, ld), "Black/White")) ad->colorSwitch = !ad->colorSwitch;
 		p.x += ld.x + lp.x;
+		if(newGuiQuickButton(gui, rectTLDim(p, ld), "Basic Latin")) strCpy(ad->showcaseString, basicLatin);
+		p.x += ld.x + lp.x;
+		if(newGuiQuickButton(gui, rectTLDim(p, ld), "Latin +")) strCpy(ad->showcaseString, latinSupplement);
+		p.x += ld.x + lp.x;
+		if(newGuiQuickButton(gui, rectTLDim(p, ld), "Text")) strCpy(ad->showcaseString, basicText);
+		p.x += ld.x + lp.x;
 		if(newGuiQuickTextEdit(gui, rectTLDim(p, mulVec2(ld, vec2(2,1))), ad->fontFileString, arrayCount(ad->fontFileString)-1)) {
 			clearFonts = true;
 		}
-		p.x += ld.x*2 + lp.x;
-		newGuiQuickTextEdit(gui, rectTLDim(p, mulVec2(ld, vec2(10,1))), ad->showcaseString, 199);
+		// p.x += ld.x*2 + lp.x;
+
 
 		scissorState(false);
 
@@ -7308,7 +7346,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				}
 
 				set.font = font;
-				char* text = fillString("%f pt: %s", font->pointHeight, ad->showcaseString);
+				char* text = fillString("%i pt: %s", roundInt(font->pointHeight), ad->showcaseString);
 				drawText(text, p, set); p.y -= font->height;
 
 				fontIndex++;
@@ -7351,6 +7389,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 					char* file = ad->folderFiles[i];
 					Rect r = newGuiLRectAdv(gui);
 					char* buttonText = fillString("%i: %s", i, file);
+
 					if(newGuiQuickButton(gui, r, buttonText, vec2i(-1,0), &ad->scrollButtonSettings)) {
 						clearFonts = true;
 						strCpy(ad->fontFileString, file);
@@ -7417,7 +7456,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 	}
 
-	#if 1
+	#if 0
 	if(!swt)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1.0f));
