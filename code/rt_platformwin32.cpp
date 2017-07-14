@@ -341,7 +341,9 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	// ws->style = WS_POPUP | WS_BORDER | WS_SYSMENU;
 
 	// ws->style = WS_POPUP | WS_BORDER;
-	ws->style = WS_POPUPWINDOW;
+	// ws->style = WS_POPUPWINDOW;
+	ws->style = (WS_POPUP | WS_BORDER);
+
 	// ws->style = WS_POPUP;
 	// ws->style = WS_BORDER;
 

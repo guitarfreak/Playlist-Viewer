@@ -7206,6 +7206,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 		if(init) {
 			strCpy(ad->fontFileString, "arial");
+			// strCpy(ad->fontFileString, "angsai");
 
 			char* windowsFontFolder = globalGraphicsState->fontFolders[globalGraphicsState->fontFolderCount-1];
 			ad->folderFilesCount = 0;
@@ -7279,9 +7280,17 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 				exit(1);
 			}
 
-			// Font font;
-			// fontInit(&font, "DejaVuSansMono-Bold.ttf", -20, true);
-			
+			Font font;
+			fontInit(&font, "calibri.ttf", -20, true);
+
+
+
+			// 182
+
+			// fontInit(&font, "angsai.ttf", -11, true);
+			// stream->ip = 181 alignrp, can't figure out why it's different in fontforge.
+			// -> Vec2 point = zone->GetCurrent(index) + (distance * (state.Freedom / fdotp));
+
 
 		}
 
@@ -7358,7 +7367,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			pt += 1;
 			p.y -= 10;
 		}
-
 
 		{
 			scissorState();
@@ -7451,12 +7459,9 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		// 	drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
 		// }
 
-
-
-
 	}
 
-	#if 0
+	#if 1
 	if(!swt)
 	{
 		drawRect(getScreenRect(ws), vec4(0.2f,1.0f));
@@ -7554,13 +7559,12 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 		{
 			stbtt_vertex* verts = 0;
-			// int vertCount = trueTypeGlyphToStb(&font->info, ad->interpreter.finalPoints, ad->interpreter.finalPointCount, ad->interpreter.finalContours, ad->interpreter.finalContourCount, font->pixelScale, &verts);
-
-			int vertCount = trueTypeGlyphToStb(&font->info, ad->interpreter.points.Current, ad->interpreter.points.Count-4, ad->interpreter.contours, ad->interpreter.contoursCount, font->pixelScale, &verts);
+			TrueTypeGlyphData gd = {ad->interpreter.points.Current, ad->interpreter.points.Count-4, ad->interpreter.contours, ad->interpreter.contoursCount};
+	    	int vertCount = trueTypeGlyphToStb(&font->info, gd, font->pixelScale, &verts);
 
 			stbtt_vertex* vertsOriginal = 0;
-			trueTypeGlyphToStb(&font->info, ad->interpreter.points.Original, ad->interpreter.points.Count-4, 
-			                   ad->interpreter.contours, ad->interpreter.contoursCount, font->pixelScale, &vertsOriginal);
+			TrueTypeGlyphData gd2 = {ad->interpreter.points.Original, ad->interpreter.points.Count-4, ad->interpreter.contours, ad->interpreter.contoursCount};
+			trueTypeGlyphToStb(&font->info, gd2, font->pixelScale, &vertsOriginal);
 
 
 

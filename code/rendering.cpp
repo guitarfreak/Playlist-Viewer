@@ -469,6 +469,8 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 	font.glyphRanges[rc++] = setupRange(0x20, 0x7F);
 	font.glyphRanges[rc++] = setupRange(0xA1, 0xFF);
 
+	// font.glyphRanges[rc++] = setupRangeCount(0x6B, 1);
+	
 	// font.glyphRanges[rc++] = setupRangeCount(0x48, 1);
 	// font.glyphRanges[rc++] = setupRangeCount(0xDC, 1);
 	// font.glyphRanges[rc++] = setupRangeCount(0xE4, 1);

@@ -1019,7 +1019,7 @@ struct TrueTypeInterpreter {
 
     void SetControlValueTable(short* cvt, int cvtCount, float scale, int ppem, uchar* cvProgram, int cvProgramCount) {
 
-        if (this->scale == scale || cvt == 0) return;
+        // if (this->scale == scale || cvt == 0) return;
 
         if (controlValueTable == 0) controlValueTable = mallocArray(float, cvtCount);
         if (controlValueTableOriginal == 0) controlValueTableOriginal = mallocArray(float, cvtCount);
@@ -1065,24 +1065,17 @@ struct TrueTypeInterpreter {
 	void setupFunctionsAndCvt(stbtt_fontinfo* info, float height) {
 		float scale = stbtt_ScaleForPixelHeight(info, height);
 
-		if (info->fpgm != 0) {
+		float scaleEm = stbtt_ScaleForMappingEmToPixels(info, height);
+		int ppem = roundInt((height/scaleEm)*scale);
+
+		this->scale = scale;
+		this->ppem = ppem;
+
+		if (info->fpgm != 0) 
 		    InitializeFunctionDefs(info->data + info->fpgm, info->fpgmSize);
-		}
 
-		if (info->cvt != 0) {
-			// int pointSize = 15;
-			// float scale1 = stbtt_ScaleForPixelHeight(&font.info, 15);
-			// float scale2 = stbtt_ScaleForMappingEmToPixels(&font.info, 15);
-
-			// printf("%i, %f %f\n", pointSize, (pointSize/scale1) * scale2, (pointSize/scale2) * scale1);
-			// exit(1);
-
-			float scale1 = stbtt_ScaleForPixelHeight(info, height);
-			float scale2 = stbtt_ScaleForMappingEmToPixels(info, height);
-			int ppem = roundInt((height/scale2)*scale1);
-
+		if (info->cvt != 0) 
 		    SetControlValueTable((short*)(info->data + info->cvt), info->cvtSize, scale, ppem, info->data + info->prep, info->prepSize);
-		}
 	}
 
     void setupContours(uchar* data, int goff) {
@@ -1145,6 +1138,7 @@ struct TrueTypeInterpreter {
     }
 
     int HintGlyphDebugStart(stbtt_fontinfo* info, int glyph, TrueTypeVertex** glyphPoints) {
+
 		uchar* data = info->data;
 
 		noExecution = false;
@@ -1158,18 +1152,12 @@ struct TrueTypeInterpreter {
 
 	   		// Simple glyph.
 
-   			TrueTypeVertex* vertices;
-   			int vertexCount = loadSimpleGlyph(info, glyph, points.Original);
-   			if(vertexCount <= 1) return 0;
+   			points.Count = loadSimpleGlyph(info, glyph, points.Original);
+   			if(points.Count <= 1) return 0;
 
-   			for(int i = 0; i < vertexCount; i++) points.Original[i] = vertices[i];
-   			points.Count = vertexCount;
    			points.Count = glyphAddPhantomPoints(info, glyph, points.Original, points.Count);
    			scaleGlyphShape(points.Original, points.Count, scale);
    			points.setupPointsFromOriginal();
-
-			STBTT_free(vertices, info->userdata);
-
 
    			setupContours(data, goff);
    			if(!setupInstructions(data, goff)) {
@@ -1787,7 +1775,13 @@ struct TrueTypeInterpreter {
 	                        auto pointIndex = stack.Pop();
 	                        auto p1 = zp1->GetCurrent(pointIndex);
 	                        auto p2 = zp0->GetCurrent(state.Rp0);
-	                        MovePoint(zp1, pointIndex, -Project(p1 - p2));
+
+	                        Vec2 p = p1 - p2;
+	                        float proj = Project(p);
+	                        proj = -proj;
+	                        MovePoint(zp1, pointIndex, proj);
+
+	                        // MovePoint(zp1, pointIndex, -Project(p1 - p2));
 	                    }
 	                    state.Loop = 1;
 	                }
@@ -2533,8 +2527,14 @@ struct TrueTypeInterpreter {
         }
     }
 
-    float Project(Vec2 point) { return point * state.Projection; }
-    float DualProject(Vec2 point) { return point * state.DualProjection; }
+    float Project(Vec2 point) { 
+    	float result = point * state.Projection;
+    	return result; 
+    }
+    float DualProject(Vec2 point) { 
+    	float result = point * state.DualProjection;
+    	return result;
+    }
 
     static int SkipNext(InstructionStream* stream) {
         // grab the next opcode, and if it's one of the push instructions skip over its arguments
