@@ -6,9 +6,9 @@
 #include "rt_hotload.cpp"
 #include "rt_misc_win32.cpp"
 
-#include "external\curl\curl.h"
+#include "curl.h"
+#define Libcurl_Dll_File "libcurl.dll"
 
-#define Libcurl_Dll_File "External\\libcurl.dll"
 
 typedef CURLcode curl_global_initFunction(long flags);
 curl_global_initFunction* curl_global_initX;

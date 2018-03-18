@@ -83,7 +83,7 @@ Build mode:
 #include "external\stb_truetype.h"
 
 
-#include "external\curl\curl.h"
+#include "curl.h"
 
 typedef CURLcode curl_global_initFunction(long flags);
 typedef CURL *curl_easy_initFunction(void);
@@ -308,9 +308,14 @@ bool relativeToAbsoluteColors(Vec4* ac, RelativeColor* rc, int count) {
 #define Cubic_Curve_Segment_Mod 20
 #define Cubic_Curve_Segment_Min 4
 
-#define App_Font_Folder "Fonts\\"
+#ifdef SHIPPING_MODE
+#define App_Font_Folder ".\\data\\Fonts\\"
+#else
+#define App_Font_Folder "..\\data\\Fonts\\"
+#endif
+
 #define Playlist_Folder "Playlists\\"
-#define Libcurl_Dll_File "External\\libcurl.dll"
+#define Libcurl_Dll_File "libcurl.dll"
 
 #define Windows_Font_Folder "\\Fonts\\"
 #define Windows_Font_Path_Variable "windir"
@@ -3600,6 +3605,7 @@ struct AppData {
 	ScrollRegionSettings commentScrollSettings;
 
 	TextBoxSettings comboBoxSettings;
+
 	//
 
 	int playlistFolderIndex;
@@ -3701,17 +3707,20 @@ extern "C" APPMAINFUNCTION(appMain) {
 		SYSTEM_INFO info;
 		GetSystemInfo(&info);
 
-		char* baseAddress = (char*)gigaBytes(8);
-		VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
+		// char* baseAddress = (char*)gigaBytes(8);
+		char* baseAddress = 0;
+		// VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
 
 		ExtendibleMemoryArray* pMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
 		initExtendibleMemoryArray(pMemory, megaBytes(50), info.dwAllocationGranularity, baseAddress);
 
 		ExtendibleBucketMemory* dMemory = &appMemory->extendibleBucketMemories[appMemory->extendibleBucketMemoryCount++];
-		initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
+		// initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress + gigaBytes(16));
+		initExtendibleBucketMemory(dMemory, megaBytes(1), megaBytes(50), info.dwAllocationGranularity, baseAddress);
 
 		MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-		initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
+		// initMemoryArray(tMemory, megaBytes(30), baseAddress + gigaBytes(33));
+		initMemoryArray(tMemory, megaBytes(30), baseAddress);
 
 
 
@@ -3722,7 +3731,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		initMemoryArray(tMemoryDebug, megaBytes(30), 0);
 
 		ExtendibleMemoryArray* debugMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
-		initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
+		// initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress + gigaBytes(34));
+		initExtendibleMemoryArray(debugMemory, megaBytes(30), info.dwAllocationGranularity, baseAddress);
 	}
 
 		// Setup memory and globals.
@@ -3790,11 +3800,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ds->gui = getPStructDebug(Gui);
 		// gui->init(rectCenDim(vec2(0,1), vec2(300,800)));
 		// gui->init(rectCenDim(vec2(1300,1), vec2(300,500)));
+		ds->gui2 = getPStructDebug(Gui);
+
 		ds->gui->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 0);
 
 		// ds->gui->cornerPos = 
 
-		ds->gui2 = getPStructDebug(Gui);
 		// ds->gui->init(rectCenDim(vec2(1300,1), vec2(400, ws->currentRes.h)), -1);
 		ds->gui2->init(rectCenDim(vec2(1300,1), vec2(300, ws->currentRes.h)), 3);
 
@@ -5983,6 +5994,8 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			dateEncode(&startDate);
 
+			// Why didn't I have this before??????
+			if(ad->playlist.count)
 			for(;;) {
 
 				Date nextDate = startDate;
@@ -7218,7 +7231,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
 			// if(!ad->screenShotMode) {
-			// 	blitFrameBuffers(FRAMEBUFFER_DebugMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+			// 	blitFrameBuffers(FRAMEBUFFER_appMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
 			// 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 			// 	glBlendEquation(GL_FUNC_ADD);

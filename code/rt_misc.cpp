@@ -619,7 +619,7 @@ int writeBufferToFile(char* buffer, char* fileName, int size = -1) {
 
 	FILE* file = fopen(fileName, "wb");
 	if(!file) {
-		printf("Could not open file!\n");
+		printf("Could not open file! (writeBufferToFile)\n");
 		return -1;
 	} 
 
@@ -632,7 +632,7 @@ int writeBufferToFile(char* buffer, char* fileName, int size = -1) {
 int writeBufferSectionToFile(char* buffer, char* fileName, int offsetInBytes, int sizeInBytes) {
 	FILE* file = fopen(fileName, "r+b");
 	if(!file) {
-		printf("Could not open file!\n");
+		printf("Could not open file! (writeBufferSectionToFile)\n");
 		return -1;
 	} 
 

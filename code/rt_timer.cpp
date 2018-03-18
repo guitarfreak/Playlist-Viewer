@@ -63,8 +63,9 @@ struct  Timer {
 extern Timer* globalTimer;
 
 inline uint getThreadID() {
-	char *threadLocalStorage = (char *)__readgsqword(0x30);
-	uint threadID = *(uint *)(threadLocalStorage + 0x48);
+	// char *threadLocalStorage = (char *)__readgsqword(0x30);
+	// uint threadID = *(uint *)(threadLocalStorage + 0x48);
+	uint threadID = GetCurrentThreadId();
 
 	return threadID;
 }

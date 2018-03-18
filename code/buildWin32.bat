@@ -6,8 +6,8 @@ set APP_NAME=PlaylistCollector
 set scriptpath=%~d0%~p0
 cd %scriptpath%
 
-set PLATFORM=win64
-set BUILD_FOLDER=buildWin64
+set PLATFORM=win32
+set BUILD_FOLDER=buildWin32
 
 if "%~3"=="-ship" goto buildSetup
 goto buildSetupEnd
@@ -24,11 +24,11 @@ set LINC=
 
 set LINKER_LIBS= -DEFAULTLIB:Opengl32.lib -DEFAULTLIB:ws2_32.lib -DEFAULTLIB:Shell32.lib -DEFAULTLIB:user32.lib -DEFAULTLIB:Gdi32.lib -DEFAULTLIB:Shlwapi.lib -DEFAULTLIB:Dwmapi.lib
 
-set                  PATH=C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\amd64;%PATH%
+set                  PATH=C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin;%PATH%
 set          INC=%INC% -I"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include"
-set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\lib\amd64"
+set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\lib"
 set          INC=%INC% -I"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"
-set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib\x64"
+set LINC=%LINC% -LIBPATH:"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib"
 
 set INC=%INC% -I"C:\Standalone\iaca"
 
