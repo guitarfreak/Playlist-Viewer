@@ -206,9 +206,9 @@ struct AppSettings {
 	char* fontBold;
 	char* fontItalic;
 
-	int fontHeight;
+	float fontScale;
 	float fontShadow;
-	int graphTitleFontHeight;
+	float graphTitleFontScale;
 	float graphFontShadow;
 
 	float windowHeightMod;
@@ -2555,8 +2555,8 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
 
 	if((settings.resizableY || settings.resizableX) || settings.movable) {
 		int event = newGuiGoDragAction(gui, region, z, Gui_Focus_MLeft, screenMouse);
-		int eventRightClick = newGuiGoDragAction(gui, region, z, Gui_Focus_MRight, screenMouse);
-		event = max(event, eventRightClick);
+		// int eventRightClick = newGuiGoDragAction(gui, region, z, Gui_Focus_MRight, screenMouse);
+		// event = max(event, eventRightClick);
 		if(event == 1) {
 			gui->mode = gui->input->keysDown[KEYCODE_CTRL];
 
@@ -3564,7 +3564,6 @@ struct AppData {
 	bool appIsBusy;
 
 	int fontHeight;
-	float fontScale;
 
 	Font* font;
 	Font* fontTitle;
@@ -4147,8 +4146,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		updateInput(ds->input, isRunning, windowHandle);
 
-		int systemFontHeight = getSystemFontHeight(systemData->windowHandle);
-		ad->fontHeight = roundInt(ad->fontScale*systemFontHeight);
+		systemData->fontHeight = getSystemFontHeight(systemData->windowHandle);
 
 		ad->appIsBusy = false;
 
@@ -4189,9 +4187,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 				as.font = "OpenSans-Regular.ttf";
 				as.fontBold = "OpenSans-Bold.ttf";
 				as.fontItalic = "OpenSans-Italic.ttf";
-				as.fontHeight = 16;
+				as.fontScale = 1.0f;
 				as.fontShadow = 0;
-				as.graphTitleFontHeight = 24;
+				as.graphTitleFontScale = 1.5f;
 				as.graphFontShadow = 1;
 				as.windowHeightMod = 1.0f;
 				as.windowBorder = 4;
@@ -4222,7 +4220,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				rac.graphMark =             { { 0.0010000, 0.0010000, 0.0010000, 0.2510002 },-1 };
 				rac.graphSubMark =          { { 0.0010000, 0.0010000, 0.0010000,-0.1000000 }, 16 };
 
-				rac2.font =                  { { 0.0010000, 0.0010000, 0.9000000, 0.9990000 },-1 };
+				rac2.font =                  { { 0.0010000, 0.0010000, 1.0000000, 0.9990000 },-1 };
 				rac2.font2 =                 { { 0.0010000, 0.0010000, 0.7000000, 0.9990000 },-1 };
 				rac2.graphFont =             { { 0.0000000, 0.0000000, 0.0000000, 0.0000000 }, 0 };
 				rac2.fontShadow =            { { 0.0010000, 0.0010000, 0.1000000, 0.9990000 },-1 };
@@ -4254,6 +4252,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 			AppColorsRelative temp = ad->appSettings.darkTheme?ad->appColorsRelativeDark : ad->appColorsRelativeLight;
 			relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
 
+			ad->fontHeight = roundInt(ad->appSettings.fontScale*systemData->fontHeight);
+			int graphTitleFontHeight = roundInt(ad->appSettings.graphTitleFontScale*systemData->fontHeight);
+
 			{
 				AppSettings* as = &ad->appSettings;
 
@@ -4273,8 +4274,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					globalGraphicsState->fontsCount = 0;
 				}
 
-				ad->font = getFont(as->font, as->fontHeight, as->fontBold, as->fontItalic);
-				ad->fontTitle = getFont(as->font, as->graphTitleFontHeight, as->fontBold, as->fontItalic);
+				ad->font = getFont(as->font, ad->fontHeight, as->fontBold, as->fontItalic);
+				ad->fontTitle = getFont(as->font, graphTitleFontHeight, as->fontBold, as->fontItalic);
 			}
 
 			ad->reloadSettings = false;
@@ -6312,7 +6313,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 					scissorState(false);
 
-					if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MMiddle)) {
+					if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MLeft)) {
 						if(vi != ad->selectedVideo) {
 							ad->selectedPoint = ad->hoveredPoint;
 							ad->selectedVideo = vi;

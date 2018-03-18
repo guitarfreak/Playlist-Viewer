@@ -210,6 +210,8 @@ struct SystemData {
 	
 	HANDLE folderHandles[10];
 	int folderHandleCount;
+
+	int fontHeight;
 };
 
 void systemDataInit(SystemData* sd, HINSTANCE instance) {
