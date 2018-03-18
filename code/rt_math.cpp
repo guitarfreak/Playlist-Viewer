@@ -1165,7 +1165,21 @@ inline Vec2i vec2i(int a, int b) {
 	return vec;
 }
 
+inline Vec2i vec2i(int a) {
+	Vec2i vec;
+	vec.x = a;
+	vec.y = a;
+	return vec;
+}
+
 inline Vec2i vec2i(Vec2 a) {
+	Vec2i vec;
+	vec.x = a.x;
+	vec.y = a.y;
+	return vec;
+}
+
+inline Vec2i vec2i(Vec2i a) {
 	Vec2i vec;
 	vec.x = a.x;
 	vec.y = a.y;

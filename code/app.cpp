@@ -76,11 +76,13 @@ Build mode:
 // #define STB_TRUETYPE_IMPLEMENTATION
 // #include "external\stb_truetype.h"
 
-
-
-
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "external\stb_truetype.h"
+
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_PARAMETER_TAGS_H
+#include FT_MODULE_H
 
 
 #include "curl.h"
@@ -3561,6 +3563,9 @@ struct AppData {
 
 	bool appIsBusy;
 
+	int fontHeight;
+	float fontScale;
+
 	Font* font;
 	Font* fontTitle;
 
@@ -4142,6 +4147,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		updateInput(ds->input, isRunning, windowHandle);
 
+		int systemFontHeight = getSystemFontHeight(systemData->windowHandle);
+		ad->fontHeight = roundInt(ad->fontScale*systemFontHeight);
+
 		ad->appIsBusy = false;
 
 		ad->input = *ds->input;
@@ -4181,15 +4189,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 				as.font = "OpenSans-Regular.ttf";
 				as.fontBold = "OpenSans-Bold.ttf";
 				as.fontItalic = "OpenSans-Italic.ttf";
-				as.fontHeight = 20;
+				as.fontHeight = 16;
 				as.fontShadow = 0;
-				as.graphTitleFontHeight = 30;
+				as.graphTitleFontHeight = 24;
 				as.graphFontShadow = 1;
 				as.windowHeightMod = 1.0f;
 				as.windowBorder = 4;
 				as.border = 4;
 				as.padding = 4;
-				as.heightMod = 1.2f;
+				as.heightMod = 1.3f;
 				as.textPaddingMod = 0.5f;
 				as.rounding = 5;
 

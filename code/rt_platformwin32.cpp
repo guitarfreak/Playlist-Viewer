@@ -836,6 +836,15 @@ bool windowSizeChanged(HWND windowHandle, WindowSettings* ws) {
 	return result;
 }
 
+int getSystemFontHeight(HWND windowHandle) {
+	HDC dc = GetDC(windowHandle);
+
+	TEXTMETRIC textMetric;
+	GetTextMetrics(dc, &textMetric);
+
+	return textMetric.tmHeight;
+}
+
 // MetaPlatformFunction();
 uint getTicks() {
     uint result = GetTickCount();
