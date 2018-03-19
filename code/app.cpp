@@ -128,8 +128,6 @@ Timer* globalTimer;
 #include "rt_misc_win32.cpp"
 #include "rt_platformWin32.cpp"
 
-#include "truetypeInterpreter.cpp"
-
 #include "memory.cpp"
 #include "openglDefines.cpp"
 #include "userSettings.cpp"
@@ -942,6 +940,9 @@ struct TextEditVars {
 	Vec2 scrollOffset;
 
 	bool cursorChanged;
+
+	bool wordSelectionMode;
+	int wordSelectionStartIndex;
 };
 
 struct BoxSettings {
@@ -1164,9 +1165,9 @@ void newGuiBegin(NewGui* gui, Input* input = 0) {
 		gui->contenderIdZ[i] = voidId;
 	}
 
-	if(gui->activeId != 0) {
-		for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = voidId;
-	}
+	// if(gui->activeId != 0) {
+	// 	for(int i = 0; i < Gui_Focus_Size; i++) gui->hotId[i] = voidId;
+	// }
 
 	gui->zLevel = 0;
 
@@ -1263,14 +1264,15 @@ void newGuiSetNotActiveWhenActive(NewGui* gui, int id) {
 }
 
 void newGuiSetActive(NewGui* gui, int id, bool input, int focus = 0) {
-	if(input && newGuiIsHot(gui, id, focus)) {
-		gui->activeId = id;
-		gui->gotActiveId = id;
-	}
+	if(!newGuiIsActive(gui, id))
+		if(input && newGuiIsHot(gui, id, focus)) {
+			gui->activeId = id;
+			gui->gotActiveId = id;
+		}
 }
 
 void newGuiSetHot(NewGui* gui, int id, float z, int focus = 0) {
-	if(!newGuiSomeoneActive(gui)) {
+	// if(!newGuiSomeoneActive(gui)) {
 		if(z > gui->contenderIdZ[focus]) {
 			gui->contenderId[focus] = id;
 			gui->contenderIdZ[focus] = z;
@@ -1279,7 +1281,7 @@ void newGuiSetHot(NewGui* gui, int id, float z, int focus = 0) {
 				gui->contenderId[focus] = max(id, gui->contenderId[focus]);
 			}
 		}
-	}
+	// }
 }
 
 void newGuiSetHotAll(NewGui* gui, int id, float z) {
@@ -1541,8 +1543,8 @@ int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, int mode, T
 		}
 	}
 
-	// if(event == 3 && (leftMouse || enter)) {
-	if(event == 3 && (enter)) {
+	if(event == 3 && (leftMouse || enter)) {
+	// if(event == 3 && (enter)) {
 		if(mode == 0)      strCpy((char*)var, gui->editText);
 		else if(mode == 1) *((int*)var) = strToInt(gui->editText);
 		else if(mode == 2) *((float*)var) = strToFloat(gui->editText);
@@ -1552,7 +1554,8 @@ int newGuiGoTextEdit(NewGui* gui, Rect textRect, float z, void* var, int mode, T
 		textEditBox(gui->editText, maxTextSize, editSettings.textBoxSettings.textSettings.font, textRect, input, vec2i(-1,1), editSettings, editVars);
 	}
 
-	if(event == 3 && (escape || leftMouse)) event = 4;
+	// if(event == 3 && (escape || leftMouse)) event = 4;
+	if(event == 3 && (escape)) event = 4;
 
 	return event;
 }
@@ -1716,16 +1719,53 @@ void drawText(Rect r, char* text, Vec2i align, Rect scissor, TextSettings settin
 	scissorTestScreen(scissor);
 }
 
-void drawBox(Rect r, Rect scissor, BoxSettings settings) {
+void drawBox(Rect r, Rect scissor, BoxSettings settings, bool round = true) {
 	scissorTestScreen(scissor);
 
+	if(round) {
+		r.left = roundFloat(r.left);
+		r.right = roundFloat(r.right);
+		r.top = roundFloat(r.top);
+		r.bottom = roundFloat(r.bottom);
+	}
+
+	bool hasBorder = settings.borderColor.a != 0 ? true : false;
+	int borderSize = 1;
+
 	if(settings.color.a != 0) {
-		drawRectRounded(r, settings.color, settings.roundedCorner);
+		Rect br = r;
+		if(hasBorder) br = rectExpand(br, -vec2(borderSize*2));
+
+		drawRectRounded(br, settings.color, settings.roundedCorner);
 	}
-	glLineWidth(0.5f);
-	if(settings.borderColor.a != 0) {
-		drawRectRoundedOutlined(r, settings.color, settings.borderColor, settings.roundedCorner);
+
+	if(hasBorder) {
+		glLineWidth(1);
+		drawRectRoundedOutline(r, settings.borderColor, settings.roundedCorner);
 	}
+}
+
+void drawBoxProgress(Rect r, float p, Vec4 c0, Vec4 c1, bool outlined, Vec4 oc) {	
+	if(outlined) {
+		drawRectOutlined(rectSetR(r, r.left + rectW(r)*p), c0, oc, 1);
+		drawRectOutlined(rectSetL(r, r.right - rectW(r)*(1-p)), c1, oc, 1);
+	} else {
+		drawRect(rectSetR(r, r.left + rectW(r)*p), c0);
+		drawRect(rectSetL(r, r.right - rectW(r)*(1-p)), c1);
+	}
+}
+
+void drawBoxProgressHollow(Rect r, float p, Vec4 c0, Vec4 oc) {	
+	r = rectRound(r);
+	Rect leftR = rectSetR(r, r.left + rectW(r)*p);
+	leftR = rectRound(leftR);
+
+	drawRect(leftR, c0);
+
+	drawLineV(rectBR(leftR), rectTR(leftR), oc);
+
+	glLineWidth(1.0f);
+	drawRectOutline(r, oc);
 }
 
 void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
@@ -1740,21 +1780,16 @@ void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings 
 
 void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
 
-	BoxSettings* boxSettings = &editSettings.textBoxSettings.boxSettings;
+	BoxSettings* boSettings = &editSettings.textBoxSettings.boxSettings;
 	TextSettings* textSettings = &editSettings.textBoxSettings.textSettings;
 
 	Vec2 startPos = rectL(textRect) + vec2(editSettings.textOffset,0);
 	if(active) startPos += editVars.scrollOffset;
 
-	scissorTestScreen(scissor);
-	drawRect(textRect, boxSettings->color);
-	if(boxSettings->borderColor.a != 0) {
-		glLineWidth(0.5f);
-		drawRectOutline(textRect, boxSettings->borderColor);
-	}
+	drawBox(textRect, scissor, *boSettings);
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
-	scissorTestScreen(rectExpand(getRectScissor(textRect, scissor), vec2(-3,-3)));
+	scissorTestScreen(rectExpand(getRectScissor(textRect, scissor), vec2(-2,-2)));
 	// scissorTestScreen(getRectScissor(textRect, scissor));
 
 	if(active) text = editSettings.textBuffer;
@@ -1782,7 +1817,10 @@ void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextE
 			cRect = rectTrans(cRect, vec2(2,0)); // Small offset for looks.
 		}
 
-		drawRect(cRect, editSettings.colorCursor);
+		Vec4 cCursor = editSettings.colorCursor;
+		// cCursor.a = (cos(editVars.cursorTimer) + 1)/2.0f;
+
+		drawBox(cRect, scissor, boxSettings(cCursor));
 	}
 
 	scissorTestScreen(scissor);
@@ -1813,7 +1851,11 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSett
 	// rectExpand(&sr, vec2(0,-settings.heightOffset*2));
 	rectExpand(&sr, vec2(-settings.heightOffset*2,-settings.heightOffset*2));
 
-	if(boxSettings->color.a > 0) drawRect(br, boxSettings->color);
+// void drawBox(Rect r, Rect scissor, BoxSettings settings, bool round = true) {
+	drawBox(br, scissor, *boxSettings);
+	// if(boxSettings->color.a > 0) drawRect(br, boxSettings->color);
+	// if(boxSettings->borderColor.a != 0) drawRectOutline(br, boxSettings->borderColor);
+
 	if(settings.lineColor.a > 0 && settings.lineWidth > 0) {
 		glLineWidth(settings.lineWidth);
 		drawLine(rectL(br), rectR(br), settings.lineColor);
@@ -1821,8 +1863,6 @@ void drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, SliderSett
 
 	if(settings.rounding > 0) drawRectRounded(sr, settings.color, settings.rounding);
 	else drawRect(sr, settings.color);
-
-	if(boxSettings->borderColor.a != 0) drawRectOutline(br, boxSettings->borderColor);
 
 	// scissorTestScreen(rectExpand(scissor, vec2(-1,-1)));
 	scissorTestScreen(getRectScissor(br, scissor));
@@ -1875,6 +1915,8 @@ bool _newGuiQuickButton(NewGui* gui, Rect r, char* text, Vec2i align, TextBoxSet
 	set.boxSettings.color += highlightOnActive?newGuiColorModB(gui):newGuiColorMod(gui);
 	drawTextBox(r, text, align, gui->scissor, set);
 
+	if(newGuiIsHot(gui)) newGuiSetCursor(gui, IDC_HAND);
+
 	return active;
 }
 
@@ -1922,7 +1964,7 @@ bool newGuiQuickTextEditAllVars(NewGui* gui, Rect r, void* data, int varType, in
 	else if(varType == 1) drawTextEditBox(*intData, r, event > 0, gui->scissor, gui->editVars, set);
 	else drawTextEditBox(*floatData, r, event > 0, gui->scissor, gui->editVars, set);
 
-	if(newGuiIsWasHotOrActive(gui)) newGuiSetCursor(gui, IDC_IBEAM);
+	if(newGuiIsHot(gui) || (newGuiIsActive(gui) && pointInRectEx(gui->input->mousePosNegative, intersect))) newGuiSetCursor(gui, IDC_IBEAM);
 
 	if(event == 3) return true;
 
@@ -2087,15 +2129,11 @@ void newGuiQuickScroll(NewGui* gui, Rect r, float height, float* scrollValue, Sc
 	if(hasScrollbar) rectAddR(&itemRegion, set.sliderMargin.x);
 	Rect scrollBarRegion = rectSetL(scrollRegion, scrollRegion.right - scrollBarWidth);
 
-	scissorTestScreen(rectExpand(gui->scissor, vec2(-3,-3)));
+	scissorTestScreen(rectExpand(gui->scissor, vec2(-2,-2)));
 
 	// if(!hasScrollbar) rectSetB(&scrollRegion, scrollRegion.top-height);
-	drawRect(scrollRegion, set.boxSettings.color);
+	drawBox(scrollRegion, gui->scissor, set.boxSettings);
 	if(set.scrollBarColor.a != 0) drawRect(scrollBarRegion, set.scrollBarColor);
-	if(set.boxSettings.borderColor.a != 0) {
-		glLineWidth(0.5f);
-		drawRectOutline(scrollRegion, set.boxSettings.borderColor);
-	}
 
 	float sliderSize = set.sliderSize;
 	if(sliderSize == 0) sliderSize = (rectH(scrollBarRegion) / (rectH(scrollRegion)+itemsHeight)) * rectH(scrollBarRegion);
@@ -2178,6 +2216,8 @@ bool newGuiQuickComboBox(NewGui* gui, Rect r, ComboBoxData cData, TextBoxSetting
 	Rect intersection = getRectScissor(gui->scissor, r);
 	bool active = newGuiGoButtonAction(gui, intersection, gui->zLevel);
 	if(rectEmpty(intersection)) return false;
+
+	if(newGuiIsHot(gui)) newGuiSetCursor(gui, IDC_HAND);
 
 	TextBoxSettings set = settings == 0 ? gui->comboBoxSettings : *settings;
 	set.boxSettings.color += newGuiColorMod(gui);
@@ -2275,6 +2315,23 @@ TextEditSettings textEditSettings(TextBoxSettings textSettings, Vec4 defaultText
 	return {textSettings, defaultTextColor, textBuffer, flags, cursorWidth, cursorHeightMod, "", colorSelection, colorCursor, textOffset};
 }
 
+int textWordSearch(char* text, int startIndex, bool left) {
+	if(left) {
+		int index = startIndex;
+		if(text[index] == ' ' && index != 0) index--;
+		while(text[index] != ' ' && index != 0) index--;
+		if(text[index] == ' ') index++;
+
+		return index;
+	} else {
+		int index = startIndex;
+		if(text[index] == ' ' && index != 0) index--;
+		while(text[index] != ' ' && text[index] != '\0') index++;
+
+		return index;
+	}
+}
+
 void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* input, Vec2i align, TextEditSettings tes, TextEditVars* tev) {
 
 	bool wrapping = flagGet(tes.flags, ESETTINGS_WRAPPING);
@@ -2289,25 +2346,52 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 	int cursorIndex = tev->cursorIndex;
 	int markerIndex = tev->markerIndex;
 
-	int mouseIndex;
-	if(input->mouseButtonPressed[0] || input->mouseButtonDown[0]) {
-		Vec2 mp = input->mousePosNegative;
-		if(singleLine) mp.y = rectCenY(textRect); // Lock mouse y axis.
+	// Bug.
+	Vec2 off = vec2(2,0);
+	Vec2 mp = input->mousePosNegative + off;
+	if(singleLine) mp.y = rectCenY(textRect); // Lock mouse y axis.
 
-		mouseIndex = textMouseToIndex(text, font, startPos, mp, align, wrapWidth);
+	int mouseIndex = textMouseToIndex(text, font, startPos, mp, align, wrapWidth);
+
+	if(input->doubleClick) {
+		tev->wordSelectionMode = true;
+		cursorIndex = 0;
+		markerIndex = strLen(text);
+
+		tev->wordSelectionStartIndex = mouseIndex;
 	}
 
-	if(input->mouseButtonPressed[0]) {
-		if(pointInRect(input->mousePosNegative, textRect)) {
-			markerIndex = mouseIndex;
+	if(input->mouseButtonReleased[0]) {
+		tev->wordSelectionMode = false;
+	}
+
+	if(!tev->wordSelectionMode) {
+		if(input->mouseButtonPressed[0]) {
+			if(pointInRect(input->mousePosNegative, textRect)) {
+				markerIndex = mouseIndex;
+			}
+		}
+
+		if(input->mouseButtonDown[0]) {
+			cursorIndex = mouseIndex;
+		}
+
+	} else {
+		if(input->mouseButtonDown[0]) {
+			if(tev->wordSelectionStartIndex != mouseIndex) {
+				if(mouseIndex < tev->wordSelectionStartIndex) {
+					markerIndex = textWordSearch(text, tev->wordSelectionStartIndex, false);
+					cursorIndex = textWordSearch(text, mouseIndex, true);
+				} else {
+					markerIndex = textWordSearch(text, tev->wordSelectionStartIndex, true);
+					cursorIndex = textWordSearch(text, mouseIndex, false);
+				}
+			} else {
+				markerIndex = textWordSearch(text, mouseIndex, true);
+				cursorIndex = textWordSearch(text, mouseIndex, false);
+			}
 		}
 	}
-
-	if(input->mouseButtonDown[0]) {
-		cursorIndex = mouseIndex;
-	}
-
-
 
 	bool left = input->keysPressed[KEYCODE_LEFT];
 	bool right = input->keysPressed[KEYCODE_RIGHT];
@@ -2514,9 +2598,8 @@ void textEditBox(char* text, int textMaxSize, Font* font, Rect textRect, Input* 
 	tev->cursorIndex = cursorIndex;
 	tev->markerIndex = markerIndex;
 
-	// // Cursor.
-	// // tev->cursorTime += tes.dt * tes.cursorSpeed;
-	// // Vec4 cmod = vec4(0,cos(tev->cursorTime)*tes.cursorColorMod - tes.cursorColorMod,0,0);
+	// tev->cursorTimer += tev->dt*tes.cursorFlashingSpeed;
+	// if(tev->cursorChanged || input->mouseButtonPressed[0]) tev->cursorTimer = 0;
 }
 
 struct GuiWindowSettings {
@@ -2558,7 +2641,8 @@ bool newGuiWindowUpdate(NewGui* gui, Rect* r, float z, GuiWindowSettings setting
 		// int eventRightClick = newGuiGoDragAction(gui, region, z, Gui_Focus_MRight, screenMouse);
 		// event = max(event, eventRightClick);
 		if(event == 1) {
-			gui->mode = gui->input->keysDown[KEYCODE_CTRL];
+			// gui->mode = gui->input->keysDown[KEYCODE_CTRL];
+			gui->mode = false;
 
 			if(!gui->mode) {
 				POINT p; 
@@ -3672,26 +3756,6 @@ struct AppData {
 	int sortStat;
 
 	Vec2 clampFilter[Line_Graph_Count];
-
-
-
-	TrueTypeInterpreter interpreter;
-	stbtt_vertex* verts;
-	int vertCount;
-
-	char glyphChar[2];
-	bool drawCurrent;
-	bool drawOriginal;
-
-	// For font showcase demo.
-
-	char fontFileString[50];
-	Font testFonts[100];
-	bool colorSwitch;
-	char* folderFiles[500];
-	int folderFilesCount;
-	float folderScrollValue;
-	char* showcaseString;
 };
 
 
@@ -4095,6 +4159,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 		gs->screenRes = ws->currentRes;
 
 		loadCurlFunctions(ad->curlDll);
+
+		// Bad news.
+		for(int i = 0; i < arrayCount(globalGraphicsState->fonts); i++) {
+			for(int j = 0; j < arrayCount(globalGraphicsState->fonts[0]); j++) {
+				Font* font = &globalGraphicsState->fonts[i][j];
+				if(font->heightIndex != 0) {
+					freeFont(font);
+				} else break;
+			}
+		}
 	}
 
 	TIMER_BLOCK_END(reload);
@@ -4175,7 +4249,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 		ws->customCursor = false;
 
-		if(init || ad->reloadSettings) {
+		if(init || ad->reloadSettings || reload) {
 	// if(init || ad->reloadSettings || reload) {
 
 			if(!fileExists(App_Settings_File)) {
@@ -4228,7 +4302,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				rac2.background =            { { 0.0010000, 0.0010000, 0.2000000, 0.9990000 },-1 };
 				rac2.button =                { { 0.0000000, 0.0000000, 0.0500000, 0.0000000 }, 5 };
 				rac2.uiBackground =          { { 0.0000000, 0.0000000,-0.0300000, 0.0000000 }, 5 };
-				rac2.edge =                  { { 0.0000000, 0.0000000, 0.2000000, 0.0000000 }, 5 };
+				rac2.edge =                  { { 0.0000000, 0.0000000, 0.1200000, 0.0000000 }, 5 };
 				rac2.editCursor =            { { 0.5066964, 0.6009999, 0.7010000, 0.9990000 },-1 };
 				rac2.editSelection =         { { 0.2258796,-0.1090001,-0.2590001, 0.0000000 }, 9 };
 				rac2.graphData1 =            { { 0.5007138, 0.5000002, 0.4590000, 0.9990000 },-1 };
@@ -4260,17 +4334,28 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				// Delete all pre existing fonts.
 				if(ad->reloadSettings) {
+					// for(int i = 0; i < arrayCount(globalGraphicsState->fonts); i++) {
+					// 	for(int j = 0; j < arrayCount(globalGraphicsState->fonts[0]); j++) {
+					// 		Font* font = &globalGraphicsState->fonts[i][j];
+					// 		if(font->height != 0) {
+					// 			if(font->boldFont) freeFont(font->boldFont);
+					// 			if(font->italicFont) freeFont(font->italicFont);
+					// 			freeFont(font);
+					// 			font->height = 0;
+					// 		}
+					// 	}
+					// }
+
+					// Bad news.
 					for(int i = 0; i < arrayCount(globalGraphicsState->fonts); i++) {
 						for(int j = 0; j < arrayCount(globalGraphicsState->fonts[0]); j++) {
 							Font* font = &globalGraphicsState->fonts[i][j];
-							if(font->height != 0) {
-								if(font->boldFont) freeFont(font->boldFont);
-								if(font->italicFont) freeFont(font->italicFont);
+							if(font->heightIndex != 0) {
 								freeFont(font);
-								font->height = 0;
-							}
+							} else break;
 						}
 					}
+
 					globalGraphicsState->fontsCount = 0;
 				}
 
@@ -4346,6 +4431,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->comboBoxSettings.sideAlignPadding = textPadding;
 			// ad->comboBoxSettings.boxSettings.color = ad->editSettings.textBoxSettings.boxSettings.color;
 		}
+
+
 
 		{
 			NewGui* gui = ad->gui;
@@ -4579,8 +4666,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	TIMER_BLOCK_END(openglInit);
 
-
-
+	// {
+	// 	Rect nr = rectTLDim(50, 50, 1280, 800);
+	// 	MoveWindow(windowHandle, nr.left, nr.top, rectW(nr), rectH(nr), true);
+	// }
 
 	// @AppLoop.
 
@@ -5765,10 +5854,13 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			{
 				NewGui* gui = ad->gui;
 				float z = 0;
-				int event;
+				int event, event2;
 
 				if(i == 0) {
 					event = newGuiGoDragAction(gui, rGraphs, z, Gui_Focus_MLeft);
+					event2 = newGuiGoDragAction(gui, rGraphs, z, Gui_Focus_MRight);
+					event = max(event, event2);
+
 					if(event == 1) gui->mouseAnchor.x = -getMousePosS().x - graphCamCamToScreenSpaceX(cam, cam->x);
 					if(event > 0) {
 						double camX = graphCamScreenToCamSpaceX(cam, -getMousePosS().x - gui->mouseAnchor.x);
@@ -5854,7 +5946,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 					glLineWidth(0.5f);
 					drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), horiLinesColor); 
 					glLineWidth(1);
-					scissorTestScreen(scaleRect);
+					scissorTestScreen(rectRound(rectExpand(scaleRect, vec2(-2))));
 
 					// Base markers.
 					drawLineNewOff(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(-markLength,0), mainColor); 
@@ -5885,7 +5977,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 						glLineWidth(0.5f);
 						drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), subHoriLinesColor); 
 						glLineWidth(1);
-						scissorTestScreen(scaleRect);
+						scissorTestScreen(rectRound(rectExpand(scaleRect, vec2(-2))));
 					}
 
 					p += stepSize;
@@ -5906,7 +5998,8 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			glLineWidth(leftScaleDividerSize);
 			for(int camIndex = 0; camIndex < ad->camCount-1; camIndex++) {
 				Rect r = leftTextRects[camIndex];
-				drawLine(rectBL(r), rectBR(r), color);
+				// drawLine(rectBL(r), rectBR(r), color);
+				drawLine(roundVec2(rectBL(r)) + vec2(1,-0.5f), roundVec2(rectBR(r)) + vec2(0,-0.5f), color);
 			}
 			glLineWidth(1);
 		}
@@ -6505,7 +6598,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 				glLineWidth(1);
 				float dislikePercent = videoGetLikesDiff(sv);
-				drawRectProgressHollow(r, 1-dislikePercent, ac->windowBorder, ac->edge);
+				drawBoxProgressHollow(r, 1-dislikePercent, ac->windowBorder, ac->edge);
 				newGuiQuickText(gui, r, fillString("%f%%", dislikePercent*100));
 			}
 
@@ -6972,7 +7065,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 						Rect r = layoutInc(&lTemp);
 						scissorTestIntersect(gui->scissor, r);
 						// drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
-						drawRectProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
+						drawBoxProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
 						newGuiQuickTextBox(gui, r, fillString("%i/%i", ad->modeData.downloadProgress, ad->modeData.downloadMax));
 
 						r = scissorTestIntersect(gui->scissor, layoutInc(&lTemp));
@@ -7074,7 +7167,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 						Rect r = layoutInc(&lTemp);
 						// scissorTestIntersect(gui->scissor, r);
 						// drawRectProgress(r, (float)divZero(ad->downloadProgress, ad->downloadMax), progressLeft, progressRight, true, edgeColor);
-						drawRectProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
+						drawBoxProgressHollow(r, (float)divZero(ad->modeData.downloadProgress, ad->modeData.downloadMax), progressLeft, edgeColor);
 						newGuiQuickTextBox(gui, r, fillString("%i/%i", ad->modeData.downloadProgress, ad->modeData.downloadMax));
 
 						r = scissorTestIntersect(gui->scissor, layoutInc(&lTemp));
@@ -7175,7 +7268,7 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 					scissorState();
 
 					Rect layoutRect = rectExpand(r, vec2(-border*2));
-					newGuiScissorLayoutPush(gui, layoutRect, layoutData(layoutRect, rowHeightNormal, padding, 0));
+					newGuiScissorLayoutPush(gui, rectExpand(layoutRect, vec2(2)), layoutData(layoutRect, rowHeightNormal, padding, 0));
 
 					{
 						Layout lay = layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding,0));
@@ -7238,22 +7331,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			TIMER_BLOCK_NAMED("BlitBuffers");
 
 			blitFrameBuffers(FRAMEBUFFER_2dMsaa, FRAMEBUFFER_2dNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-			// if(!ad->screenShotMode) {
-			// 	blitFrameBuffers(FRAMEBUFFER_appMsaa, FRAMEBUFFER_DebugNoMsaa, res, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-			// 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-			// 	glBlendEquation(GL_FUNC_ADD);
-			// 	bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
-
-			// 	glLoadIdentity();
-			// 	glViewport(0,0, res.w, res.h);
-			// 	glOrtho(0,1,1,0, -1, 1);
-
-			// 	drawRect(rect(0, 1, 1, 0), vec4(1,1,1,ds->guiAlpha), frameBufferUV, getFrameBuffer(FRAMEBUFFER_DebugNoMsaa)->colorSlot[0]->id);
-			// 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			// 	glBlendEquation(GL_FUNC_ADD);
-			// }
 		}
 
 
@@ -7302,176 +7379,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		#if USE_SRGB
 		glDisable(GL_FRAMEBUFFER_SRGB);
 		#endif
-
-
-
-		// if(false)
-		// {
-
-		// glLoadIdentity();
-		// res = ws->currentRes;
-		// glViewport(0,0, res.w, res.h);
-		// glOrtho(0, res.w, -res.h, 0, -10,10);
-
-		// drawRect(getScreenRect(ws), vec4(1,1));
-
-		// // TextSettings set = ad->gui->textSettings;
-		// // set.color = vec4(0,1);
-		// // Vec2 pos = vec2(100,-100);
-		// // drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos, set);
-
-
-		// 	// drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
-		// 	drawRect(getScreenRect(ws), vec4(0.2f,0.95f));
-
-		// 	TextSettings set = ad->gui->textSettings;
-		// 	float fh = ad->font->height;
-
-		// 	for(int i = 0; i < 2; i++) {
-		// 		Vec4 textColor, bgColor;
-		// 		if (i == 0) textColor = vec4(1,1);
-		// 		else textColor = vec4(0,1);
-		// 		set.color = textColor;
-
-		// 		bgColor = i==0?vec4(0,1):vec4(1,1);
-
-		// 		Texture* t = i==0?&ad->font->brightTex:&ad->font->darkTex;
-		// 		float scale = 4;
-		// 		Vec2 size = vec2(t->dim * scale);
-		// 		Rect r = rectTLDim( vec2(20,i==0?-20:-500), size);
-		// 		drawRect(rectSetB(r, r.top - 400), bgColor);
-		// 		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NEAREST]);
-		// 		drawRect(r, textColor, rect(0,0,1,1), t->id);
-
-		// 		Vec2 pos;
-		// 		pos = vec2(size.x+40,i==0?-20:-520);
-		// 		r = rectTLDim(pos, vec2(800,500));
-		// 		drawRect(r, bgColor);
-		// 		rectExpand(&r, vec2(-20,0));
-		// 		pos.x += 10;
-		// 		drawText("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~", pos-=vec2(0,fh), set);
-		// 		drawText("ÄäÖöÜü", pos-=vec2(0,fh), set);
-		// 		drawText("THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG", pos-=vec2(0,fh), set);
-		// 		drawText("The quick brown fox jumps over the lazy dog", pos-=vec2(0,fh), set);
-
-		// 		drawText("Über Ändern Öfters Fußball", pos-=vec2(0,fh*2), set);
-		// 		drawText("über ändern öfters Fußball", pos-=vec2(0,fh), set);
-
-		// 		drawText("ILTHilth", pos-=vec2(0,fh*2), set);
-
-		// 		drawText("It has long been said that air (which others call argon) is the source of life. This is not in fact the case, and I engrave these words to describe how I came to understand the true source of life and, as a corollary, the means by which life will one day end. \n\n For most of history, the proposition that we drew life from air was so obvious that there was no need to assert it. Every day we consume two lungs heavy with air; every day we remove the empty ones from our chest and replace them with full ones. If a person is careless and lets his air level run too low, he feels the heaviness of his limbs and the growing need for replenishment. It is exceedingly rare that a person is unable to get at least one replacement lung before his installed pair runs empty; on those unfortunate occasions where this has happened—when a person is trapped and unable to move, with no one nearby to assist him—he dies within seconds of his air running out. \n\nBut in the normal course of life, our need for air is far from our thoughts, and indeed many would say that satisfying that need is the least important part of going to the filling stations. For the filling stations are the primary venue for social conversation, the places from which we draw emotional sustenance as well as physical. We all keep spare sets of full lungs in our homes, but when one is alone, the act of opening one’s chest and replacing one’s lungs can seem little better than a chore. In the company of others, however, it becomes a communal activity, a shared pleasure.", pos-=vec2(0,fh*2), vec2i(-1,1), rectW(r), set);
-
-		// 		// drawText("!ABCDEFGHIJKLMNOPQRSTUVWXYZ", vec2(500,-500), ad->gui->textSettings);
-		// 		glBindSampler(0, globalGraphicsState->samplers[SAMPLER_NORMAL]);
-		// 	}
-		// }
-
-		// if(true) {
-
-
-
-		// 	glLoadIdentity();
-		// 	res = ws->currentRes;
-		// 	glViewport(0,0, res.w, res.h);
-		// 	glOrtho(0, res.w, -res.h, 0, -10,10);
-
-
-		// 		// bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
-		// 		// glClearColor(0,0,0,1);
-		// 		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-		// 		// bindFrameBuffer(FRAMEBUFFER_2dNoMsaa);
-
-		// 	Vec4 bgColor = vec4(1,1,1,1);
-		// 	drawRect(getScreenRect(ws), bgColor);
-
-
-		// 	bool useSrgb = true;
-		// 	if(useSrgb) 
-		// 		glEnable(GL_FRAMEBUFFER_SRGB);
-
-		// 	// Rect r = rectTLDim(100,-100,400,400);
-		// 	Rect sr = getScreenRect(ws);
-
-		// 	Vec2 p = vec2(0,0);
-		// 	Vec2 dim = vec2(rectW(sr), 50);
-		// 	Rect r = rectExpand(sr, vec2(0));
-		// 	drawRectNewColoredW(rectTLDim(p, dim), vec4(1,0,0,1), vec4(0,1,0,1)); p.y -= dim.y;
-		// 	drawRectNewColoredW(rectTLDim(p, dim), vec4(0,1,0,1), vec4(0,0,1,1)); p.y -= dim.y;
-		// 	drawRectNewColoredW(rectTLDim(p, dim), vec4(0,0,1,1), vec4(1,0,0,1)); p.y -= dim.y;
-
-		// 	Vec2 bd = vec2(100,400);
-		// 	p.x += bd.x*0.25f;
-		// 	drawRect(rectTLDim(p, bd), vec4(0,1,0,1)); p.x += bd.x*1.25f;
-		// 	drawRect(rectTLDim(p, bd), vec4(1,1,0,1)); p.x += bd.x*1.25f;
-		// 	drawRect(rectTLDim(p, bd), vec4(0,1,1,1)); p.x += bd.x*1.25f;
-		// 	drawRect(rectTLDim(p, bd), vec4(1,0,1,1)); p.x += bd.x*1.25f;
-
-
-
-		// 	p.x = 0;
-		// 	dim.y *= 0.5f;
-		// 	p.y -= dim.y;
-		// 	drawRect(rectTLDim(p, dim), vec4(1,0,0,1)); p.y -= dim.y;
-		// 	drawRect(rectTLDim(p, dim), vec4(1,0,0,0.5f)); p.y -= dim.y;
-		// 	p.y -= dim.y;
-
-		// 	drawRect(rectTLDim(p, dim), vec4(0,0,1,1)); p.y -= dim.y;
-		// 	drawRect(rectTLDim(p, dim), vec4(0,0,1,0.5f)); p.y -= dim.y;
-		// 	p.y -= dim.y;
-
-		// 	drawRect(rectTLDim(p, dim), vec4(0,1,0,1)); p.y -= dim.y;
-		// 	drawRect(rectTLDim(p, dim), vec4(0,1,0,0.5f)); p.y -= dim.y;
-
-
-
-		// 	glDisable(GL_FRAMEBUFFER_SRGB);
-
-		// 	TextSettings set = ad->gui->textSettings;
-		// 	// float fh = ad->font->height;
-		// 	// drawText("Hello World!", vec2(100,-100), set);
-
-		// 	Rect tr = rectTLDim(100,-125,500,30);
-		// 	drawRect(tr, vec4(0,1));
-		// 	set.color = vec4(1,1);
-		// 	drawText("H$T34gserhe5g45hsre9g8hzu04pt8zsepr9g8sbzep49t834t", rectTL(tr), set);
-
-		// 	rectTrans(&tr, vec2(0,-rectH(tr)));
-		// 	drawRect(tr, vec4(1,1));
-		// 	set.color = vec4(0,1);
-		// 	drawText("H$T34gserhe5g45hsre9g8hzu04pt8zsepr9g8sbzep49t834t", rectTL(tr), set);
-
-		// 	rectTrans(&tr, vec2(0,-rectH(tr)));
-		// 	drawRect(tr, vec4(0,1,0,1));
-		// 	set.color = vec4(1,0,0,1);
-		// 	drawText("H$T34gserhe5g45hsre9g8hzu04pt8zsepr9g8sbzep49t834t", rectTL(tr), set);
-
-		// 	glEnable(GL_FRAMEBUFFER_SRGB);
-
-		// 	rectTrans(&tr, vec2(0,-rectH(tr)));
-		// 	drawRect(tr, vec4(0,1,0,1));
-		// 	set.color = vec4(1,0,0,1);
-		// 	drawText("abcdefghijklmABCDEFGHIJKLMnopqrstuv", rectTL(tr), set);
-
-
-
-
-		// 		// glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		// 		// glLoadIdentity();
-		// 		// glViewport(0,0, res.w, res.h);
-		// 		// glOrtho(0,1,1,0, -1, 1);
-		// 		// drawRect(rect(0, 1, 1, 0), frameBufferUV, getFrameBuffer(FRAMEBUFFER_2dNoMsaa)->colorSlot[0]->id);
-
-
-		// 	// drawRectNewColored(r, vec4(0,1), vec4(0,1), vec4(1,1), vec4(1,1));
-
-		// 	// Rect mr = rectCenDim(300,-300,300,300);
-		// 	// drawRect(mr, vec4(0.5f,1));
-
-		// 	if(useSrgb) 
-		// 		glDisable(GL_FRAMEBUFFER_SRGB);
-
-		// }
-
 
 	}
 

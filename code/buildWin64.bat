@@ -1,7 +1,7 @@
 @echo off
 
 set 7ZIP_PATH=C:\Program Files\7-Zip\7z.exe
-set APP_NAME=PlaylistCollector
+set APP_NAME=Playlist Viewer
 
 set scriptpath=%~d0%~p0
 cd %scriptpath%
@@ -48,9 +48,13 @@ if "%~2"=="-release" (
 	set MODE_DEFINE=-DRELEASE_BUILD
 )
 
+if "%~3"=="-ship" (
+	set MODE_DEFINE=%MODE_DEFINE% -DSHIPPING_MODE
+)
+
 rem -d2cgsummary -Bt
 set COMPILER_OPTIONS= -MD %BUILD_MODE% -nologo -Oi -FC -wd4838 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHa- -Z7
-set LINKER_OPTIONS= -link -SUBSYSTEM:WINDOWS -OUT:%APP_NAME%.exe -incremental:no -opt:ref
+set LINKER_OPTIONS= -link -SUBSYSTEM:WINDOWS -OUT:"%APP_NAME%.exe" -incremental:no -opt:ref
 
 
 del main_*.pdb > NUL 2> NUL
@@ -106,7 +110,7 @@ goto packShippingFolderEnd
 
 :parseParameters
 IF "%~1"=="" GOTO parseParametersEnd
-IF "%~1"=="-run" call %APP_NAME%.exe
+IF "%~1"=="-run" call "%APP_NAME%.exe"
 SHIFT
 GOTO parseParameters
 :parseParametersEnd

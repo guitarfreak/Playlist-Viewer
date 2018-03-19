@@ -728,6 +728,17 @@ void drawLine(Vec2 p0, Vec2 p1, Vec4 color) {
 	glEnd();
 }
 
+void drawLineH(Vec2 p0, Vec2 p1, Vec4 color, bool roundUp = false) {
+	float off = roundUp?0.5f:-0.5f;
+	drawLine(roundVec2(p0)+vec2(0, off), 
+	         roundVec2(p1)+vec2(0, off), color);
+}
+void drawLineV(Vec2 p0, Vec2 p1, Vec4 color, bool roundUp = false) {
+	float off = roundUp?0.5f:-0.5f;
+	drawLine(roundVec2(p0)+vec2(off, 0), 
+	         roundVec2(p1)+vec2(off, 0), color);
+}
+
 void drawLineNewOff(Vec2 p0, Vec2 p1, Vec4 color) {
 	glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -781,13 +792,19 @@ void drawRectOutline(Rect r, Vec4 color, int offset = -1) {
 
 	float z = globalGraphicsState->zOrder;
 
-	drawLineStripHeader(color);
+	// More complicated to get the corners right 
+	// or they won't be filled correctly.
+
+	drawLinesHeader(color);
 	rectExpand(&r, offset);
-	pushVec(rectBL(r), z);
-	pushVec(rectTL(r), z);
-	pushVec(rectTR(r), z);
-	pushVec(rectBR(r), z);
-	pushVec(rectBL(r), z);
+	pushVec(rectBL(r)+vec2(0, 0.5f), z);
+	pushVec(rectTL(r)+vec2(0, 0.5f), z);
+	pushVec(rectTL(r)+vec2(0.5f, 0), z);
+	pushVec(rectTR(r)+vec2(0.5f, 0), z);
+	pushVec(rectTR(r)+vec2(0,-0.5f), z);
+	pushVec(rectBR(r)+vec2(0,-0.5f), z);
+	pushVec(rectBR(r)+vec2(-0.5f,0), z);
+	pushVec(rectBL(r)+vec2(-0.5f,0), z);
 	glEnd();
 }
 
@@ -942,26 +959,6 @@ void drawRectHollow(Rect r, float size, Vec4 c) {
 	drawRect(rectSetL(r, r.right-size), c);
 	drawRect(rectSetT(r, r.bottom+size), c);
 	drawRect(rectSetR(r, r.left+size), c);
-}
-
-void drawRectProgress(Rect r, float p, Vec4 c0, Vec4 c1, bool outlined, Vec4 oc) {	
-	if(outlined) {
-		drawRectOutlined(rectSetR(r, r.left + rectW(r)*p), c0, oc, 1);
-		drawRectOutlined(rectSetL(r, r.right - rectW(r)*(1-p)), c1, oc, 1);
-	} else {
-		drawRect(rectSetR(r, r.left + rectW(r)*p), c0);
-		drawRect(rectSetL(r, r.right - rectW(r)*(1-p)), c1);
-	}
-}
-
-void drawRectProgressHollow(Rect r, float p, Vec4 c0, Vec4 oc) {	
-	Rect leftR = rectSetR(r, r.left + rectW(r)*p);
-	drawRect(leftR, c0);
-
-	drawLine(rectBR(leftR), rectTR(leftR), oc);
-
-	glLineWidth(0.5f);
-	drawRectOutline(r, oc);
 }
 
 void drawTriangle(Vec2 p, float size, Vec2 dir, Vec4 color) {

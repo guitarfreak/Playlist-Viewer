@@ -466,6 +466,19 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 
     // printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
 
+    HWND windowHandle = systemData->windowHandle;
+
+	// Set icon.
+	{
+		char* rs = MAKEINTRESOURCE(1);
+
+		HANDLE hbicon = LoadImage(GetModuleHandle(0), rs, IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+		if(hbicon) SendMessage(windowHandle, WM_SETICON, ICON_BIG, (LPARAM)hbicon);
+
+		HANDLE hsicon = LoadImage(GetModuleHandle(0), rs, IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+		if(hsicon) SendMessage(windowHandle, WM_SETICON, ICON_SMALL, (LPARAM)hsicon);
+	}
+
 	SetCursor(LoadCursor(0, IDC_ARROW));
 }
 

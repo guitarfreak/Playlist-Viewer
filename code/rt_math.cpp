@@ -1876,6 +1876,10 @@ Vec2 operator+(Vec2 a, Vec2i b) {
 	return a;	
 }
 
+Vec2 roundVec2(Vec2 a) {
+	return vec2(roundFloat(a.x), roundFloat(a.y));
+}
+
 //
 //
 //
@@ -2787,6 +2791,11 @@ Vec2 rectDistancePos(Rect r, Vec2 p) {
 		 if(p.y >= r.max.y) result.y = p.y - r.max.y;
 	else if(p.y <= r.min.y) result.y = p.y - r.min.y;
 	return result;
+}
+
+Rect rectRound(Rect r) {
+	for(int i = 0; i < 4; i++) r.e[i] = roundFloat(r.e[i]);
+	return r;
 }
 
 //
