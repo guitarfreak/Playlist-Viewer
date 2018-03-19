@@ -449,7 +449,6 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 
 	TIMER_BLOCK_END(createContext);
 
-
     // #ifndef HID_USAGE_PAGE_GENERIC
     // #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
     // #endif

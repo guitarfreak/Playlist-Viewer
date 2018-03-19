@@ -8,6 +8,6 @@ stb_image and stb_image_write:
 
 Visit https://github.com/nothings/stb for more information.
 
-Libcurl for sending and receiving HTTP requests.
+Libcurl for sending and receiving HTTP requests:
 
 https://curl.haxx.se/libcurl/
