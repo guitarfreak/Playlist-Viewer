@@ -3909,33 +3909,32 @@ extern "C" APPMAINFUNCTION(appMain) {
 		initSystem(systemData, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), true, true, false, 1);
 		windowHandle = systemData->windowHandle;
 
-		printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
+		loadFunctions();
 
-		// loadFunctions();
+		// Ask for specific opengl version.
+		{
+		    GLint attribs[] = {
+		        WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+		        WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+		        // WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+		        WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
+		        0
+		    };
 
-		// // Ask for specific opengl version.
-		// {
-		//     GLint attribs[] = {
-		//         WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
-		//         WGL_CONTEXT_MINOR_VERSION_ARB, 3,
-		//         // WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-		//         WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
-		//         0
-		//     };
+		    HGLRC compatibilityContext = wglCreateContextAttribsARB(systemData->deviceContext, 0, attribs);
+		    if (compatibilityContext && wglMakeCurrent(systemData->deviceContext, compatibilityContext)) {
+		        // systemData->openglContext = compatibilityContext;
+		    } else {
+				printf("Could not set Opengl compatibility context\n");
+		    }
+		}
 
-		//     HGLRC compatibilityContext = wglCreateContextAttribsARB(systemData->deviceContext, 0, attribs);
-		//     if (compatibilityContext && wglMakeCurrent(systemData->deviceContext, compatibilityContext)) {
-		//         systemData->openglContext = compatibilityContext;
-		//     } else {
-		// 		printf("Could not set Opengl compatibility context\n");
-		//     }
-		// }
+		GLint majorVersion, minorVersion;
+		glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
+		glGetIntegerv(GL_MINOR_VERSION, &minorVersion);
 
-		// GLint majorVersion, minorVersion;
-		// glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
-		// glGetIntegerv(GL_MINOR_VERSION, &minorVersion);
+		printf("Opengl Version: %s - %i.%i\n", (char*)glGetString(GL_VERSION), majorVersion, minorVersion);
 
-		// printf("Opengl Version: %s - %i.%i\n", (char*)glGetString(GL_VERSION), majorVersion, minorVersion);
 
 		const char* extensions = wglGetExtensionsStringEXT();
 
@@ -3979,9 +3978,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// Setup Meshs.
 		//
 
-		uint vao = 0;
-		glCreateVertexArrays(1, &vao);
-		glBindVertexArray(vao);
+		// uint vao = 0;
+		// glCreateVertexArrays(1, &vao);
+		// glBindVertexArray(vao);
 
 		// 
 		// Samplers.
@@ -4593,6 +4592,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	TIMER_BLOCK_BEGIN_NAMED(openglInit, "Opengl Init");
 
 	// Opengl Debug settings.
+	#if 0
 	{
 		glEnable(GL_DEBUG_OUTPUT);
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
@@ -4620,6 +4620,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			printf("\t%s \n", messageLog);
 		}
 	}
+	#endif
 
 	// Clear all the framebuffers and window backbuffer.
 	{
@@ -4677,7 +4678,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// glDisable(GL_DEPTH_TEST);
 
 		glUseProgram(0);
-		glBindProgramPipeline(0);
+		// glBindProgramPipeline(0);
 		glBindVertexArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindTexture(GL_TEXTURE_2D, 0);
@@ -7382,7 +7383,9 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			char* buffer = (char*)malloc(w*h*4);
 			int texId = getFrameBuffer(FRAMEBUFFER_ScreenShot)->colorSlot[0]->id;
-			glGetTextureSubImage(texId, 0, 0, 0, 0, w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, w*h*4, buffer);
+			// glGetTextureSubImage(texId, 0, 0, 0, 0, w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, w*h*4, buffer);
+			glBindTexture(GL_TEXTURE_2D, texId);
+			glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
 
 			int result = stbi_write_png(ad->screenShotFilePath, w, h, 4, buffer, w*4);
 

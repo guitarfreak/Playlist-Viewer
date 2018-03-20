@@ -151,25 +151,37 @@ int getMaximumMipmapsFromSize(int size) {
 	return mipLevels;
 }
 
+void texStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height) {
+	for (int i = 0; i < levels; i++) {
+	    glTexImage2D(target, i, internalformat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	    width = max(1, (width / 2));
+	    height = max(1, (height / 2));
+	}
+
+	glGenerateMipmap(GL_TEXTURE_2D);
+}
+
 void loadTexture(Texture* texture, unsigned char* buffer, int w, int h, int mipLevels, int internalFormat, int channelType, int channelFormat, bool reload = false) {
 
 	if(!reload) {
-		glCreateTextures(GL_TEXTURE_2D, 1, &texture->id);
-		glTextureStorage2D(texture->id, mipLevels, internalFormat, w, h);
+		glGenTextures(1, &texture->id);
+		glBindTexture(GL_TEXTURE_2D, texture->id);
+		texStorage2D(GL_TEXTURE_2D, mipLevels, internalFormat, w, h);
 
 		texture->dim = vec2i(w,h);
 		texture->channels = 4;
 		texture->levels = mipLevels;
 	}	
 
-	glTextureSubImage2D(texture->id, 0, 0, 0, w, h, channelType, channelFormat, buffer);
+	glBindTexture(GL_TEXTURE_2D, texture->id);
 
-	glTextureParameteri(texture->id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTextureParameteri(texture->id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTextureParameteri(texture->id, GL_TEXTURE_WRAP_S, GL_CLAMP);
-	glTextureParameteri(texture->id, GL_TEXTURE_WRAP_T, GL_CLAMP);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, channelType, channelFormat, buffer);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
-	glGenerateTextureMipmap(texture->id);
+	glGenerateMipmap(GL_TEXTURE_2D);
 }
 
 void loadTextureFromFile(Texture* texture, char* path, int mipLevels, int internalFormat, int channelType, int channelFormat, bool reload = false) {
@@ -195,15 +207,22 @@ void loadTextureFromMemory(Texture* texture, char* buffer, int length, int mipLe
 }
 
 void createTexture(Texture* texture, bool isRenderBuffer = false) {	
-	if(!isRenderBuffer) glCreateTextures(GL_TEXTURE_2D, 1, &texture->id);
-	else glCreateRenderbuffers(1, &texture->id);
+	if(!isRenderBuffer) {
+		glGenTextures(1, &texture->id);
+		glBindTexture(GL_TEXTURE_2D, texture->id);
+	} else {
+		glGenRenderbuffers(1, &texture->id);
+		glBindRenderbuffer(GL_RENDERBUFFER, texture->id);
+	}
 }
+
 
 void recreateTexture(Texture* t) {
 	glDeleteTextures(1, &t->id);
-	glCreateTextures(GL_TEXTURE_2D, 1, &t->id);
+	glGenTextures(1, &t->id);
 
-	glTextureStorage2D(t->id, 1, t->internalFormat, t->dim.w, t->dim.h);
+	glBindTexture(GL_TEXTURE_2D, t->id);
+	texStorage2D(GL_TEXTURE_2D, 1, t->internalFormat, t->dim.w, t->dim.h);
 }
 
 void deleteTexture(Texture* t) {
@@ -280,16 +299,16 @@ FrameBuffer* getFrameBuffer(int id);
 Texture* addTexture(Texture tex);
 
 void initFrameBuffer(FrameBuffer* fb) {
-	glCreateFramebuffers(1, &fb->id);
+	// glCreateFramebuffers(1, &fb->id);
+	glGenFramebuffers(1, &fb->id);
+	glBindFramebuffer(GL_FRAMEBUFFER, fb->id);
 
 	for(int i = 0; i < arrayCount(fb->slots); i++) {
 		fb->slots[i] = 0;
 	}
 }
 
-void attachToFrameBuffer(int id, int slot, int internalFormat, int w, int h, int msaa = 0) {
-	FrameBuffer* fb = getFrameBuffer(id);
-
+void attachToFrameBuffer(FrameBuffer* fb, int slot, int internalFormat, int w, int h, int msaa = 0) {
 	bool isRenderBuffer = msaa > 0;
 
 	Texture t;
@@ -300,6 +319,7 @@ void attachToFrameBuffer(int id, int slot, int internalFormat, int w, int h, int
 	t.isRenderBuffer = isRenderBuffer;
 	t.msaa = msaa;
 
+	// t.name = getPStringCpy("");
 	Texture* tex = addTexture(t);
 
 	Vec2i indexRange;
@@ -317,8 +337,11 @@ void attachToFrameBuffer(int id, int slot, int internalFormat, int w, int h, int
 
 }
 
-void reloadFrameBuffer(int id) {
-	FrameBuffer* fb = getFrameBuffer(id);
+void attachToFrameBuffer(int id, int slot, int internalFormat, int w, int h, int msaa = 0) {
+	return attachToFrameBuffer(getFrameBuffer(id), slot, internalFormat, w, h, msaa);
+}
+
+void reloadFrameBuffer(FrameBuffer* fb) {
 
 	for(int i = 0; i < arrayCount(fb->slots); i++) {
 		if(!fb->slots[i]) continue;
@@ -331,23 +354,51 @@ void reloadFrameBuffer(int id) {
 		else if(valueBetween(i, 12, 15)) slot = GL_DEPTH_STENCIL_ATTACHMENT;
 
 		if(t->isRenderBuffer) {
-			glNamedRenderbufferStorageMultisample(t->id, t->msaa, t->internalFormat, t->dim.w, t->dim.h);
-			glNamedFramebufferRenderbuffer(fb->id, slot, GL_RENDERBUFFER, t->id);
+			// glNamedRenderbufferStorageMultisample(t->id, t->msaa, t->internalFormat, t->dim.w, t->dim.h);
+
+			glBindRenderbuffer( GL_RENDERBUFFER, t->id);
+			glRenderbufferStorageMultisample(GL_RENDERBUFFER, t->msaa, t->internalFormat, t->dim.w, t->dim.h);
+			glBindRenderbuffer( GL_RENDERBUFFER, 0);
+
+			// glNamedFramebufferRenderbuffer(fb->id, slot, GL_RENDERBUFFER, t->id);
+			glBindFramebuffer(GL_FRAMEBUFFER, fb->id);
+			glFramebufferRenderbuffer(GL_FRAMEBUFFER, slot, GL_RENDERBUFFER, t->id);
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
 		} else {
 			glDeleteTextures(1, &t->id);
-			glCreateTextures(GL_TEXTURE_2D, 1, &t->id);
-			glTextureStorage2D(t->id, 1, t->internalFormat, t->dim.w, t->dim.h);
-			glNamedFramebufferTexture(fb->id, slot, t->id, 0);
+			// glCreateTextures(GL_TEXTURE_2D, 1, &t->id);
+			// glTextureStorage2D(t->id, 1, t->internalFormat, t->dim.w, t->dim.h);
+			glGenTextures(1, &t->id);
+			glBindTexture(GL_TEXTURE_2D, t->id);
+			// glTexStorage2D(GL_TEXTURE_2D, 1, t->internalFormat, t->dim.w, t->dim.h);
+
+			// glPixelStorei(GL_TEXTURE_2D,1);
+			texStorage2D(GL_TEXTURE_2D, 1, t->internalFormat, t->dim.w, t->dim.h);
+
+			// glNamedFramebufferTexture(fb->id, slot, t->id, 0);
+			glBindFramebuffer(GL_FRAMEBUFFER, fb->id);
+			glFramebufferTexture(GL_FRAMEBUFFER, slot, t->id, 0);
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		}
 	}
+}
 
+void reloadFrameBuffer(int id) {
+	return reloadFrameBuffer(getFrameBuffer(id));
 }
 
 void blitFrameBuffers(int id1, int id2, Vec2i dim, int bufferBit, int filter) {
 	FrameBuffer* fb1 = getFrameBuffer(id1);
 	FrameBuffer* fb2 = getFrameBuffer(id2);
 
-	glBlitNamedFramebuffer (fb1->id, fb2->id, 0,0, dim.x, dim.y, 0,0, dim.x, dim.y, bufferBit, filter);
+	// glBlitNamedFramebuffer (fb1->id, fb2->id, 0,0, dim.x, dim.y, 0,0, dim.x, dim.y, bufferBit, filter);
+
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, fb1->id);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fb2->id);
+	glBlitFramebuffer(0,0, dim.x, dim.y, 0,0, dim.x, dim.y, bufferBit, filter);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void bindFrameBuffer(int id, int slot = GL_FRAMEBUFFER) {
@@ -370,7 +421,11 @@ void setDimForFrameBufferAttachmentsAndUpdate(int id, int w, int h) {
 
 uint checkStatusFrameBuffer(int id) {
 	FrameBuffer* fb = getFrameBuffer(id);
-	GLenum result = glCheckNamedFramebufferStatus(fb->id, GL_FRAMEBUFFER);
+	// GLenum result = glCheckNamedFramebufferStatus(fb->id, GL_FRAMEBUFFER);
+	glBindFramebuffer(GL_FRAMEBUFFER, fb->id);
+	GLenum result = glCheckFramebufferStatus(fb->id, GL_FRAMEBUFFER);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
 	return result;
 }
 
@@ -1648,8 +1703,8 @@ char* textSelectionToString(char* text, int index1, int index2) {
 
 uint createSampler(float ani, int wrapS, int wrapT, int magF, int minF, int wrapR = GL_CLAMP_TO_EDGE) {
 	uint result;
-	glCreateSamplers(1, &result);
-
+	// glCreateSamplers(1, &result);
+	glGenSamplers(1, &result);
 	glSamplerParameteri(result, GL_TEXTURE_MAX_ANISOTROPY_EXT, ani);
 	glSamplerParameteri(result, GL_TEXTURE_WRAP_S, wrapS);
 	glSamplerParameteri(result, GL_TEXTURE_WRAP_T, wrapT);
