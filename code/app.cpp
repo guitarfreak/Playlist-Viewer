@@ -3911,7 +3911,31 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		printf("%Opengl Version: %s\n", (char*)glGetString(GL_VERSION));
 
-		loadFunctions();
+		// loadFunctions();
+
+		// // Ask for specific opengl version.
+		// {
+		//     GLint attribs[] = {
+		//         WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+		//         WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+		//         // WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+		//         WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
+		//         0
+		//     };
+
+		//     HGLRC compatibilityContext = wglCreateContextAttribsARB(systemData->deviceContext, 0, attribs);
+		//     if (compatibilityContext && wglMakeCurrent(systemData->deviceContext, compatibilityContext)) {
+		//         systemData->openglContext = compatibilityContext;
+		//     } else {
+		// 		printf("Could not set Opengl compatibility context\n");
+		//     }
+		// }
+
+		// GLint majorVersion, minorVersion;
+		// glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
+		// glGetIntegerv(GL_MINOR_VERSION, &minorVersion);
+
+		// printf("Opengl Version: %s - %i.%i\n", (char*)glGetString(GL_VERSION), majorVersion, minorVersion);
 
 		const char* extensions = wglGetExtensionsStringEXT();
 

@@ -1,4 +1,4 @@
-rem @echo off
+@echo off
 
 set 7ZIP_PATH=C:\Program Files\7-Zip\7z.exe
 set APP_NAME=Playlist Viewer
@@ -29,8 +29,6 @@ set INC=
 set LINC=
 
 set LINKER_LIBS= -DEFAULTLIB:Opengl32.lib -DEFAULTLIB:ws2_32.lib -DEFAULTLIB:Shell32.lib -DEFAULTLIB:user32.lib -DEFAULTLIB:Gdi32.lib -DEFAULTLIB:Shlwapi.lib -DEFAULTLIB:Dwmapi.lib
-
-rem set LINKER_LIBS= -DEFAULTLIB:Opengl32.lib -DEFAULTLIB:Shell32.lib -DEFAULTLIB:user32.lib -DEFAULTLIB:Gdi32.lib -DEFAULTLIB:Shlwapi.lib -DEFAULTLIB:Winmm.lib -DEFAULTLIB:Psapi.lib -DEFAULTLIB:Comdlg32.lib
 
 set          INC=%INC% -I"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include"
 set          INC=%INC% -I"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"

@@ -160,6 +160,31 @@ typedef ptrdiff_t GLintptr;
 
 
 
+
+// #define GL_FUNCTION_LIST \
+// 	GLOP(void, GenerateMipmap, GLenum target) \
+// 	GLOP(void, RenderbufferStorageMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) \
+// 	GLOP(void, FramebufferRenderbuffer, GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) \
+// 	GLOP(void, BlitFramebuffer, GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) \
+// 	GLOP(void, FramebufferTexture, GLenum target, GLenum attachment, GLuint texture, GLint level) \
+// 	GLOP(GLenum, CheckFramebufferStatus, GLuint framebuffer, GLenum target) \
+// 	GLOP(void, GenSamplers, GLsizei n, GLuint *samplers) \
+// 	GLOP(void, GenFramebuffers, GLsizei n, GLuint *framebuffers) \
+// 	GLOP(void, GenRenderbuffers, GLsizei n, GLuint *renderbuffers) \
+// 	GLOP(void, BindRenderbuffer, GLenum target, GLuint renderbuffer) \
+// 	GLOP(void, BindVertexArray, GLuint array) \
+// 	GLOP(void, SamplerParameteri, GLuint sampler, GLenum pname, GLint param) \
+// 	GLOP(void, UseProgram, GLuint program) \
+// 	GLOP(void, BindBuffer, GLenum target, GLuint buffer) \
+// 	GLOP(void, BindSampler, GLuint unit, GLuint sampler) \
+// 	GLOP(void, BindFramebuffer, GLenum target, GLuint framebuffer) \
+// 	GLOP(void, BlendFuncSeparate, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) \
+// 	GLOP(void, BlendEquation, GLenum mode) \
+// 	GLOP(void, BlendEquationSeparate, GLenum modeRGB, GLenum modeAlpha) \
+// 	GLOP(GLubyte*, GetStringi, GLenum name, GLuint index)
+
+
+
 #define GLOP(returnType, name, ...) makeGLFunction(returnType, name, __VA_ARGS__) 
 	GL_FUNCTION_LIST
 #undef GLOP
@@ -176,6 +201,8 @@ wglSwapIntervalEXTFunction* wglSwapIntervalEXT;
 typedef const char* WINAPI wglGetExtensionsStringEXTFunction(void);
 wglGetExtensionsStringEXTFunction* wglGetExtensionsStringEXT;
 
+// typedef HGLRC WINAPI wglCreateContextAttribsARBFunction(HDC hDC, HGLRC hshareContext, const int *attribList);
+// wglCreateContextAttribsARBFunction* wglCreateContextAttribsARB;
 
 
 
@@ -186,6 +213,8 @@ void loadFunctions() {
 	wglGetSwapIntervalEXT = (wglGetSwapIntervalEXTFunction*)wglGetProcAddress("wglGetSwapIntervalEXT");
 	wglSwapIntervalEXT = (wglSwapIntervalEXTFunction*)wglGetProcAddress("wglSwapIntervalEXT");
 	wglGetExtensionsStringEXT = (wglGetExtensionsStringEXTFunction*)wglGetProcAddress("wglGetExtensionsStringEXT");
+	// wglCreateContextAttribsARB = (wglCreateContextAttribsARBFunction*)wglGetProcAddress("wglCreateContextAttribsARB");
+
 #undef GLOP
 }
 
