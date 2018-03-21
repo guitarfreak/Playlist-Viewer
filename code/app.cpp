@@ -1102,6 +1102,9 @@ struct NewGui {
 	int hotId[Gui_Focus_Size];
 	int contenderId[Gui_Focus_Size];
 	int contenderIdZ[Gui_Focus_Size];
+	
+	// Used for text edits right now.
+	int activeSignalId;
 
 	int storedIds[10];
 	int storedIdCount;
@@ -1264,11 +1267,29 @@ void newGuiSetNotActiveWhenActive(NewGui* gui, int id) {
 }
 
 void newGuiSetActive(NewGui* gui, int id, bool input, int focus = 0) {
-	if(!newGuiIsActive(gui, id))
-		if(input && newGuiIsHot(gui, id, focus)) {
-			gui->activeId = id;
-			gui->gotActiveId = id;
+	bool setActive = false;
+
+	if(id == gui->activeSignalId) {
+		setActive = true;
+		gui->activeSignalId = 0;
+	} else {
+		
+		if(!newGuiIsActive(gui, id)) {
+			if(input && newGuiIsHot(gui, id, focus)) {
+
+				if(newGuiSomeoneActive(gui)) { 
+					gui->activeSignalId = id;
+				} else {
+					setActive = true;
+				}
+			}
 		}
+	}
+
+	if(setActive) {
+		gui->activeId = id;
+		gui->gotActiveId = id;
+	}
 }
 
 void newGuiSetHot(NewGui* gui, int id, float z, int focus = 0) {
@@ -1362,7 +1383,9 @@ bool newGuiGoButtonAction(NewGui* gui, Rect r, float z, bool input, int focus = 
 
 int newGuiDragAction(NewGui* gui, int id, Rect r, float z, Vec2 mousePos, bool input, bool inputRelease, int focus = 0) {
 	newGuiSetActive(gui, id, input, focus);
-	if(newGuiIsActive(gui, id) && inputRelease) newGuiSetNotActive(gui, id);
+	if(newGuiIsActive(gui, id) && (inputRelease || gui->activeSignalId)) {
+		newGuiSetNotActive(gui, id);
+	}
 	newGuiSetHotMouseOver(gui, id, mousePos, r, z, focus);
 
 	return id;
@@ -3762,8 +3785,11 @@ struct AppData {
 
 void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, bool* isRunning, bool init, ThreadQueue* threadQueue);
 
+#ifdef FULL_OPTIMIZE
+#pragma optimize( "", on )
+#else
 #pragma optimize( "", off )
-// #pragma optimize( "", on )
+#endif
 extern "C" APPMAINFUNCTION(appMain) {
 
 	i64 startupTimer = timerInit();
@@ -7432,10 +7458,14 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			if(sleepTime < 0) sleepTime = ((double)1/30) - frameTime;
 
 			int sleepTimeMS = sleepTime*1000;
-			if(sleepTimeMS > 1) Sleep(sleepTimeMS);
+			if(sleepTimeMS > 1) {
+				glFlush();
+				Sleep(sleepTimeMS);
+			}
 		}
 
 		swapBuffers(&ad->systemData);
+		glFinish();
 		ad->swapTime = timerInit();
 
 		if(init) {
