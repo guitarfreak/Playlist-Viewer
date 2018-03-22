@@ -5308,12 +5308,21 @@ if(false)
 if(init) {
 	TIMER_BLOCK_NAMED("App Init");
 
-	loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
+	if(ad->playlistFolderCount) {
+		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 
-	YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + ad->playlistFolderIndex;
-	memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
+		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + ad->playlistFolderIndex;
+		memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
 
-	ad->startLoadFile = true;
+		ad->startLoadFile = true;
+	} else {
+		// Load empty playlist.
+
+		strCpy(ad->playlist.title, "");
+		strCpy(ad->playlist.id, "");
+		ad->playlist.count = 0;
+		ad->playlist.maxCount = 0;
+	}
 }
 
 	// @Load File.
@@ -5719,7 +5728,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		Rect rTopBar = lTopBar->r;
 		ad->clientRect = lMain->r;
 
-
 		// Title bar.
 		if(!ws->fullscreen)
 		{
@@ -5728,7 +5736,12 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			float titlePadding = as->padding;
 			float iconMargin = 0.4f;
 			float iconWidth = 1.0f;
-			char* titleText = fillString("%s - %i - %s", ad->playlist.title, ad->playlist.count, ad->playlist.id);
+
+			char* titleText = "";
+			if(strLen(ad->playlist.id) != 0) {
+				titleText = fillString("%s - %i - %s", ad->playlist.title, ad->	playlist.count, ad->playlist.id);
+			}
+			
 			TextSettings titleTextSettings = ad->gui->textSettings; 
 			titleTextSettings.font = titleTextSettings.font->boldFont;
 
@@ -5741,7 +5754,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 			float z = 0;
 			Layout* lay = layoutAlloc(layout(rTopBar, false, vec2i(1,0), vec2(titlePadding, titlePadding), vec2(0)));
 
-			char* text = strLen(ad->playlist.id) != 0 ? titleText : "";
 			Layout* lTitle = layoutAdd(lay, layout(vec2(0, 0)));
 			Layout* lButtonMin = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
 			Layout* lButtonMax = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
@@ -5749,14 +5761,17 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 
 			layoutCalc(lay);
 
+			// Bug.
+			Rect lButtonMinRect = lButtonMin->r;
+
 			scissorState();
 			Rect rTitle = layoutGetRect(lay);
 			rTitle.right = lTitle->r.right;
-			// newGuiQuickText(ad->gui, rTitle, text, vec2i(-1,0));
-			newGuiQuickText(ad->gui, rTitle, text, vec2i(-1,0), &titleTextSettings);
+			// newGuiQuickText(ad->gui, rTitle, titleText, vec2i(-1,0));
+			newGuiQuickText(ad->gui, rTitle, titleText, vec2i(-1,0), &titleTextSettings);
 			scissorState(false);
 
-			float iconSize = rectH(lButtonMin->r)*iconMargin;
+			float iconSize = rectH(lButtonMinRect)*iconMargin;
 
 			ad->gui->buttonSettings = ad->uiButtonSettings;
 			if(newGuiQuickButton(ad->gui, lButtonMin->r, "")) ShowWindow(windowHandle, SW_MINIMIZE);
