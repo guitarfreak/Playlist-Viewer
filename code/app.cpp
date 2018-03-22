@@ -3790,6 +3790,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 #else
 #pragma optimize( "", off )
 #endif
+
 extern "C" APPMAINFUNCTION(appMain) {
 
 	i64 startupTimer = timerInit();
