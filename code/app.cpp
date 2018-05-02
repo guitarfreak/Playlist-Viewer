@@ -33,8 +33,7 @@
 	- If scaling doesnt work, have 2 different textures of font alpha blends and choose then based on brightness.
 	- Need a different blending method, black text just doesn't work.
 
-	- Total cleanup of the code.
-
+	- VS 2010 not able to debug anymore.
 
 	Done Today: 
 
@@ -45,11 +44,6 @@
 =================================================================================
 */
 
-/*
-Build mode:
-
-
-*/
 
 #pragma optimize( "", on )
 
@@ -4063,7 +4057,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		TIMER_BLOCK_END(initGraphics);
 
-	//
+		//
 
 		TIMER_BLOCK_BEGIN_NAMED(initRest, "Init Rest");
 
@@ -4124,7 +4118,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->sidePanelWidth = ws->currentRes.w*0.25f;
 		ad->sidePanelMax = 0.5f;
 
-	// Make test file.
+		// Make test file.
 		#if 0
 		{
 		// int count = 10000;
@@ -4179,26 +4173,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->searchResultMaxCount = 300;
 		ad->searchResults = getPArray(SearchResult, ad->searchResultMaxCount);
 
-
-
-
-	// ad->panelActive = true;
-	// strCpy(ad->downloadPlaylist.title, "Royal Beef");
-	// strCpy(ad->downloadPlaylist.id, "PLsksxTH4pR3IX9CL91UVp-6S9mFBmnlgF");
-	// ad->downloadPlaylist.count = 18;
-
-	// strCpy(ad->downloadPlaylist.title, "Rocket Beans TV");
-	// strCpy(ad->downloadPlaylist.id, "UUQvTDmHza8erxZqDkjQ4bQQ");
-	// ad->downloadPlaylist.count = 6438;
-
-
-	// char* filePath = fillString("%s\\%s.playlist", Playlist_Folder, ad->downloadPlaylist.id);
-	// remove(filePath);
 	}
 
 
 
-// @AppStart.
+	// @AppStart.
 
 	TIMER_BLOCK_BEGIN_NAMED(reload, "Reload");
 
@@ -4223,7 +4202,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	TIMER_BLOCK_END(reload);
 
-// Update timer.
+	// Update timer.
 	{
 		if(init) {
 			ds->lastTimeStamp = timerInit();
@@ -4236,17 +4215,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	clearTMemory();
 
-// Update input. (And other stuff.)
+	// Update input. (And other stuff.)
 	{
 		TIMER_BLOCK_NAMED("Input");
 
 		int inputWaitMask = 0;
 		int waitTimeout = 0;
 
-	// #ifdef RELEASE_BUILD
-	// 	inputWaitMask = QS_ALLINPUT;
-	// 	waitTimeout = INFINITE;
-	// #endif
+		// #ifdef RELEASE_BUILD
+		// 	inputWaitMask = QS_ALLINPUT;
+		// 	waitTimeout = INFINITE;
+		// #endif
 
 		int message = -1;
 		if(!ad->appIsBusy) message = MsgWaitForMultipleObjects(systemData->folderHandleCount, systemData->folderHandles, false, waitTimeout, inputWaitMask);
@@ -4300,10 +4279,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ws->customCursor = false;
 
 		if(init || ad->reloadSettings || reload) {
-	// if(init || ad->reloadSettings || reload) {
 
 			if(!fileExists(App_Settings_File)) {
-			// if(init) {
 				AppSettings as;
 				AppColorsRelative rac;
 				AppColorsRelative rac2;
@@ -4384,18 +4361,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				// Delete all pre existing fonts.
 				if(ad->reloadSettings) {
-					// for(int i = 0; i < arrayCount(globalGraphicsState->fonts); i++) {
-					// 	for(int j = 0; j < arrayCount(globalGraphicsState->fonts[0]); j++) {
-					// 		Font* font = &globalGraphicsState->fonts[i][j];
-					// 		if(font->height != 0) {
-					// 			if(font->boldFont) freeFont(font->boldFont);
-					// 			if(font->italicFont) freeFont(font->italicFont);
-					// 			freeFont(font);
-					// 			font->height = 0;
-					// 		}
-					// 	}
-					// }
-
 					// Bad news.
 					for(int i = 0; i < arrayCount(globalGraphicsState->fonts); i++) {
 						for(int j = 0; j < arrayCount(globalGraphicsState->fonts[0]); j++) {
@@ -4613,8 +4578,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			setDimForFrameBufferAttachmentsAndUpdate(FRAMEBUFFER_ScreenShot, ws->currentRes.w, ws->currentRes.h);
 		}
 	}
-	
-
 
 	TIMER_BLOCK_BEGIN_NAMED(openglInit, "Opengl Init");
 
@@ -4717,11 +4680,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
 	TIMER_BLOCK_END(openglInit);
-
-	// {
-	// 	Rect nr = rectTLDim(50, 50, 1280, 800);
-	// 	MoveWindow(windowHandle, nr.left, nr.top, rectW(nr), rectH(nr), true);
-	// }
 
 	// @AppLoop.
 
@@ -4847,16 +4805,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", count));
 			} else {
-					// downloadModeFinish(&modeData->downloadStep);
+				// downloadModeFinish(&modeData->downloadStep);
 
 				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
 				for(int index = 0; index < count; index++) {
 					strAppend(idCollection, fillString("%s,", searchResults[index].id));
 				}
 
-					// for(int i = 0; i < count; i++) ad->searchResults[i].count = 0;
+				// for(int i = 0; i < count; i++) ad->searchResults[i].count = 0;
 
-					// printf("%s", searchResults[0].id);
+				// printf("%s", searchResults[0].id);
 
 				curlRequestDataInitAdd(threadQueue, requestData, requestChannel("id", idCollection, "contentDetails", count));
 			}
@@ -4873,7 +4831,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					searchResults[i].count = jsonGetInt(&items->array[i], "contentDetails", "itemCount");
 				}
 			} else {
-					// downloadModeFinish(&modeData->downloadStep);
+				// downloadModeFinish(&modeData->downloadStep);
 
 				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
 				int idCount = 0;
@@ -4901,8 +4859,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			for(int i = 0; i < ad->searchResultCount; i++) ad->searchResults[i].count = 0;
 
-				// Results are not sorted, search for id and compare.
-				char* buffer = requestData->buffer;
+			// Results are not sorted, search for id and compare.
+			char* buffer = requestData->buffer;
 			JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
 			for(int si = 0; si < ad->searchResultCount; si++) {
 
@@ -4916,321 +4874,320 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 			}
 		}
-	}
+		}
 
 
 
-	if(mode == Download_Mode_ChannelPlaylists) {
-		SearchResult* playlists = ad->searchResults;
-		int* playlistCount = &ad->searchResultCount;
+		if(mode == Download_Mode_ChannelPlaylists) {
+			SearchResult* playlists = ad->searchResults;
+			int* playlistCount = &ad->searchResultCount;
 
-		char* channelId = ad->channelId;
-		int count = ad->playlistDownloadCount;
+			char* channelId = ad->channelId;
+			int count = ad->playlistDownloadCount;
 
-		char* buffer = requestData->buffer;
+			char* buffer = requestData->buffer;
 
-		static int i;
-		static char pageToken[Page_Token_Size];
+			static int i;
+			static char pageToken[Page_Token_Size];
 
-		downloadModeStep(modeData, &modeIndex, requestData);
+			downloadModeStep(modeData, &modeIndex, requestData);
 
-		if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			if(downloadModeStep(modeData, &modeIndex, requestData)) {
 
 				// Get playlist count.
-			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "id", 1));
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "id", 1));
+			}
+
+			if(downloadModeStep(modeData, &modeIndex, requestData)) {
+				JSonValue* object = jsonParseValue(&buffer);
+				ad->playlistDownloadCount = jsonGetInt(object, "pageInfo", "totalResults");
+				count = ad->playlistDownloadCount;
+
+
+
+				i = 0;
+				strClear(pageToken);
+
+				if(ad->playlists != 0) free(ad->playlists);
+				ad->playlists = mallocArray(YoutubePlaylist, count);
+
+				downloadModeProgress(modeData, 0, count);
+
+				*playlistCount = 0;
+			} 
+
+			if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
+				downloadModeProgress(modeData, i, count);
+
+				if(i >= count) {
+					*playlistCount = count;
+					downloadModeFinish(modeData);
+				}
+
+				int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "snippet", dCount, pageToken));
+
+			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+				int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
+
+				buffer = requestData->buffer;
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
+
+				char* pageTokenStr = jsonGetString(object, "nextPageToken");
+				if(pageTokenStr) strCpy(pageToken, pageTokenStr);
+
+				int index = i;
+				For_JsonArray(items) {
+					strCpy(playlists[index].id, jsonGetString(it, "id"));
+					strCpy(playlists[index].title, jsonGetString(it, "snippet", "title"));
+					index++;
+				}
+
+					// Get playlist video count.
+				char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
+				int maxCount = dCount;
+				for(int index = 0; index < maxCount; index++) {
+					strAppend(idCollection, fillString("%s,", playlists[i+index].id));
+				}
+
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", maxCount));
+
+			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+				JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
+				int index = i;
+				For_JsonArray(items) {
+					playlists[index].count = jsonGetInt(it, "contentDetails", "itemCount");
+					index++;
+				}
+
+				i += Max_Playlist_Download_Count;				
+				modeData->downloadStep -= 3;
+
+				*playlistCount = i;
+			}
 		}
 
-		if(downloadModeStep(modeData, &modeIndex, requestData)) {
-			JSonValue* object = jsonParseValue(&buffer);
-			ad->playlistDownloadCount = jsonGetInt(object, "pageInfo", "totalResults");
-			count = ad->playlistDownloadCount;
 
 
+		if(mode == Download_Mode_Videos) {
+			DownloadVideosData* data = &modeData->videosModeData;
 
-			i = 0;
-			strClear(pageToken);
+			char* buffer = requestData->buffer;
 
-			if(ad->playlists != 0) free(ad->playlists);
-			ad->playlists = mallocArray(YoutubePlaylist, count);
-
-			downloadModeProgress(modeData, 0, count);
-
-			*playlistCount = 0;
-		} 
-
-		if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
-			downloadModeProgress(modeData, i, count);
-
-			if(i >= count) {
-				*playlistCount = count;
-				downloadModeFinish(modeData);
-			}
-
-			int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
-			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("channelId", channelId, "snippet", dCount, pageToken));
-
-		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-
-			int dCount = i + Max_Playlist_Download_Count > count ? count-i : Max_Playlist_Download_Count;
-
-			buffer = requestData->buffer;
-			JSonValue* object = jsonParseValue(&buffer);
-			JSonValue* items = jsonGetMember(object, "items");
-
-			char* pageTokenStr = jsonGetString(object, "nextPageToken");
-			if(pageTokenStr) strCpy(pageToken, pageTokenStr);
-
-			int index = i;
-			For_JsonArray(items) {
-				strCpy(playlists[index].id, jsonGetString(it, "id"));
-				strCpy(playlists[index].title, jsonGetString(it, "snippet", "title"));
-				index++;
-			}
-
-				// Get playlist video count.
-			char* idCollection = getTString(kiloBytes(20)); strClear(idCollection);
-			int maxCount = dCount;
-			for(int index = 0; index < maxCount; index++) {
-				strAppend(idCollection, fillString("%s,", playlists[i+index].id));
-			}
-
-			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylist("id", idCollection, "contentDetails", maxCount));
-
-		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-
-			JSonValue* items = jsonGetMember(jsonParseValue(&buffer), "items");
-			int index = i;
-			For_JsonArray(items) {
-				playlists[index].count = jsonGetInt(it, "contentDetails", "itemCount");
-				index++;
-			}
-
-			i += Max_Playlist_Download_Count;				
-			modeData->downloadStep -= 3;
-
-			*playlistCount = i;
-		}
-	}
-
-
-
-	if(mode == Download_Mode_Videos) {
-		DownloadVideosData* data = &modeData->videosModeData;
-
-		char* buffer = requestData->buffer;
-
-		downloadModeStep(modeData, &modeIndex, requestData);
+			downloadModeStep(modeData, &modeIndex, requestData);
 
 			// Get maxCount first.
-		if(downloadModeStep(modeData, &modeIndex, requestData)) {
-			curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(ad->downloadPlaylist.id, 1));
-		}
+			if(downloadModeStep(modeData, &modeIndex, requestData)) {
+				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(ad->downloadPlaylist.id, 1));
+			}
 
-		if(downloadModeStep(modeData, &modeIndex, requestData)) {
-			JSonValue* object = jsonParseValue(&buffer);
-			zeroStruct(data, DownloadVideosData);
-			data->maxCount = jsonGetInt(object, "pageInfo", "totalResults");
-
-
+			if(downloadModeStep(modeData, &modeIndex, requestData)) {
+				JSonValue* object = jsonParseValue(&buffer);
+				zeroStruct(data, DownloadVideosData);
+				data->maxCount = jsonGetInt(object, "pageInfo", "totalResults");
 
 
-			YoutubePlaylist* downloadPlaylist = &ad->downloadPlaylist;
 
 
-			downloadPlaylist->count = data->maxCount;
+				YoutubePlaylist* downloadPlaylist = &ad->downloadPlaylist;
+
+
+				downloadPlaylist->count = data->maxCount;
 
 				// Create file if non-existent.
-			char* playlistFilePath = getPlaylistFilePath(downloadPlaylist->id);
-			bool playlistFileExists = fileExists(playlistFilePath);
-			if(!playlistFileExists) {
-				FILE* file = fopen(playlistFilePath, "wb");
+				char* playlistFilePath = getPlaylistFilePath(downloadPlaylist->id);
+				bool playlistFileExists = fileExists(playlistFilePath);
+				if(!playlistFileExists) {
+					FILE* file = fopen(playlistFilePath, "wb");
 
-				PlaylistFileHeader fileHeader = {};
-				strCpy(fileHeader.title, downloadPlaylist->title);
-				strCpy(fileHeader.id, downloadPlaylist->id);
-				fileHeader.maxCount = data->maxCount;
+					PlaylistFileHeader fileHeader = {};
+					strCpy(fileHeader.title, downloadPlaylist->title);
+					strCpy(fileHeader.id, downloadPlaylist->id);
+					fileHeader.maxCount = data->maxCount;
 
-				fwrite(&fileHeader, sizeof(PlaylistFileHeader), 1, file);
-				fclose(file);
-			}
+					fwrite(&fileHeader, sizeof(PlaylistFileHeader), 1, file);
+					fclose(file);
+				}
 
-			PlaylistFileHeader fileHeader = loadPlaylistHeaderFromFileX(downloadPlaylist->id);
+				PlaylistFileHeader fileHeader = loadPlaylistHeaderFromFileX(downloadPlaylist->id);
 
-			strCpy(data->pageToken, fileHeader.pageToken);
-			data->count = downloadPlaylist->count;
-			data->lastCount = fileHeader.count;
+				strCpy(data->pageToken, fileHeader.pageToken);
+				data->count = downloadPlaylist->count;
+				data->lastCount = fileHeader.count;
 				// data->maxCount = fileHeader.maxCount;
 
-			bool skip = false;
-			if(ad->update) {
+				bool skip = false;
+				if(ad->update) {
 					// data->count = clampIntMax(data->count, fileHeader.count);
-				data->count = clampMaxInt(data->count, data->maxCount);
-			} else {
-				if(data->maxCount == fileHeader.count) skip = true;
-				if(data->count + data->lastCount > data->maxCount) {
-					data->count = data->maxCount - data->lastCount;
+					data->count = clampMaxInt(data->count, data->maxCount);
+				} else {
+					if(data->maxCount == fileHeader.count) skip = true;
+					if(data->count + data->lastCount > data->maxCount) {
+						data->count = data->maxCount - data->lastCount;
 						// ad->downloadPlaylist.count = data->count;
+					}
+				}
+				if(data->count == 0) skip = true;
+
+				if(skip) downloadModeFinish(modeData);
+				else {
+					zeroMemory(data->vids, sizeof(YoutubeVideo)*Max_Download_Count);
+
+					downloadModeProgress(modeData, 0, data->count);
+					data->i = 0;
+
+					data->file = fopen(playlistFilePath, "rb+");
 				}
 			}
-			if(data->count == 0) skip = true;
 
-			if(skip) downloadModeFinish(modeData);
-			else {
-				zeroMemory(data->vids, sizeof(YoutubeVideo)*Max_Download_Count);
+			if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
+				if(data->i >= data->count) {
+					modeData->downloadStep += 4;
+				}
 
-				downloadModeProgress(modeData, 0, data->count);
-				data->i = 0;
+				downloadModeProgress(modeData, min(data->i,data->count), data->count);
 
-				data->file = fopen(playlistFilePath, "rb+");
-			}
-		}
+				data->dCount = Max_Download_Count;
+				if(data->i + data->dCount > data->count) data->dCount = data->count - data->i;
 
-		if(downloadModeStep(modeData, &modeIndex, requestData, false)) {
-			if(data->i >= data->count) {
-				modeData->downloadStep += 4;
-			}
-
-			downloadModeProgress(modeData, min(data->i,data->count), data->count);
-
-			data->dCount = Max_Download_Count;
-			if(data->i + data->dCount > data->count) data->dCount = data->count - data->i;
-
-			{
-				char* playlistId = ad->downloadPlaylist.id;
+				{
+					char* playlistId = ad->downloadPlaylist.id;
 
 					// TIMER_BLOCK_NAMED("Request");
-				curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(playlistId, data->dCount, data->pageToken));
-			}
+					curlRequestDataInitAdd(threadQueue, requestData, requestPlaylistItems(playlistId, data->dCount, data->pageToken));
+				}
 
-		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
 
-			JSonValue* object = jsonParseValue(&buffer);
-			JSonValue* items = jsonGetMember(object, "items");
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
 
-			char* pageTokenStr = jsonGetString(object, "nextPageToken");
-			if(pageTokenStr) strCpy(data->pageToken, pageTokenStr);
+				char* pageTokenStr = jsonGetString(object, "nextPageToken");
+				if(pageTokenStr) strCpy(data->pageToken, pageTokenStr);
 
-			int receivedCount;
+				int receivedCount;
 
 				// Get Video ids.
-			{
+				{
+					int index = 0;
+					int idCount = 0;
+					For_JsonArray(items) {
+						int reverseIndex = data->dCount-1 - index;
+
+						char* s = jsonGetString(it, "contentDetails", "videoId");
+						if(s) {
+							data->vids[reverseIndex] = {};
+
+							strCpy(data->vids[reverseIndex].id, s);
+							idCount++;
+						}
+
+						index++;
+					}
+
+					receivedCount = idCount;
+				}
+
+
+				// Get Duration.
+				{
+					char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
+					for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
+						int reverseIndex = data->dCount-1 - videoIndex;
+						strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
+					}
+
+					curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "contentDetails"));
+				}
+
+			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
+
 				int index = 0;
-				int idCount = 0;
+				int advance = 0;
 				For_JsonArray(items) {
 					int reverseIndex = data->dCount-1 - index;
 
-					char* s = jsonGetString(it, "contentDetails", "videoId");
-					if(s) {
-						data->vids[reverseIndex] = {};
+					char* durationString = jsonGetString(it, "contentDetails", "duration");
+					data->vids[reverseIndex].duration = stringDurationToDate(durationString);;
 
-						strCpy(data->vids[reverseIndex].id, s);
-						idCount++;
+					index++;
+				}
+
+
+				// Get Statistics.
+				{
+					char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
+					for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
+						int reverseIndex = data->dCount-1 - videoIndex;
+						strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
+					}
+
+					curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "statistics"));
+				}
+
+			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
+
+				int index = 0;
+				int advance = 0;
+				For_JsonArray(items) {
+					int reverseIndex = data->dCount-1 - index;
+
+					JSonValue* statistics = jsonGetMember(it, "statistics");
+					if(statistics) {
+						data->vids[reverseIndex].viewCount = strToIntSave(jsonGetString(statistics, "viewCount"));
+						data->vids[reverseIndex].likeCount = strToIntSave(jsonGetString(statistics, "likeCount"));
+						data->vids[reverseIndex].dislikeCount = strToIntSave(jsonGetString(statistics, "dislikeCount"));
+						data->vids[reverseIndex].favoriteCount = strToIntSave(jsonGetString(statistics, "favoriteCount"));
+						data->vids[reverseIndex].commentCount = strToIntSave(jsonGetString(statistics, "commentCount"));
 					}
 
 					index++;
 				}
 
-				receivedCount = idCount;
-			}
-
-
-				// Get Duration.
-			{
-				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-				for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
-					int reverseIndex = data->dCount-1 - videoIndex;
-					strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
-				}
-
-				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "contentDetails"));
-			}
-
-		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-
-			JSonValue* object = jsonParseValue(&buffer);
-			JSonValue* items = jsonGetMember(object, "items");
-
-			int index = 0;
-			int advance = 0;
-			For_JsonArray(items) {
-				int reverseIndex = data->dCount-1 - index;
-
-				char* durationString = jsonGetString(it, "contentDetails", "duration");
-				data->vids[reverseIndex].duration = stringDurationToDate(durationString);;
-
-				index++;
-			}
-
-
-				// Get Statistics.
-			{
-				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-				for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
-					int reverseIndex = data->dCount-1 - videoIndex;
-					strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
-				}
-
-				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "statistics"));
-			}
-
-		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-
-			JSonValue* object = jsonParseValue(&buffer);
-			JSonValue* items = jsonGetMember(object, "items");
-
-			int index = 0;
-			int advance = 0;
-			For_JsonArray(items) {
-				int reverseIndex = data->dCount-1 - index;
-
-				JSonValue* statistics = jsonGetMember(it, "statistics");
-				if(statistics) {
-					data->vids[reverseIndex].viewCount = strToIntSave(jsonGetString(statistics, "viewCount"));
-					data->vids[reverseIndex].likeCount = strToIntSave(jsonGetString(statistics, "likeCount"));
-					data->vids[reverseIndex].dislikeCount = strToIntSave(jsonGetString(statistics, "dislikeCount"));
-					data->vids[reverseIndex].favoriteCount = strToIntSave(jsonGetString(statistics, "favoriteCount"));
-					data->vids[reverseIndex].commentCount = strToIntSave(jsonGetString(statistics, "commentCount"));
-				}
-
-				index++;
-			}
-
 				// Get title and thumbnail.
-			char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
-			for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
-				int reverseIndex = data->dCount-1 - videoIndex;
-				strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
-			}
+				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
+				for(int videoIndex = 0; videoIndex < data->dCount; videoIndex++) {
+					int reverseIndex = data->dCount-1 - videoIndex;
+					strAppend(tempBuffer, fillString("%s,", data->vids[reverseIndex].id));
+				}
 
-			{
+				{
 					// TIMER_BLOCK_NAMED("Title Request");
-				curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "snippet"));
-			}
+					curlRequestDataInitAdd(threadQueue, requestData, requestVideos(tempBuffer, "snippet"));
+				}
 
-		} if(downloadModeStep(modeData, &modeIndex, requestData)) {
-			char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
+			} if(downloadModeStep(modeData, &modeIndex, requestData)) {
+				char* tempBuffer = getTString(kiloBytes(10)); strClear(tempBuffer);
 
-			JSonValue* object = jsonParseValue(&buffer);
-			JSonValue* items = jsonGetMember(object, "items");
+				JSonValue* object = jsonParseValue(&buffer);
+				JSonValue* items = jsonGetMember(object, "items");
 
-			int index = 0;
-			int advance = 0;
-			For_JsonArray(items) {
-				int reverseIndex = data->dCount-1 - index;
+				int index = 0;
+				int advance = 0;
+				For_JsonArray(items) {
+					int reverseIndex = data->dCount-1 - index;
 
-				JSonValue* snippet = jsonGetMember(it, "snippet");
+					JSonValue* snippet = jsonGetMember(it, "snippet");
 
-				char* s = jsonGetString(snippet, "publishedAt");
-				strCpy(data->vids[reverseIndex].dateString, s);
-				data->vids[reverseIndex].date = stringToDate(s);
+					char* s = jsonGetString(snippet, "publishedAt");
+					strCpy(data->vids[reverseIndex].dateString, s);
+					data->vids[reverseIndex].date = stringToDate(s);
 
-				strCpy(data->vids[reverseIndex].title, jsonGetString(snippet, "title"));
-				strCpy(data->vids[reverseIndex].thumbnail, jsonGetString(snippet, "thumbnails", "high", "url"));
+					strCpy(data->vids[reverseIndex].title, jsonGetString(snippet, "title"));
+					strCpy(data->vids[reverseIndex].thumbnail, jsonGetString(snippet, "thumbnails", "high", "url"));
 
-				index++;
-			}
+					index++;
+				}
 
-			{
 				{
 					FILE* file = data->file;
 
@@ -5256,353 +5213,322 @@ extern "C" APPMAINFUNCTION(appMain) {
 					fwrite(videos, data->dCount*sizeof(YoutubeVideo), 1, file);
 				}
 
+				data->i += Max_Download_Count;
+				modeData->downloadStep -= 5;
 			}
 
-			data->i += Max_Download_Count;
-			modeData->downloadStep -= 5;
+			if(downloadModeStep(modeData, &modeIndex, requestData)) {
+				downloadModeFinish(modeData);
+				ad->startLoadFile = true;
+				memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
+
+				fclose(data->file);
+			}
 		}
 
-		if(downloadModeStep(modeData, &modeIndex, requestData)) {
-			downloadModeFinish(modeData);
-			ad->startLoadFile = true;
-			memCpy(&ad->playlist, &ad->downloadPlaylist, sizeof(ad->downloadPlaylist));
-
-			fclose(data->file);
-		}
 	}
 
-}
 
 
+	if(init) {
+		TIMER_BLOCK_NAMED("App Init");
 
-	// @Testing.
-	// if(input->keysPressed[KEYCODE_T]) 
-if(false) 
-{
-	char* channelId = "UCQvTDmHza8erxZqDkjQ4bQQ";
-	char* videoId = "FvHiLLkPhQE";
-	CurlRequestData* requestData = &ad->requestData;
-	char* part;
-
-	char* channelParts[] = {"auditDetails","brandingSettings","contentDetails","contentOwnerDetails","id","invideoPromotion","localizations","snippet","statistics","status","topicDetails"};
-	char* videoParts[] = {"contentDetails", "fileDetails", "id", "liveStreamingDetails", "localizations", "player", "processingDetails", "recordingDetails", "snippet", "statistics", "status", "suggestions", "topicDetails"};
-
-		// int count = arrayCount(channelParts);
-	int count = arrayCount(videoParts);
-
-	for(int i = 0; i < count; i++) {
-			// part = channelParts[i];
-		part = videoParts[i];
-
-		curlRequestDataInitAdd(threadQueue, requestData, requestVideos(videoId, part));
-			// curlRequestDataInitAdd(threadQueue, requestData, requestChannel("id", channelId, part, 1));
-
-		threadQueueComplete(threadQueue);
-		printf("======= %s ========= \n%s\n", part, requestData->buffer);
-	}
-}
-
-
-
-
-if(init) {
-	TIMER_BLOCK_NAMED("App Init");
-
-	if(ad->playlistFolderCount) {
 		loadPlaylistFolder(ad->playlistFolder, &ad->playlistFolderCount);
 
 		YoutubePlaylist* firstPlaylistFromFolder = ad->playlistFolder + ad->playlistFolderIndex;
 		memCpy(&ad->playlist, firstPlaylistFromFolder, sizeof(YoutubePlaylist));
 
-		ad->startLoadFile = true;
-	} else {
-		// Load empty playlist.
+		if(ad->playlistFolderCount) {
+			ad->startLoadFile = true;
 
-		strCpy(ad->playlist.title, "");
-		strCpy(ad->playlist.id, "");
-		ad->playlist.count = 0;
-		ad->playlist.maxCount = 0;
+		} else {
+			// Load empty playlist.
+
+			strCpy(ad->playlist.title, "");
+			strCpy(ad->playlist.id, "");
+			ad->playlist.count = 0;
+			ad->playlist.maxCount = 0;
+		}
 	}
-}
 
 	// @Load File.
-if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
-	TIMER_BLOCK_NAMED("LoadFile");
+	if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
+		TIMER_BLOCK_NAMED("LoadFile");
 
-	TIMER_BLOCK_BEGIN_NAMED(filestart, "LoadFileStart");
+		TIMER_BLOCK_BEGIN_NAMED(filestart, "LoadFileStart");
 
-	ad->startLoadFile = false;
+		ad->startLoadFile = false;
 
-	YoutubePlaylist tempPlaylist;		
-	int maxCount = 1;
-	loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id), &maxCount);
-	memCpy(&ad->playlist, &tempPlaylist, sizeof(YoutubePlaylist));
+		YoutubePlaylist tempPlaylist;		
+		int maxCount = 1;
+		loadPlaylistHeaderFromFile(&tempPlaylist, fillString("%s.playlist", ad->playlist.id), &maxCount);
+		memCpy(&ad->playlist, &tempPlaylist, sizeof(YoutubePlaylist));
 
-	pushTMemoryStack();
+		pushTMemoryStack();
 
-	int tempVidCount = tempPlaylist.count;
-	YoutubeVideo* tempVids = getTArray(YoutubeVideo, tempVidCount);
+		int tempVidCount = tempPlaylist.count;
+		YoutubeVideo* tempVids = getTArray(YoutubeVideo, tempVidCount);
 
-	bool foundFile = loadPlaylistFromFile(&tempPlaylist, tempVids, &tempVidCount);
+		bool foundFile = loadPlaylistFromFile(&tempPlaylist, tempVids, &tempVidCount);
 
-	TIMER_BLOCK_END(filestart);
+		TIMER_BLOCK_END(filestart);
 
-	if(foundFile) {
-		ad->downloadPlaylist.count = maxCount;
+		if(foundFile) {
+			ad->downloadPlaylist.count = maxCount;
 
-			// Filter videos.
-		{
-			TIMER_BLOCK_NAMED("Filtering");
-
-			int* filteredIndexes = getTArray(int, tempVidCount);
-			int filteredIndexesCount = 0;
-
-			char* inclusiveFilterStrings[10];
-			int inclusiveFilterStringCount = 0;
+				// Filter videos.
 			{
-				char* searchString = ad->inclusiveFilter;
-				for(;;) {
-					searchString = eatSpaces(searchString);
-					int pos = strFind(searchString, ' ');
-					if(pos != 0) {
-						char* filter = getTString(pos-1 + 1);
-						strCpy(filter, searchString, pos-1);
+				TIMER_BLOCK_NAMED("Filtering");
+
+				int* filteredIndexes = getTArray(int, tempVidCount);
+				int filteredIndexesCount = 0;
+
+				char* inclusiveFilterStrings[10];
+				int inclusiveFilterStringCount = 0;
+				{
+					char* searchString = ad->inclusiveFilter;
+					for(;;) {
+						searchString = eatSpaces(searchString);
+						int pos = strFind(searchString, ' ');
+						if(pos != 0) {
+							char* filter = getTString(pos-1 + 1);
+							strCpy(filter, searchString, pos-1);
+							inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
+
+							searchString += pos-1;
+							continue;
+						}
+
+						pos = strLen(searchString);
+						if(pos == 0) break;
+
+						char* filter = getTString(pos + 1);
+						strCpy(filter, searchString, pos);
 						inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
 
-						searchString += pos-1;
-						continue;
+						break;
 					}
-
-					pos = strLen(searchString);
-					if(pos == 0) break;
-
-					char* filter = getTString(pos + 1);
-					strCpy(filter, searchString, pos);
-					inclusiveFilterStrings[inclusiveFilterStringCount++] = filter;
-
-					break;
 				}
-			}
-			char* exclusiveFilterStrings[10];
-			int exclusiveFilterStringCount = 0;
-			{
-				char* searchString = ad->exclusiveFilter;
-				for(;;) {
-					searchString = eatSpaces(searchString);
-					int pos = strFind(searchString, ' ');
-					if(pos != 0) {
-						char* filter = getTString(pos-1 + 1);
-						strCpy(filter, searchString, pos-1);
+				char* exclusiveFilterStrings[10];
+				int exclusiveFilterStringCount = 0;
+				{
+					char* searchString = ad->exclusiveFilter;
+					for(;;) {
+						searchString = eatSpaces(searchString);
+						int pos = strFind(searchString, ' ');
+						if(pos != 0) {
+							char* filter = getTString(pos-1 + 1);
+							strCpy(filter, searchString, pos-1);
+							exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
+
+							searchString += pos-1;
+							continue;
+						}
+
+						pos = strLen(searchString);
+						if(pos == 0) break;
+
+						char* filter = getTString(pos + 1);
+						strCpy(filter, searchString, pos);
 						exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
 
-						searchString += pos-1;
-						continue;
+						break;
 					}
-
-					pos = strLen(searchString);
-					if(pos == 0) break;
-
-					char* filter = getTString(pos + 1);
-					strCpy(filter, searchString, pos);
-					exclusiveFilterStrings[exclusiveFilterStringCount++] = filter;
-
-					break;
 				}
-			}
 
 
-			{
-				TIMER_BLOCK_NAMED("ApplyFilter");
+				{
+					TIMER_BLOCK_NAMED("ApplyFilter");
 
-				bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
-				bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
+					bool inclusiveFilterActive = inclusiveFilterStringCount > 0;
+					bool exclusiveFilterActive = exclusiveFilterStringCount > 0;
 
-				bool notFiltered;
-				for(int i = 0; i < tempVidCount; i++) {
-					char* title = tempVids[i].title;
+					bool notFiltered;
+					for(int i = 0; i < tempVidCount; i++) {
+						char* title = tempVids[i].title;
 
-					bool inclusiveCorrect;
-					if(inclusiveFilterActive) {
-						inclusiveCorrect = true;
-						for(int fi = 0; fi < inclusiveFilterStringCount; fi++) {
-							char* filter = inclusiveFilterStrings[fi];
-							bool correct = (strFind(title, filter) != -1);
-							if(!correct) {
-								inclusiveCorrect = false;
-								break;
+						bool inclusiveCorrect;
+						if(inclusiveFilterActive) {
+							inclusiveCorrect = true;
+							for(int fi = 0; fi < inclusiveFilterStringCount; fi++) {
+								char* filter = inclusiveFilterStrings[fi];
+								bool correct = (strFind(title, filter) != -1);
+								if(!correct) {
+									inclusiveCorrect = false;
+									break;
+								}
 							}
 						}
-					}
 
-					bool exclusiveCorrect;
-					if(exclusiveFilterActive) {
-						exclusiveCorrect = true;
-						for(int fi = 0; fi < exclusiveFilterStringCount; fi++) {
-							char* filter = exclusiveFilterStrings[fi];
-							bool correct = (strFind(title, filter) == -1);
-							if(!correct) {
-								exclusiveCorrect = false;
-								break;
+						bool exclusiveCorrect;
+						if(exclusiveFilterActive) {
+							exclusiveCorrect = true;
+							for(int fi = 0; fi < exclusiveFilterStringCount; fi++) {
+								char* filter = exclusiveFilterStrings[fi];
+								bool correct = (strFind(title, filter) == -1);
+								if(!correct) {
+									exclusiveCorrect = false;
+									break;
+								}
 							}
 						}
+
+						if(!inclusiveFilterActive) inclusiveCorrect = true;
+						if(!exclusiveFilterActive) exclusiveCorrect = true;
+
+						notFiltered = inclusiveCorrect && exclusiveCorrect;
+
+							// Filter corrupted videos for now.
+						bool corrupted = false;
+						if(notFiltered)
+						{
+							YoutubeVideo* vid = tempVids + i;
+							if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
+							   vid->viewCount < 0 || vid->viewCount > 5000000000 ||
+							   vid->likeCount < 0 || vid->likeCount > 100000000 ||
+							   vid->dislikeCount < 0 || vid->dislikeCount > 100000000 ||
+							   vid->favoriteCount < 0)
+								corrupted = true;
+
+								notFiltered = notFiltered && !corrupted;
+
+								// if(!valueBetween(vid->viewCount, ad->clampFilter[0].min, ad->clampFilter[0].max)) notFiltered = false;
+								// if(!valueBetween(vid->viewCount, ad->clampFilter[1].min, ad->clampFilter[1].max)) notFiltered = false;
+								// if(!valueBetween(vid->viewCount, ad->clampFilter[2].min, ad->clampFilter[2].max)) notFiltered = false;
+								// if(!valueBetween(vid->viewCount, ad->clampFilter[3].min, ad->clampFilter[3].max)) notFiltered = false;
+						}
+
+						if(notFiltered) filteredIndexes[filteredIndexesCount++] = i;
+					}
+				}
+
+				ad->playlist.count = filteredIndexesCount;
+
+				{
+					TIMER_BLOCK_NAMED("Cpy Filtered");
+
+						// Resize ad->videos if not big enough.
+					if(ad->maxVideoCount < filteredIndexesCount) {
+						free(ad->videos);
+						int count = filteredIndexesCount;
+						ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
+						ad->maxVideoCount = count;
 					}
 
-					if(!inclusiveFilterActive) inclusiveCorrect = true;
-					if(!exclusiveFilterActive) exclusiveCorrect = true;
-
-					notFiltered = inclusiveCorrect && exclusiveCorrect;
-
-						// Filter corrupted videos for now.
-					bool corrupted = false;
-					if(notFiltered)
-					{
-						YoutubeVideo* vid = tempVids + i;
-						if(vid->date.n < dateEncode(5,1,1,0,0,0) || vid->date.n > dateEncode(20,1,1,0,0,0) ||
-						   vid->viewCount < 0 || vid->viewCount > 5000000000 ||
-						   vid->likeCount < 0 || vid->likeCount > 100000000 ||
-						   vid->dislikeCount < 0 || vid->dislikeCount > 100000000 ||
-						   vid->favoriteCount < 0)
-							corrupted = true;
-
-						notFiltered = notFiltered && !corrupted;
-
-							// if(!valueBetween(vid->viewCount, ad->clampFilter[0].min, ad->clampFilter[0].max)) notFiltered = false;
-							// if(!valueBetween(vid->viewCount, ad->clampFilter[1].min, ad->clampFilter[1].max)) notFiltered = false;
-							// if(!valueBetween(vid->viewCount, ad->clampFilter[2].min, ad->clampFilter[2].max)) notFiltered = false;
-							// if(!valueBetween(vid->viewCount, ad->clampFilter[3].min, ad->clampFilter[3].max)) notFiltered = false;
+					for(int i = 0; i < filteredIndexesCount; i++) {
+						int index = filteredIndexes[i];
+						ad->videos[i] = tempVids[index];
 					}
-
-					if(notFiltered) filteredIndexes[filteredIndexesCount++] = i;
 				}
 			}
 
-			ad->playlist.count = filteredIndexesCount;
-
-			{
-				TIMER_BLOCK_NAMED("Cpy Filtered");
-
-					// Resize ad->videos if not big enough.
-				if(ad->maxVideoCount < filteredIndexesCount) {
-					free(ad->videos);
-					int count = filteredIndexesCount;
-					ad->videos = (YoutubeVideo*)malloc(sizeof(YoutubeVideo)*count);
-					ad->maxVideoCount = count;
+			if(ad->playlist.count == 0) {
+				for(int i = 0; i < ad->camCount; i++) {
+					graphCamInit(&ad->cams[i], 0, 10000, 0, 1000);
 				}
-
-				for(int i = 0; i < filteredIndexesCount; i++) {
-					int index = filteredIndexes[i];
-					ad->videos[i] = tempVids[index];
-				}
-			}
-		}
-
-		if(ad->playlist.count == 0) {
-			for(int i = 0; i < ad->camCount; i++) {
-				graphCamInit(&ad->cams[i], 0, 10000, 0, 1000);
-			}
-		} else {
+			} else {
 
 				// Sort videos.
-			{
-				TIMER_BLOCK_NAMED("Sorting");
+				{
+					TIMER_BLOCK_NAMED("Sorting");
 
-				YoutubeVideo* vids = ad->videos;
-				int size = ad->playlist.count;
+					YoutubeVideo* vids = ad->videos;
+					int size = ad->playlist.count;
 
-				struct SortNode {
-					i64 val;
-					int i;	
-				};
+					struct SortNode {
+						i64 val;
+						int i;	
+					};
 
-				SortNode* list = (SortNode*)malloc(sizeof(SortNode)*size);
-				SortNode* buffer = (SortNode*)malloc(sizeof(SortNode)*size);
-				uchar* bytes = (uchar*)malloc(sizeof(uchar)*size);
-				int stageCount = ad->sortByDate?6:4;
+					SortNode* list = (SortNode*)malloc(sizeof(SortNode)*size);
+					SortNode* buffer = (SortNode*)malloc(sizeof(SortNode)*size);
+					uchar* bytes = (uchar*)malloc(sizeof(uchar)*size);
+					int stageCount = ad->sortByDate?6:4;
 
-				TIMER_BLOCK_BEGIN_NAMED(pre, "pre");
+					TIMER_BLOCK_BEGIN_NAMED(pre, "pre");
 
-				if(ad->sortByDate)         for(int i = 0; i < size; i++) list[i].val = vids[i].date.n;
-				else if(ad->sortStat == 0) for(int i = 0; i < size; i++) list[i].val = vids[i].viewCount;
-				else if(ad->sortStat == 1) for(int i = 0; i < size; i++) list[i].val = vids[i].likeCount + vids[i].dislikeCount;
-				else if(ad->sortStat == 3) for(int i = 0; i < size; i++) list[i].val = vids[i].commentCount;
-				else if(ad->sortStat == 2) for(int i = 0; i < size; i++) {
-					float v = videoGetLikesDiff(&vids[i]);
-					list[i].val = *((i64*)(&v));
-				}
+					if(ad->sortByDate)         for(int i = 0; i < size; i++) list[i].val = vids[i].date.n;
+					else if(ad->sortStat == 0) for(int i = 0; i < size; i++) list[i].val = vids[i].viewCount;
+					else if(ad->sortStat == 1) for(int i = 0; i < size; i++) list[i].val = vids[i].likeCount + vids[i].dislikeCount;
+					else if(ad->sortStat == 3) for(int i = 0; i < size; i++) list[i].val = vids[i].commentCount;
+					else if(ad->sortStat == 2) for(int i = 0; i < size; i++) {
+						float v = videoGetLikesDiff(&vids[i]);
+						list[i].val = *((i64*)(&v));
+					}
 
-				for(int i = 0; i < size; i++) list[i].i = i;
+					for(int i = 0; i < size; i++) list[i].i = i;
 
 					TIMER_BLOCK_END(pre);
 
-				for(int stage = 0; stage < stageCount; stage++) {
-					SortNode* src = stage%2 == 0 ? list : buffer;
-					SortNode* dst = stage%2 == 0 ? buffer : list;
-					int bucket[257] = {};
-					int offset = 8*stage;
+					for(int stage = 0; stage < stageCount; stage++) {
+						SortNode* src = stage%2 == 0 ? list : buffer;
+						SortNode* dst = stage%2 == 0 ? buffer : list;
+						int bucket[257] = {};
+						int offset = 8*stage;
 
-					for(int i = 0; i < size; i++) bytes[i] = src[i].val >> offset;
-						for(int i = 0; i < size; i++) bucket[bytes[i]+1]++;
-							for(int i = 0; i < 256-1; i++) bucket[i+1] += bucket[i];
+						for(int i = 0; i < size; i++) bytes[i] = src[i].val >> offset;
+							for(int i = 0; i < size; i++) bucket[bytes[i]+1]++;
+								for(int i = 0; i < 256-1; i++) bucket[i+1] += bucket[i];
 
-								TIMER_BLOCK_BEGIN_NAMED(asdf, "SortCpy");
-
-							for(int i = 0; i < size; i++) {
-								uchar byte = bytes[i];
-								dst[bucket[bytes[i]]] = src[i];
-								bucket[byte]++;
-							}
-
-							TIMER_BLOCK_END(asdf);
-						}
-
-						TIMER_BLOCK_BEGIN_NAMED(post, "post");
+						TIMER_BLOCK_BEGIN_NAMED(asdf, "SortCpy");
 
 						for(int i = 0; i < size; i++) {
-							int index = list[i].i;
-							tempVids[i] = vids[index];
+							uchar byte = bytes[i];
+							dst[bucket[bytes[i]]] = src[i];
+							bucket[byte]++;
 						}
 
-						if(ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[i];
-						else if(!ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[size-i-1];
-
-						TIMER_BLOCK_END(post);
-
-						free(buffer);
-						free(bytes);
-						free(list);
-
+						TIMER_BLOCK_END(asdf);
 					}
 
-					Statistic statViews, statLikes, statLikesDiff, statDates, statComments;
-					{
-						TIMER_BLOCK_NAMED("Get Stats");
+					TIMER_BLOCK_BEGIN_NAMED(post, "post");
 
-						beginStatistic(&statViews);
-						beginStatistic(&statLikes);
-						beginStatistic(&statDates);
-						beginStatistic(&statLikesDiff);
-						beginStatistic(&statComments);
+					for(int i = 0; i < size; i++) {
+						int index = list[i].i;
+						tempVids[i] = vids[index];
+					}
 
-						for(int i = 0; i < ad->playlist.count; i++) {
-							YoutubeVideo* video = ad->videos + i;
+					if(ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[i];
+					else if(!ad->sortByDate) for(int i = 0; i < size; i++) vids[i] = tempVids[size-i-1];
 
-							updateStatistic(&statViews, video->viewCount);
-							updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
-							updateStatistic(&statLikesDiff, videoGetLikesDiff(video));
-							updateStatistic(&statComments, video->commentCount);
-							updateStatistic(&statDates, video->date.n);
-						}
+					TIMER_BLOCK_END(post);
 
-						endStatistic(&statViews);
-						endStatistic(&statLikes);
-						endStatistic(&statLikesDiff);
-						endStatistic(&statDates);
-						endStatistic(&statComments);
+					free(buffer);
+					free(bytes);
+					free(list);
 
-						ad->stats[0] = statViews;
-						ad->stats[1] = statLikes;
-						ad->stats[2] = statLikesDiff;
-						ad->stats[3] = statComments;
+				}
+
+				Statistic statViews, statLikes, statLikesDiff, statDates, statComments;
+				{
+					TIMER_BLOCK_NAMED("Get Stats");
+
+					beginStatistic(&statViews);
+					beginStatistic(&statLikes);
+					beginStatistic(&statDates);
+					beginStatistic(&statLikesDiff);
+					beginStatistic(&statComments);
+
+					for(int i = 0; i < ad->playlist.count; i++) {
+						YoutubeVideo* video = ad->videos + i;
+
+						updateStatistic(&statViews, video->viewCount);
+						updateStatistic(&statLikes, video->likeCount+video->dislikeCount);
+						updateStatistic(&statLikesDiff, videoGetLikesDiff(video));
+						updateStatistic(&statComments, video->commentCount);
+						updateStatistic(&statDates, video->date.n);
+					}
+
+					endStatistic(&statViews);
+					endStatistic(&statLikes);
+					endStatistic(&statLikesDiff);
+					endStatistic(&statDates);
+					endStatistic(&statComments);
+
+					ad->stats[0] = statViews;
+					ad->stats[1] = statLikes;
+					ad->stats[2] = statLikesDiff;
+					ad->stats[3] = statComments;
 
 					// ad->clampFilter[0].min = ad->stats[0].min;
 					// ad->clampFilter[0].max = ad->stats[0].max;
@@ -5612,64 +5538,64 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 					// ad->clampFilter[2].max = ad->stats[2].max;
 					// ad->clampFilter[3].min = ad->stats[3].min;
 					// ad->clampFilter[3].max = ad->stats[3].max;
-					}
-
-				// Init cam after loading.
-					{
-						double camLeft, camRight;
-
-						if(ad->sortByDate) {
-							if(statDates.max - statDates.min < Graph_Zoom_Min) {
-								i64 timeMid = statDates.min != statDates.max ? statDates.min + (statDates.max - statDates.min)/2 : statDates.min;
-								camLeft = timeMid - Graph_Zoom_Min/2;
-								camRight = timeMid + Graph_Zoom_Min/2;
-							} else {
-								camLeft = statDates.min;
-								camRight = statDates.max;
-							}
-						} else {
-							camLeft = 0;
-							camRight = ad->playlist.count-1;
-						}
-
-						graphCamInit(&ad->cams[0], camLeft, camRight, 0, statViews.max*1.1f);
-						graphCamInit(&ad->cams[1], camLeft, camRight, 0, statLikes.max*1.1f);
-						graphCamInit(&ad->cams[2], camLeft, camRight, 0, 1);
-						graphCamInit(&ad->cams[3], camLeft, camRight, 0, statComments.max*1.1f);
-					}
-
-					calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
 				}
 
-				ad->selectedVideo = -1;
-			} 
+				// Init cam after loading.
+				{
+					double camLeft, camRight;
 
-			popTMemoryStack();
-		}
+					if(ad->sortByDate) {
+						if(statDates.max - statDates.min < Graph_Zoom_Min) {
+							i64 timeMid = statDates.min != statDates.max ? statDates.min + (statDates.max - statDates.min)/2 : statDates.min;
+							camLeft = timeMid - Graph_Zoom_Min/2;
+							camRight = timeMid + Graph_Zoom_Min/2;
+						} else {
+							camLeft = statDates.min;
+							camRight = statDates.max;
+						}
+					} else {
+						camLeft = 0;
+						camRight = ad->playlist.count-1;
+					}
+
+					graphCamInit(&ad->cams[0], camLeft, camRight, 0, statViews.max*1.1f);
+					graphCamInit(&ad->cams[1], camLeft, camRight, 0, statLikes.max*1.1f);
+					graphCamInit(&ad->cams[2], camLeft, camRight, 0, 1);
+					graphCamInit(&ad->cams[3], camLeft, camRight, 0, statComments.max*1.1f);
+				}
+
+				calculateAverages(ad->videos, ad->playlist.count, &ad->averagesLineGraph, ad->statTimeSpan, ad->statWidth, ad->cams[0].xMax - ad->cams[0].xMin, &ad->releaseCountLineGraph);
+			}
+
+			ad->selectedVideo = -1;
+		} 
+
+		popTMemoryStack();
+	}
 
 
-		if(true)
-		{
-			TIMER_BLOCK_BEGIN_NAMED(appIntro, "appIntro");
+	if(true)
+	{
+		TIMER_BLOCK_BEGIN_NAMED(appIntro, "appIntro");
 
 		// AppSettings* as = &ad->appSettings;
 
-			AppColors* ac = &ad->appColors;
-			AppSettings* as = &ad->appSettings;
+		AppColors* ac = &ad->appColors;
+		AppSettings* as = &ad->appSettings;
 
-			Font* font = ad->font;
-			int fontSize = font->height;
+		Font* font = ad->font;
+		int fontSize = font->height;
 
 		// Options.
-			float topBarHeightMod = as->heightMod;
-			float leftScaleOffset = 0;
-			float bottomScaleOffset = 0;
-			float windowBorderSize = as->windowBorder;
-			float windowTitleHeightMod = as->windowHeightMod;
+		float topBarHeightMod = as->heightMod;
+		float leftScaleOffset = 0;
+		float bottomScaleOffset = 0;
+		float windowBorderSize = as->windowBorder;
+		float windowTitleHeightMod = as->windowHeightMod;
 
 		// Colors.
-			Vec4 colorWindowBorder = ac->windowBorder;
-			Vec4 colorWindowClient = ac->background;
+		Vec4 colorWindowBorder = ac->windowBorder;
+		Vec4 colorWindowClient = ac->background;
 
 		//
 
@@ -6765,12 +6691,6 @@ if(ad->startLoadFile && (ad->modeData.downloadMode != Download_Mode_Videos)) {
 		TIMER_BLOCK_END(appMain);
 
 		endOfMainLabel:
-
-
-		{
-			// ad->panelMode = 1;
-			// ad->panelActive = true;
-		}
 
 
 		// Main Panel.
