@@ -3932,6 +3932,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		loadFunctions();
 
+		GLint majorVersion, minorVersion;
+		glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
+		glGetIntegerv(GL_MINOR_VERSION, &minorVersion);
+
+		printf("Opengl Version: %s - %i.%i\n", (char*)glGetString(GL_VERSION), majorVersion, minorVersion);
+
 		// Ask for specific opengl version.
 		{
 		    GLint attribs[] = {
@@ -3946,16 +3952,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 		    if (compatibilityContext && wglMakeCurrent(systemData->deviceContext, compatibilityContext)) {
 		        // systemData->openglContext = compatibilityContext;
 		    } else {
-				printf("Could not set Opengl compatibility context\n");
+				char* str = fillString("App requires Opengl version 3.3.\nAvailable version is: %i..%i\n", majorVersion, minorVersion);
+				MessageBox(0, str, "Error", MB_OK );
+				exit(0);
 		    }
 		}
-
-		GLint majorVersion, minorVersion;
-		glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
-		glGetIntegerv(GL_MINOR_VERSION, &minorVersion);
-
-		printf("Opengl Version: %s - %i.%i\n", (char*)glGetString(GL_VERSION), majorVersion, minorVersion);
-
 
 		const char* extensions = wglGetExtensionsStringEXT();
 
@@ -4014,7 +4015,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 		//
 		//
 
-		ad->msaaSamples = 4;
+		{
+			int maxSamples;
+			int maxIntSamples;
+
+			glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+			glGetIntegerv(GL_MAX_INTEGER_SAMPLES, &maxIntSamples);
+
+			ad->msaaSamples = min(4, maxIntSamples);
+		}
+
 		ad->dt = 1/(float)60;
 
 		ad->graphicsState.zOrder = 0;
