@@ -110,7 +110,6 @@ StructMemberInfo Struct_Member_Info_Array(AppSettings)[] = {
 	initMemberInfo( Init_Member(AppSettings, windowBorder, int)),
 	initMemberInfo( Init_Member(AppSettings, border, int)),
 	initMemberInfo( Init_Member(AppSettings, padding, int)),
-	initMemberInfo( Init_Member(AppSettings, darkTheme, bool)),
 };
 
 // StructMemberInfo Struct_Member_Info_Array(AppColors)[] = {
@@ -158,6 +157,7 @@ StructMemberInfo Struct_Member_Info_Array(AppColorsRelative)[] = {
 	initMemberInfo( Init_Member(AppColorsRelative, graphBackgroundTop, RelativeColor)),
 	initMemberInfo( Init_Member(AppColorsRelative, graphMark, RelativeColor)),
 	initMemberInfo( Init_Member(AppColorsRelative, graphSubMark, RelativeColor)),
+	initMemberInfo( Init_Member(AppColorsRelative, likes, RelativeColor)),
 };
 
 StructInfo structInfos[] = {

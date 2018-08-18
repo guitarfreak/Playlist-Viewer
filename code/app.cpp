@@ -162,9 +162,10 @@ union AppColors {
 		Vec4 graphBackgroundTop;
 		Vec4 graphMark;
 		Vec4 graphSubMark;
+		Vec4 likes;
 	};
 
-	Vec4 e[18];
+	Vec4 e[19];
 };
 
 union AppColorsRelative {
@@ -187,9 +188,10 @@ union AppColorsRelative {
 		RelativeColor graphBackgroundTop;
 		RelativeColor graphMark;
 		RelativeColor graphSubMark;
+		RelativeColor likes;
 	};
 
-	RelativeColor e[18];
+	RelativeColor e[19];
 };
 
 
@@ -212,13 +214,11 @@ struct AppSettings {
 	int windowBorder;
 	int border;
 	int padding;
-
-	bool darkTheme;
 };
 
 #include "debug.cpp"
 
-void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppColorsRelative* appColorsRelativeLight, AppColorsRelative* appColorsRelativeDark) {
+void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppColorsRelative* appColorsRelative) {
 	char* buffer, *temp;
 	buffer = getTString(kiloBytes(10));
 	temp = buffer;
@@ -234,12 +234,7 @@ void writeAppSettingsToFile(char* settingsFile, AppSettings* appSettings, AppCol
 
 	strCpyInc(&temp, "// ==================== App Colors. ==================== //\r\n\r\n");
 	
-	strCpyInc(&temp, "// Light Theme:\r\n");
-	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelativeLight);
-
-	strCpyInc(&temp, "\r\n");
-	strCpyInc(&temp, "// Dark Theme:\r\n");
-	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelativeDark);
+	writeTypeSimple(&temp, STRUCTTYPE_AppColorsRelative, appColorsRelative);
 
 	writeBufferToFile(buffer, settingsFile);
 }
@@ -3657,8 +3652,7 @@ struct AppData {
 	FILETIME settingsFileLastWriteTime;
 
 	AppSettings appSettings;
-	AppColorsRelative appColorsRelativeLight;
-	AppColorsRelative appColorsRelativeDark;
+	AppColorsRelative appColorsRelative;
 
 	AppColors appColors;
 
@@ -4183,6 +4177,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->searchResultMaxCount = 300;
 		ad->searchResults = getPArray(SearchResult, ad->searchResultMaxCount);
 
+		// Load empty playlist.
+		{
+			strCpy(ad->playlist.title, "");
+			strCpy(ad->playlist.id, "");
+			ad->playlist.count = 0;
+			ad->playlist.maxCount = 0;
+		}
 	}
 
 
@@ -4293,7 +4294,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			if(!fileExists(App_Settings_File)) {
 				AppSettings as;
 				AppColorsRelative rac;
-				AppColorsRelative rac2;
 
 				as.font = "OpenSans-Regular.ttf";
 				as.fontBold = "OpenSans-Bold.ttf";
@@ -4310,57 +4310,36 @@ extern "C" APPMAINFUNCTION(appMain) {
 				as.textPaddingMod = 0.5f;
 				as.rounding = 5;
 
-				as.darkTheme = true;
-
-				rac.font =                  { { 0.0010000, 0.0010000, 0.0010000, 0.9990000 },-1 };
-				rac.font2 =                 { { 0.0010000, 0.0010000, 0.2041946, 0.9990000 },-1 };
+				rac.font =                  { { 0.0010000, 0.0010000, 1.0000000, 0.9990000 },-1 };
+				rac.font2 =                 { { 0.0010000, 0.0010000, 0.7000000, 0.9990000 },-1 };
 				rac.graphFont =             { { 0.0000000, 0.0000000, 0.0000000, 0.0000000 }, 0 };
-				rac.fontShadow =            { { 0.0010000, 0.0010000, 0.9990000, 0.9990000 },-1 };
-				rac.windowBorder =          { { 0.0000000, 0.0000000,-0.2000000, 0.0000000 }, 5 };
-				rac.background =            { { 0.0010000, 0.0010000, 0.8560750, 0.9990000 },-1 };
-				rac.button =                { { 0.0000000, 0.0000000,-0.1553364, 0.0000000 }, 5 };
-				rac.uiBackground =          { { 0.0000000, 0.0000000,-0.2500001, 0.0000000 }, 5 };
-				rac.edge =                  { { 0.0000000, 0.0000000,-1.0000000, 0.0000000 }, 5 };
-				rac.editCursor =            { { 0.5010000, 0.6010000, 0.3010000, 0.9990000 },-1 };
-				rac.editSelection =         { {-0.2097955,-0.1090000, 0.4009999, 1.0000000 }, 9 };
-				rac.graphData1 =            { { 0.5063151, 0.7007888, 0.3092435, 0.9990000 },-1 };
-				rac.graphData2 =            { { 0.1061938,-0.1000000, 0.1000000, 0.0000000 }, 11 };
-				rac.graphData3 =            { {-0.2200000, 0.0000000, 0.0200000, 0.0000000 }, 11 };
-				rac.graphBackgroundBottom = { { 0.0000000, 0.0000000, 0.2007910, 0.0000000 }, 15 };
-				rac.graphBackgroundTop =    { { 0.0010000, 0.0010000, 0.7000105, 0.9990000 },-1 };
-				rac.graphMark =             { { 0.0010000, 0.0010000, 0.0010000, 0.2510002 },-1 };
-				rac.graphSubMark =          { { 0.0010000, 0.0010000, 0.0010000,-0.1000000 }, 16 };
+				rac.fontShadow =            { { 0.0010000, 0.0010000, 0.1000000, 0.9990000 },-1 };
+				rac.windowBorder =          { { 0.0000000, 0.0000000, 0.0800000, 0.0000000 }, 5 };
+				rac.background =            { { 0.0010000, 0.0010000, 0.2000000, 0.9990000 },-1 };
+				rac.button =                { { 0.0000000, 0.0000000, 0.0500000, 0.0000000 }, 5 };
+				rac.uiBackground =          { { 0.0000000, 0.0000000,-0.0300000, 0.0000000 }, 5 };
+				rac.edge =                  { { 0.0000000, 0.0000000, 0.1200000, 0.0000000 }, 5 };
+				rac.editCursor =            { { 0.5066964, 0.6009999, 0.7010000, 0.9990000 },-1 };
+				rac.editSelection =         { { 0.2258796,-0.1090001,-0.2590001, 0.0000000 }, 9 };
+				rac.graphData1 =            { { 0.5007138, 0.5000002, 0.4590000, 0.9990000 },-1 };
+				rac.graphData2 =            { { 0.1500000, 0.0000000, 0.0500000, 0.0000000 }, 11 };
+				rac.graphData3 =            { {-0.1526443, 0.0000000, 0.0000000, 0.0000000 }, 11 };
+				rac.graphBackgroundBottom = { { 0.0000000, 0.0000000,-0.0800000, 0.0000000 }, 15 };
+				rac.graphBackgroundTop =    { { 0.0010000, 0.0010000, 0.1665365, 0.9990000 },-1 };
+				rac.graphMark =             { { 0.0010000, 0.0010000, 0.9990000, 0.0500000 },-1 };
+				rac.graphSubMark =          { { 0.0010000, 0.0010000, 0.9990000, 0.0250000 },-1 };
+				rac.likes =                 { { 0.5600000, 0.6000000, 0.4000000, 1.0000000 },-1 };
 
-				rac2.font =                  { { 0.0010000, 0.0010000, 1.0000000, 0.9990000 },-1 };
-				rac2.font2 =                 { { 0.0010000, 0.0010000, 0.7000000, 0.9990000 },-1 };
-				rac2.graphFont =             { { 0.0000000, 0.0000000, 0.0000000, 0.0000000 }, 0 };
-				rac2.fontShadow =            { { 0.0010000, 0.0010000, 0.1000000, 0.9990000 },-1 };
-				rac2.windowBorder =          { { 0.0000000, 0.0000000, 0.0800000, 0.0000000 }, 5 };
-				rac2.background =            { { 0.0010000, 0.0010000, 0.2000000, 0.9990000 },-1 };
-				rac2.button =                { { 0.0000000, 0.0000000, 0.0500000, 0.0000000 }, 5 };
-				rac2.uiBackground =          { { 0.0000000, 0.0000000,-0.0300000, 0.0000000 }, 5 };
-				rac2.edge =                  { { 0.0000000, 0.0000000, 0.1200000, 0.0000000 }, 5 };
-				rac2.editCursor =            { { 0.5066964, 0.6009999, 0.7010000, 0.9990000 },-1 };
-				rac2.editSelection =         { { 0.2258796,-0.1090001,-0.2590001, 0.0000000 }, 9 };
-				rac2.graphData1 =            { { 0.5007138, 0.5000002, 0.4590000, 0.9990000 },-1 };
-				rac2.graphData2 =            { { 0.1500000, 0.0000000, 0.0500000, 0.0000000 }, 11 };
-				rac2.graphData3 =            { {-0.1526443, 0.0000000, 0.0000000, 0.0000000 }, 11 };
-				rac2.graphBackgroundBottom = { { 0.0000000, 0.0000000,-0.0800000, 0.0000000 }, 15 };
-				rac2.graphBackgroundTop =    { { 0.0010000, 0.0010000, 0.1665365, 0.9990000 },-1 };
-				rac2.graphMark =             { { 0.0010000, 0.0010000, 0.9990000, 0.0500000 },-1 };
-				rac2.graphSubMark =          { { 0.0010000, 0.0010000, 0.9990000, 0.0250000 },-1 };
-
-				writeAppSettingsToFile(App_Settings_File, &as, &rac, &rac2);
+				writeAppSettingsToFile(App_Settings_File, &as, &rac);
 			}
 
 			char* buffer = getTString(fileSize(App_Settings_File)+1);
 			readFileToBuffer(buffer, App_Settings_File);
 			parseTypeSimple(&buffer, STRUCTTYPE_AppSettings, &ad->appSettings);
-			parseTypeSimple(&buffer, STRUCTTYPE_AppColorsRelative, &ad->appColorsRelativeLight);
-			parseTypeSimple(&buffer, STRUCTTYPE_AppColorsRelative, &ad->appColorsRelativeDark);
+			parseTypeSimple(&buffer, STRUCTTYPE_AppColorsRelative, &ad->appColorsRelative);
 
 
-			AppColorsRelative temp = ad->appSettings.darkTheme?ad->appColorsRelativeDark : ad->appColorsRelativeLight;
+			AppColorsRelative temp = ad->appColorsRelative;
 			relativeToAbsoluteColors(ad->appColors.e, temp.e, arrayCount(ad->appColors.e)); 
 
 			ad->fontHeight = roundInt(ad->appSettings.fontScale*systemData->fontHeight);
@@ -5250,14 +5229,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		if(ad->playlistFolderCount) {
 			ad->startLoadFile = true;
-
-		} else {
-			// Load empty playlist.
-
-			strCpy(ad->playlist.title, "");
-			strCpy(ad->playlist.id, "");
-			ad->playlist.count = 0;
-			ad->playlist.maxCount = 0;
 		}
 	}
 
@@ -5674,8 +5645,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			float iconWidth = 1.0f;
 
 			char* titleText = "";
-			if(strLen(ad->playlist.id) != 0) {
-				titleText = fillString("%s - %i - %s", ad->playlist.title, ad->	playlist.count, ad->playlist.id);
+			if(strLen(ad->playlist.id)) {
+				titleText = fillString("%s - %i - %s", ad->playlist.title, ad->playlist.count, ad->playlist.id);
 			}
 			
 			TextSettings titleTextSettings = ad->gui->textSettings; 
@@ -5694,7 +5665,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Layout* lButtonMin = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
 			Layout* lButtonMax = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
 			Layout* lButtonClose = layoutAdd(lay, layout(vec2(layoutGetDim(lay).h, 0)));
-
 			layoutCalc(lay);
 
 			// Bug.
@@ -5712,13 +5682,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->gui->buttonSettings = ad->uiButtonSettings;
 			if(newGuiQuickButton(ad->gui, lButtonMin->r, "")) ShowWindow(windowHandle, SW_MINIMIZE);
 			Rect a = rectExpand(lButtonMin->r, -iconSize);
-			drawRect(rectSetT(a, a.bottom + iconWidth), iconColor);
+			drawRect(rectRound(rectSetT(a, a.bottom + iconWidth)), iconColor);
 
 			if(newGuiQuickButton(ad->gui, lButtonMax->r, "")) setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
-			drawRectHollow(rectExpand(lButtonMax->r, -iconSize), iconWidth, iconColor);
+			drawRectHollow(rectRound(rectExpand(lButtonMax->r, -iconSize)), iconWidth, iconColor);
 
 			if(newGuiQuickButton(ad->gui, lButtonClose->r, "")) *isRunning = false;
-			drawCross(rectCen(lButtonClose->r), rectH(rectExpand(lButtonClose->r, -iconSize))/2, iconWidth, vec2(0,1), iconColor);
+			{
+				Rect r = lButtonClose->r;
+				drawCross(rectCen(r), rectH(rectExpand(r, -iconSize))/2, iconWidth, vec2(0,1), iconColor);
+			}
 			ad->gui->buttonSettings = ad->buttonSettings;
 
 		}
@@ -5887,815 +5860,819 @@ extern "C" APPMAINFUNCTION(appMain) {
 			graphCamPosClamp(cam);
 		}
 
-		// Draw graph backgrounds.
-		for(int i = 0; i < ad->camCount; i++) {
-			drawRectNewColoredH(graphRects[i], ac->graphBackgroundBottom, ac->graphBackgroundTop);
-		}
-
 		TIMER_BLOCK_END(appIntro);
 
-		// Draw left scale.
+		if(strLen(ad->playlist.id)) 
 		{
-			TIMER_BLOCK_NAMED("Left Text");
-
-			float markLength = 10;
-			float textMarginMod = 0.2f;
-			float lineWidth = 1;
-			float shadow = as->fontShadow;
-
-			Vec4 mainColor = ac->font;
-			Vec4 semiColor = ac->font2;
-			Vec4 horiLinesColor = ac->graphMark;
-			Vec4 subHoriLinesColor = ac->graphSubMark;
-			Vec4 shadowColor = ac->fontShadow;
-
-			TextSettings settingsMain = ad->gui->textSettings;
-			TextSettings settingsSemi = ad->gui->textSettings; settingsSemi.color = ad->appColors.font2;
-
-			float div = 10;
-			int subDiv = 4;
-			float splitSizePixels = font->height*3;
-
-			Vec4 leftScaleDividerColor = ac->edge;
-			float leftScaleDividerSize = 1;
-
-
-			glLineWidth(lineWidth);
-			scissorState();
-
-			float textMargin = font->height*textMarginMod;
-			float markSizeDifference = 0.5f;
-
-			bool calcMaxTextWidth;
-
-			for(int camIndex = 0; camIndex < ad->camCount; camIndex++) {
-				calcMaxTextWidth = camIndex == 0 ? true : false;
-
-				GraphCam* cam = ad->cams + camIndex;
-				Rect scaleRect = leftTextRects[camIndex];
-
-				float maxTextWidth = 0;
-
-				float splitSize = splitSizePixels * (cam->h / rectH(cam->viewPort));
-				float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
-				// float subSplitSize = font->height * (cam->h / rectH(cam->viewPort));
-				int i = 0;
-				float p = roundModDown(cam->bottom, stepSize);
-				while(p < cam->top + stepSize) {
-					float y = graphCamMapY(cam, p);
-
-					// Horizontal line.
-					scissorTestScreen(cam->viewPort);
-					glLineWidth(0.5f);
-					drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), horiLinesColor); 
-					glLineWidth(1);
-					scissorTestScreen(rectRound(rectExpand(scaleRect, vec2(-2))));
-
-					// Base markers.
-					drawLineNewOff(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(-markLength,0), mainColor); 
-
-					char* text;
-					if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
-					else text = fillString("%f",p);
-
-					drawText(text, vec2(scaleRect.right - markLength - textMargin, y), vec2i(1,0), settingsMain);
-					
-					float textWidth = getTextDim(text, font).w;
-
-					if(calcMaxTextWidth) maxTextWidth = max(maxTextWidth, textWidth + markLength + textMargin*2);
-
-					// Semi markers.
-					for(int i = 1; i < subDiv; i++) {
-						float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
-						drawLineNewOff(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(-markLength*markSizeDifference,0), semiColor); 
-
-						char* subText;
-						if(stepSize/subDiv > 10) subText = fillString("%i.",(int)(stepSize/subDiv));
-						else subText = fillString("%f",(stepSize/subDiv));
-
-						drawText(subText, vec2(scaleRect.right - markLength*markSizeDifference - textMargin, y), vec2i(1,0), settingsSemi);
-
-						// Draw horizontal line.
-						scissorTestScreen(cam->viewPort);
-						glLineWidth(0.5f);
-						drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), subHoriLinesColor); 
-						glLineWidth(1);
-						scissorTestScreen(rectRound(rectExpand(scaleRect, vec2(-2))));
-					}
-
-					p += stepSize;
-				}
-
-				if(calcMaxTextWidth) {
-					if(ad->leftTextWidth != maxTextWidth) ad->appIsBusy = true;
-
-					ad->leftTextWidth = maxTextWidth;
-				}
+			// Draw graph backgrounds.
+			for(int i = 0; i < ad->camCount; i++) {
+				drawRectNewColoredH(graphRects[i], ac->graphBackgroundBottom, ac->graphBackgroundTop);
 			}
 
-			scissorState(false);
-
-			// Draw dividers.
-			Vec4 color = leftScaleDividerColor;
-			float offset = 0;
-			glLineWidth(leftScaleDividerSize);
-			for(int camIndex = 0; camIndex < ad->camCount-1; camIndex++) {
-				Rect r = leftTextRects[camIndex];
-				// drawLine(rectBL(r), rectBR(r), color);
-				drawLine(roundVec2(rectBL(r)) + vec2(1,-0.5f), roundVec2(rectBR(r)) + vec2(0,-0.5f), color);
-			}
-			glLineWidth(1);
-		}
-
-		// Draw bottom scale.
-		if(ad->sortByDate)
-		{
-			TIMER_BLOCK_NAMED("Bottom Text");
-
-			int subStringMargin = font->height/2;
-			float splitOffset = font->height;
-
-			Vec4 mainColor = ac->font;
-			Vec4 semiColor = ac->font2;
-			Vec4 horiLinesColor = ac->graphMark;
-			Vec4 subHoriLinesColor = ac->graphSubMark;
-
-			float markLength = font->height - 3;
-			float fontMargin = 0;
-			float lineWidth = 1;
-
-			float shadow = as->fontShadow;
-			Vec4 shadowColor = ac->fontShadow;
-
-			TextSettings settingsMain = ad->gui->textSettings;
-			TextSettings settingsSemi = ad->gui->textSettings; settingsSemi.color = ad->appColors.font2;
-
-			float div = 10;
-			float splitSizePixels = 1000;
-
-			glLineWidth(lineWidth);
-			scissorState();
-
-			Rect scaleRect = rBottomText;
-
-			i64 oneYearInSeconds = (i64)365*86400;
-			i64 oneMonthInSeconds = (i64)30*86400;
-			i64 oneDayInSeconds = (i64)1*86400;
-
-			GraphCam* cam = &ad->cams[0];
-
-			float yearInPixels = graphCamCamToScreenSpaceX(cam, oneYearInSeconds);
-			float monthInPixels = graphCamCamToScreenSpaceX(cam, oneMonthInSeconds);
-			float dayInPixels = graphCamCamToScreenSpaceX(cam, oneDayInSeconds);
-
-			float yearStringSize = getTextDim("0000", font).w;
-			float monthStringSize = getTextDim("00.0000", font).w;
-			float dayStringSize = getTextDim("00.00.0000", font).w;
-			float timeStringSize = getTextDim("00:00", font).w;
-
-
-			int zoomStage = 0;
-			if(dayInPixels > dayStringSize + splitOffset) zoomStage = 2;
-			else if(monthInPixels > monthStringSize + splitOffset) zoomStage = 1;
-			else zoomStage = 0;
-
-
-			int subMarkerWidth = 0;
-			int subMarkerCount = 0;
-
-			Date startDate = dateDecode(cam->left);
-			
-			if(zoomStage == 0) {
-				startDate = {startDate.y, 1,1,0,0,0};
-
-				float markerDiff = (yearInPixels - yearStringSize)/(monthStringSize+splitOffset);
-				if(markerDiff > 4-1) subMarkerWidth = 3;
-				else if(markerDiff > 2-1) subMarkerWidth = 6;
-				else subMarkerWidth = 12;
-
-				subMarkerCount = subMarkerWidth>0?12/subMarkerWidth:0;
-
-			} else if(zoomStage == 1) {
-				startDate = {startDate.y, startDate.m, 1,0,0,0};
-
-				float markerDiff = (monthInPixels - monthStringSize)/(dayStringSize+splitOffset);
-				if(markerDiff > 6-1) subMarkerWidth = 5;
-				else if(markerDiff > 3-1) subMarkerWidth = 10;
-				else subMarkerWidth = 30;
-
-				subMarkerCount = subMarkerWidth>0?30/subMarkerWidth:0;
-
-			} else if(zoomStage == 2) {
-				startDate = {startDate.y, startDate.m, startDate.d, 0,0,0};
-
-				float markerDiff = (dayInPixels - dayStringSize)/(timeStringSize+splitOffset);
-				if(markerDiff > 12-1) subMarkerWidth = 2;
-				else if(markerDiff > 6-1) subMarkerWidth = 4;
-				else if(markerDiff > 3-1) subMarkerWidth = 8;
-				else subMarkerWidth = 24;
-
-				subMarkerCount = subMarkerWidth>0?24/subMarkerWidth:0;
-			}
-
-			dateEncode(&startDate);
-
-			// Why didn't I have this before??????
-			if(ad->playlist.count)
-			for(;;) {
-
-				Date nextDate = startDate;
-				dateIncrement(&nextDate, zoomStage);
-				dateEncode(&nextDate);
-
-				double p = startDate.n;
-
-				// Semi markers.
-				{
-					Date d = startDate;
-					dateEncode(&d);
-					double leftX = graphCamMapX(cam, d.n);
-					for(int i = 0; i < subMarkerCount; i++) {
-						double x = graphCamMapX(cam, d.n);
-
-						char* dateString;
-						if(d.m == 1 && d.d == 1) dateString = fillString("%s%i", d.y<10?"200":"20", d.y);
-						else if(d.d == 1) dateString = fillString("%s%i..%s%i", d.m < 10?"0":"", d.m, d.y<10?"200":"20", d.y);
-						else dateString = fillString("%s%i..%s%i..%s%i", d.d < 10?"0":"", d.d, d.m < 10?"0":"", d.m, d.y<10?"200":"20", d.y);
-						
-						if(zoomStage == 2 && i != 0) dateString = fillString("%s%i:00", d.h<10?"0":"", d.h);
-
-						scissorTestScreen(rGraphs);
-						glLineWidth(0.5f);
-						drawLine(vec2(roundFloat(x)+0.5f, rGraphs.bottom), vec2(roundFloat(x)+0.5f, rGraphs.top), i==0?horiLinesColor:subHoriLinesColor);
-						glLineWidth(1);
-						scissorTestScreen(scaleRect);
-
-						drawLineNewOff(vec2(roundFloat(x)+0.5f, scaleRect.top), vec2(0,-markLength), mainColor); 
-
-						drawText(dateString, vec2(x, scaleRect.top - markLength - fontMargin), vec2i(0,1), settingsMain);
-
-						dateIncrement(&d, subMarkerWidth, zoomStage+1);
-						dateEncode(&d);
-						x = graphCamMapX(cam, d.n);
-
-						int amount = subMarkerWidth;
-						if(i == subMarkerCount-1) {
-							if(zoomStage == 1) {
-								amount = getMonthDayCount(startDate.m, startDate.y) - (i)*subMarkerWidth;
-								x = graphCamMapX(cam, nextDate.n)-1;
-							} 
-						}
-
-						char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
-						drawText(subString, vec2(leftX + (x-leftX)/2, scaleRect.top), vec2i(0,1), settingsSemi);
-
-						leftX = x;
-					}
-				}
-
-				if(startDate.n > cam->right) break;
-				dateIncrement(&startDate, zoomStage);
-
-				dateEncode(&startDate);
-			}
-
-			scissorState(false);
-		}
-
-		// Graphs.
-		{
-			TIMER_BLOCK_BEGIN_NAMED(drawGraphs, "DrawGraphs");
-
-			float settingHoverSearchWidth = 100;
-			float settingHoverDistance = 20;
-			Vec4 c1 = ac->graphData1;
-			Vec4 c2 = ac->graphData2;
-
-			Vec4 statColor = ac->graphData3;
-
-			int lineWidth1 = 1;
-			int lineWidth2 = 3;
-			int pointSize = 3;
-			int statLineWidth = 1;
-
-
-			float textPadding = font->height * as->textPaddingMod;
-
-			int settingHoverPointSize = 10;
-			int settingHoverPointOffset = 10;
-			Font* graphTextFont = ad->font;
-			Vec2 graphTextOffset = vec2(textPadding);
-			float graphTextOutline = as->graphFontShadow;
-			float hoverTextOutline = as->graphFontShadow;
-
-			Vec4 graphTextColor = ac->graphFont;
-			Vec4 graphTextShadowColor = ac->fontShadow;
-
-
-
-			Font* graphTitleFont = ad->fontTitle;
-			Vec2 graphTitleOffset = vec2(textPadding, -textPadding);
-			Vec4 graphTitleColor = ac->font;
-			float graphTitleOutline = as->fontShadow;
-			Vec4 graphTitleOutlineColor = ac->fontShadow;
-
-			char* graphTitles[Line_Graph_Count] = {"Views", "Likes", "Likes/Dislikes", "Comments"};
-			char* sortButtonText = "Sort";
-			Vec2 sortButtonOffset = vec2(font->height*0.5f, 0);
-
-
-			float selectionWidth = 1;
-			Vec4 selectionColor = ac->graphFont;
-			selectionColor.a = 0.2f;
-
-
-			YoutubeVideo* vids = ad->videos;
-			int vidCount = ad->playlist.count;
-			ad->hoveredVideo = -1;
-
-			scissorState();
-
-			// Draw Graphs.
-			int graphCount = ad->camCount + 1;
-			int mode = ad->graphDrawMode;
-			for(int graphIndex = 0; graphIndex < graphCount; graphIndex++) {
-
-				Vec4 colors[] = {c1,c1,c2,c2,c1};
-
-				int camIndexes[] = {0,1,1,2,3};
-				GraphCam* cam = ad->cams + camIndexes[graphIndex];
-				Vec4 color = colors[graphIndex];
-				Rect graphRect = graphRects[camIndexes[graphIndex]];
-
-				scissorTestScreen(rectExpand(cam->viewPort, 1));
-
-				if(ad->playlist.count == 1) mode = 2;
-
-				if(mode == 0) {
-					glLineWidth(lineWidth1);
-					drawLineStripHeader(color);
-				} else if(mode == 1) {
-					glPointSize(pointSize);
-					drawPointsHeader(color);
-				} else if(mode == 2) {
-					glLineWidth(lineWidth2);
-					drawLinesHeader(color);
-				}
-
-				float statMouseDiff = FLT_MAX;
-				double searchDistance = graphCamScreenToCamSpaceX(cam, settingHoverSearchWidth)/2;
-
-				Vec2 mousePos = input->mousePosNegative;
-				bool mouseInGraphRect = pointInRect(mousePos, graphRect);
-
-				float camBottomY = graphCamMapY(cam, 0);
-
-				bool lastOneWasOverRight = false;
-				for(int i = 0; i < vidCount; i++) {
-
-					double xValue;
-					if(ad->sortByDate) {
-						if(i+1 < vidCount && vids[i+1].date.n < cam->left) continue;
-						if(lastOneWasOverRight) continue;
-						if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
-
-						xValue = vids[i].date.n;
-					} else {
-						if(i < cam->left-1 || i > cam->right+1) continue;
-						xValue = i;
-					}
-
-					double value;
-					if(graphIndex == 0) value = vids[i].viewCount;
-					else if(graphIndex == 1) value = vids[i].likeCount + vids[i].dislikeCount;
-					else if(graphIndex == 2) value = vids[i].dislikeCount;
-					else if(graphIndex == 3) value = videoGetLikesDiff(&vids[i]);
-					else if(graphIndex == 4) value = vids[i].commentCount;
-
-					Vec2 point = graphCamMap(cam, xValue, value);
-
-					// Get closest point to mouse.
-					if(mouseInGraphRect) {
-						if(valueBetweenDouble(xValue, xValue - searchDistance, xValue + searchDistance)) {
-							float diff = lenLine(point, mousePos);
-
-							if(diff < statMouseDiff && diff < settingHoverDistance) {
-								statMouseDiff = diff;
-								ad->hoveredPoint = point;
-								ad->hoveredVideo = i;
-								ad->hoveredVideoStat = value;
-							}
-						}
-					}
-
-					if(mode < 2) pushVec(point);
-					else pushVecs(vec2(point.x, camBottomY), point);
-				}
-
-				glEnd();
-			}
-
-			// Average line.
+			// Draw left scale.
 			{
-				glLineWidth(statLineWidth);
+				TIMER_BLOCK_NAMED("Left Text");
+
+				float markLength = 10;
+				float textMarginMod = 0.2f;
+				float lineWidth = 1;
+				float shadow = as->fontShadow;
+
+				Vec4 mainColor = ac->font;
+				Vec4 semiColor = ac->font2;
+				Vec4 horiLinesColor = ac->graphMark;
+				Vec4 subHoriLinesColor = ac->graphSubMark;
+				Vec4 shadowColor = ac->fontShadow;
+
+				TextSettings settingsMain = ad->gui->textSettings;
+				TextSettings settingsSemi = ad->gui->textSettings; settingsSemi.color = ad->appColors.font2;
+
+				float div = 10;
+				int subDiv = 4;
+				float splitSizePixels = font->height*3;
+
+				Vec4 leftScaleDividerColor = ac->edge;
+				float leftScaleDividerSize = 1;
+
+
+				glLineWidth(lineWidth);
 				scissorState();
 
-				for(int graphIndex = 0; graphIndex < Line_Graph_Count; graphIndex++) {
+				float textMargin = font->height*textMarginMod;
+				float markSizeDifference = 0.5f;
 
-					GraphCam* cam = ad->cams + graphIndex;
+				bool calcMaxTextWidth;
 
-					double avgStartX = ad->videos[0].date.n;
-					double avgWidth = monthsToInt(ad->statWidth);
-					double avgTimeSpan = monthsToInt(ad->statTimeSpan);
+				for(int camIndex = 0; camIndex < ad->camCount; camIndex++) {
+					calcMaxTextWidth = camIndex == 0 ? true : false;
+
+					GraphCam* cam = ad->cams + camIndex;
+					Rect scaleRect = leftTextRects[camIndex];
+
+					float maxTextWidth = 0;
+
+					float splitSize = splitSizePixels * (cam->h / rectH(cam->viewPort));
+					float stepSize = pow(div, roundUpFloat(logBase(splitSize, div)));
+					// float subSplitSize = font->height * (cam->h / rectH(cam->viewPort));
+					int i = 0;
+					float p = roundModDown(cam->bottom, stepSize);
+					while(p < cam->top + stepSize) {
+						float y = graphCamMapY(cam, p);
+
+						// Horizontal line.
+						scissorTestScreen(cam->viewPort);
+						glLineWidth(0.5f);
+						drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), horiLinesColor); 
+						glLineWidth(1);
+						scissorTestScreen(rectRound(rectExpand(scaleRect, vec2(-2))));
+
+						// Base markers.
+						drawLineNewOff(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(-markLength,0), mainColor); 
+
+						char* text;
+						if(stepSize/subDiv > 10) text = fillString("%i.",(int)p);
+						else text = fillString("%f",p);
+
+						drawText(text, vec2(scaleRect.right - markLength - textMargin, y), vec2i(1,0), settingsMain);
+						
+						float textWidth = getTextDim(text, font).w;
+
+						if(calcMaxTextWidth) maxTextWidth = max(maxTextWidth, textWidth + markLength + textMargin*2);
+
+						// Semi markers.
+						for(int i = 1; i < subDiv; i++) {
+							float y = graphCamMapY(cam, p+i*(stepSize/subDiv));
+							drawLineNewOff(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(-markLength*markSizeDifference,0), semiColor); 
+
+							char* subText;
+							if(stepSize/subDiv > 10) subText = fillString("%i.",(int)(stepSize/subDiv));
+							else subText = fillString("%f",(stepSize/subDiv));
+
+							drawText(subText, vec2(scaleRect.right - markLength*markSizeDifference - textMargin, y), vec2i(1,0), settingsSemi);
+
+							// Draw horizontal line.
+							scissorTestScreen(cam->viewPort);
+							glLineWidth(0.5f);
+							drawLine(vec2(scaleRect.right, roundFloat(y)+0.5f), vec2(cam->viewPort.right, roundFloat(y)+0.5f), subHoriLinesColor); 
+							glLineWidth(1);
+							scissorTestScreen(rectRound(rectExpand(scaleRect, vec2(-2))));
+						}
+
+						p += stepSize;
+					}
+
+					if(calcMaxTextWidth) {
+						if(ad->leftTextWidth != maxTextWidth) ad->appIsBusy = true;
+
+						ad->leftTextWidth = maxTextWidth;
+					}
+				}
+
+				scissorState(false);
+
+				// Draw dividers.
+				Vec4 color = leftScaleDividerColor;
+				float offset = 0;
+				glLineWidth(leftScaleDividerSize);
+				for(int camIndex = 0; camIndex < ad->camCount-1; camIndex++) {
+					Rect r = leftTextRects[camIndex];
+					// drawLine(rectBL(r), rectBR(r), color);
+					drawLine(roundVec2(rectBL(r)) + vec2(1,-0.5f), roundVec2(rectBR(r)) + vec2(0,-0.5f), color);
+				}
+				glLineWidth(1);
+			}
+
+			// Draw bottom scale.
+			if(ad->sortByDate)
+			{
+				TIMER_BLOCK_NAMED("Bottom Text");
+
+				int subStringMargin = font->height/2;
+				float splitOffset = font->height;
+
+				Vec4 mainColor = ac->font;
+				Vec4 semiColor = ac->font2;
+				Vec4 horiLinesColor = ac->graphMark;
+				Vec4 subHoriLinesColor = ac->graphSubMark;
+
+				float markLength = font->height - 3;
+				float fontMargin = 0;
+				float lineWidth = 1;
+
+				float shadow = as->fontShadow;
+				Vec4 shadowColor = ac->fontShadow;
+
+				TextSettings settingsMain = ad->gui->textSettings;
+				TextSettings settingsSemi = ad->gui->textSettings; settingsSemi.color = ad->appColors.font2;
+
+				float div = 10;
+				float splitSizePixels = 1000;
+
+				glLineWidth(lineWidth);
+				scissorState();
+
+				Rect scaleRect = rBottomText;
+
+				i64 oneYearInSeconds = (i64)365*86400;
+				i64 oneMonthInSeconds = (i64)30*86400;
+				i64 oneDayInSeconds = (i64)1*86400;
+
+				GraphCam* cam = &ad->cams[0];
+
+				float yearInPixels = graphCamCamToScreenSpaceX(cam, oneYearInSeconds);
+				float monthInPixels = graphCamCamToScreenSpaceX(cam, oneMonthInSeconds);
+				float dayInPixels = graphCamCamToScreenSpaceX(cam, oneDayInSeconds);
+
+				float yearStringSize = getTextDim("0000", font).w;
+				float monthStringSize = getTextDim("00.0000", font).w;
+				float dayStringSize = getTextDim("00.00.0000", font).w;
+				float timeStringSize = getTextDim("00:00", font).w;
+
+
+				int zoomStage = 0;
+				if(dayInPixels > dayStringSize + splitOffset) zoomStage = 2;
+				else if(monthInPixels > monthStringSize + splitOffset) zoomStage = 1;
+				else zoomStage = 0;
+
+
+				int subMarkerWidth = 0;
+				int subMarkerCount = 0;
+
+				Date startDate = dateDecode(cam->left);
+				
+				if(zoomStage == 0) {
+					startDate = {startDate.y, 1,1,0,0,0};
+
+					float markerDiff = (yearInPixels - yearStringSize)/(monthStringSize+splitOffset);
+					if(markerDiff > 4-1) subMarkerWidth = 3;
+					else if(markerDiff > 2-1) subMarkerWidth = 6;
+					else subMarkerWidth = 12;
+
+					subMarkerCount = subMarkerWidth>0?12/subMarkerWidth:0;
+
+				} else if(zoomStage == 1) {
+					startDate = {startDate.y, startDate.m, 1,0,0,0};
+
+					float markerDiff = (monthInPixels - monthStringSize)/(dayStringSize+splitOffset);
+					if(markerDiff > 6-1) subMarkerWidth = 5;
+					else if(markerDiff > 3-1) subMarkerWidth = 10;
+					else subMarkerWidth = 30;
+
+					subMarkerCount = subMarkerWidth>0?30/subMarkerWidth:0;
+
+				} else if(zoomStage == 2) {
+					startDate = {startDate.y, startDate.m, startDate.d, 0,0,0};
+
+					float markerDiff = (dayInPixels - dayStringSize)/(timeStringSize+splitOffset);
+					if(markerDiff > 12-1) subMarkerWidth = 2;
+					else if(markerDiff > 6-1) subMarkerWidth = 4;
+					else if(markerDiff > 3-1) subMarkerWidth = 8;
+					else subMarkerWidth = 24;
+
+					subMarkerCount = subMarkerWidth>0?24/subMarkerWidth:0;
+				}
+
+				dateEncode(&startDate);
+
+				// Why didn't I have this before??????
+				if(ad->playlist.count)
+				for(;;) {
+
+					Date nextDate = startDate;
+					dateIncrement(&nextDate, zoomStage);
+					dateEncode(&nextDate);
+
+					double p = startDate.n;
+
+					// Semi markers.
+					{
+						Date d = startDate;
+						dateEncode(&d);
+						double leftX = graphCamMapX(cam, d.n);
+						for(int i = 0; i < subMarkerCount; i++) {
+							double x = graphCamMapX(cam, d.n);
+
+							char* dateString;
+							if(d.m == 1 && d.d == 1) dateString = fillString("%s%i", d.y<10?"200":"20", d.y);
+							else if(d.d == 1) dateString = fillString("%s%i..%s%i", d.m < 10?"0":"", d.m, d.y<10?"200":"20", d.y);
+							else dateString = fillString("%s%i..%s%i..%s%i", d.d < 10?"0":"", d.d, d.m < 10?"0":"", d.m, d.y<10?"200":"20", d.y);
+							
+							if(zoomStage == 2 && i != 0) dateString = fillString("%s%i:00", d.h<10?"0":"", d.h);
+
+							scissorTestScreen(rGraphs);
+							glLineWidth(0.5f);
+							drawLine(vec2(roundFloat(x)+0.5f, rGraphs.bottom), vec2(roundFloat(x)+0.5f, rGraphs.top), i==0?horiLinesColor:subHoriLinesColor);
+							glLineWidth(1);
+							scissorTestScreen(scaleRect);
+
+							drawLineNewOff(vec2(roundFloat(x)+0.5f, scaleRect.top), vec2(0,-markLength), mainColor); 
+
+							drawText(dateString, vec2(x, scaleRect.top - markLength - fontMargin), vec2i(0,1), settingsMain);
+
+							dateIncrement(&d, subMarkerWidth, zoomStage+1);
+							dateEncode(&d);
+							x = graphCamMapX(cam, d.n);
+
+							int amount = subMarkerWidth;
+							if(i == subMarkerCount-1) {
+								if(zoomStage == 1) {
+									amount = getMonthDayCount(startDate.m, startDate.y) - (i)*subMarkerWidth;
+									x = graphCamMapX(cam, nextDate.n)-1;
+								} 
+							}
+
+							char* subString = fillString("%i%s", amount, zoomStage==0?"m":zoomStage==1?"d":"h");
+							drawText(subString, vec2(leftX + (x-leftX)/2, scaleRect.top), vec2i(0,1), settingsSemi);
+
+							leftX = x;
+						}
+					}
+
+					if(startDate.n > cam->right) break;
+					dateIncrement(&startDate, zoomStage);
+
+					dateEncode(&startDate);
+				}
+
+				scissorState(false);
+			}
+
+			// Graphs.
+			{
+				TIMER_BLOCK_BEGIN_NAMED(drawGraphs, "DrawGraphs");
+
+				float settingHoverSearchWidth = 100;
+				float settingHoverDistance = 20;
+				Vec4 c1 = ac->graphData1;
+				Vec4 c2 = ac->graphData2;
+
+				Vec4 statColor = ac->graphData3;
+
+				int lineWidth1 = 1;
+				int lineWidth2 = 3;
+				int pointSize = 3;
+				int statLineWidth = 1;
+
+
+				float textPadding = font->height * as->textPaddingMod;
+
+				int settingHoverPointSize = 10;
+				int settingHoverPointOffset = 10;
+				Font* graphTextFont = ad->font;
+				Vec2 graphTextOffset = vec2(textPadding);
+				float graphTextOutline = as->graphFontShadow;
+				float hoverTextOutline = as->graphFontShadow;
+
+				Vec4 graphTextColor = ac->graphFont;
+				Vec4 graphTextShadowColor = ac->fontShadow;
+
+
+
+				Font* graphTitleFont = ad->fontTitle;
+				Vec2 graphTitleOffset = vec2(textPadding, -textPadding);
+				Vec4 graphTitleColor = ac->font;
+				float graphTitleOutline = as->fontShadow;
+				Vec4 graphTitleOutlineColor = ac->fontShadow;
+
+				char* graphTitles[Line_Graph_Count] = {"Views", "Likes", "Likes/Dislikes", "Comments"};
+				char* sortButtonText = "Sort";
+				Vec2 sortButtonOffset = vec2(font->height*0.5f, 0);
+
+
+				float selectionWidth = 1;
+				Vec4 selectionColor = ac->graphFont;
+				selectionColor.a = 0.2f;
+
+
+				YoutubeVideo* vids = ad->videos;
+				int vidCount = ad->playlist.count;
+				ad->hoveredVideo = -1;
+
+				scissorState();
+
+				// Draw Graphs.
+				int graphCount = ad->camCount + 1;
+				int mode = ad->graphDrawMode;
+				for(int graphIndex = 0; graphIndex < graphCount; graphIndex++) {
+
+					Vec4 colors[] = {c1,c1,c2,c2,c1};
+
+					int camIndexes[] = {0,1,1,2,3};
+					GraphCam* cam = ad->cams + camIndexes[graphIndex];
+					Vec4 color = colors[graphIndex];
+					Rect graphRect = graphRects[camIndexes[graphIndex]];
 
 					scissorTestScreen(rectExpand(cam->viewPort, 1));
 
-					if(ad->sortByDate) {
-						if(ad->playlist.count > 1) {
-							drawLineStripHeader(statColor);
+					if(ad->playlist.count == 1) mode = 2;
 
-							double xPos = avgStartX;
-							int endCount = ad->averagesLineGraph.count-1;
-							for(int i = 0; i < endCount; i++) {
-								if(xPos + avgWidth < cam->left) {
-									xPos += avgWidth;
-									continue;
-								}
-								if(xPos - avgWidth > cam->right) break;
-
-								{
-									Vec2 p0, p1, p2, p3;
-
-									p1 = graphCamMap(cam, xPos, ad->averagesLineGraph.points[graphIndex][i]);
-									p2 = graphCamMap(cam, xPos+avgWidth, ad->averagesLineGraph.points[graphIndex][i+1]);
-									
-									if(i != 0) p0 = graphCamMap(cam, xPos-avgWidth, ad->averagesLineGraph.points[graphIndex][i-1]);
-									else p0 = p1 + (p1 - p2);
-									if(i != endCount-1) p3 = graphCamMap(cam, xPos+avgWidth*2, ad->averagesLineGraph.points[graphIndex][i+2]);
-									else p3 = p2 - (p2 - p1);
-
-									int segmentCount = cubicBezierGuessLength(p0, p1, p2, p3)/Cubic_Curve_Segment_Mod;
-									segmentCount = clampMin(segmentCount, Cubic_Curve_Segment_Min);
-
-									for(int i = 0; i < segmentCount; i++) {
-										pushVec(cubicBezierInterpolationSeemless(p0, p1, p2, p3, (float)i/(segmentCount-1)));
-									}
-								}
-
-								xPos += avgWidth;
-							}
-							glEnd();
-						}
-
-					} else {
-						Statistic* stat = ad->stats + graphIndex;
-						float y = graphCamMapY(cam, stat->avg);
-						drawLine(vec2(cam->viewPort.left, y), vec2(cam->viewPort.right, y), statColor);
+					if(mode == 0) {
+						glLineWidth(lineWidth1);
+						drawLineStripHeader(color);
+					} else if(mode == 1) {
+						glPointSize(pointSize);
+						drawPointsHeader(color);
+					} else if(mode == 2) {
+						glLineWidth(lineWidth2);
+						drawLinesHeader(color);
 					}
 
+					float statMouseDiff = FLT_MAX;
+					double searchDistance = graphCamScreenToCamSpaceX(cam, settingHoverSearchWidth)/2;
+
+					Vec2 mousePos = input->mousePosNegative;
+					bool mouseInGraphRect = pointInRect(mousePos, graphRect);
+
+					float camBottomY = graphCamMapY(cam, 0);
+
+					bool lastOneWasOverRight = false;
+					for(int i = 0; i < vidCount; i++) {
+
+						double xValue;
+						if(ad->sortByDate) {
+							if(i+1 < vidCount && vids[i+1].date.n < cam->left) continue;
+							if(lastOneWasOverRight) continue;
+							if(vids[i].date.n > cam->right) lastOneWasOverRight = true;
+
+							xValue = vids[i].date.n;
+						} else {
+							if(i < cam->left-1 || i > cam->right+1) continue;
+							xValue = i;
+						}
+
+						double value;
+						if(graphIndex == 0) value = vids[i].viewCount;
+						else if(graphIndex == 1) value = vids[i].likeCount + vids[i].dislikeCount;
+						else if(graphIndex == 2) value = vids[i].dislikeCount;
+						else if(graphIndex == 3) value = videoGetLikesDiff(&vids[i]);
+						else if(graphIndex == 4) value = vids[i].commentCount;
+
+						Vec2 point = graphCamMap(cam, xValue, value);
+
+						// Get closest point to mouse.
+						if(mouseInGraphRect) {
+							if(valueBetweenDouble(xValue, xValue - searchDistance, xValue + searchDistance)) {
+								float diff = lenLine(point, mousePos);
+
+								if(diff < statMouseDiff && diff < settingHoverDistance) {
+									statMouseDiff = diff;
+									ad->hoveredPoint = point;
+									ad->hoveredVideo = i;
+									ad->hoveredVideoStat = value;
+								}
+							}
+						}
+
+						if(mode < 2) pushVec(point);
+						else pushVecs(vec2(point.x, camBottomY), point);
+					}
+
+					glEnd();
 				}
 
-				scissorState(false);
-				glLineWidth(1);
-			}
-
-			TIMER_BLOCK_END(drawGraphs);
-
-			scissorState(false);
-
-			// Mouse hover.
-			{
-				TIMER_BLOCK_NAMED("Mouse Hover");
-
-				Font* font = graphTextFont;
-				Vec4 c = graphTextColor;
-				Vec4 cf = graphTextShadowColor;
-				float os = graphTextOutline;
-
-				TextSettings ts = textSettings(font->boldFont, c, 2, vec2(0,0), os, cf);
-
-				int id = newGuiIncrementId(ad->gui);
-				bool mPosActive = newGuiGoMousePosAction(ad->gui, rGraphs, 0);
-				if(mPosActive && ad->hoveredVideo != -1) {
-					scissorTestScreen(rGraphs);
+				// Average line.
+				{
+					glLineWidth(statLineWidth);
 					scissorState();
 
-					int vi = ad->hoveredVideo;
+					for(int graphIndex = 0; graphIndex < Line_Graph_Count; graphIndex++) {
 
-					// Draw text top right.
+						GraphCam* cam = ad->cams + graphIndex;
 
-					Vec2 p = rChart.max - graphTextOffset;
-					drawText(fillString("%s", ad->videos[vi].title), p, vec2i(1,1), ts); p.y -= font->height;
-					drawText(fillString("%s", ad->videos[vi].dateString), p, vec2i(1,1), ts); p.y -= font->height;
-					drawText(fillString("%i", vi), p, vec2i(1,1), ts); p.y -= font->height;
+						double avgStartX = ad->videos[0].date.n;
+						double avgWidth = monthsToInt(ad->statWidth);
+						double avgTimeSpan = monthsToInt(ad->statTimeSpan);
 
-					// Draw Point.
-					glPointSize(settingHoverPointSize);
-					char* text;
-					if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
-					else text = fillString("%f", ad->hoveredVideoStat);
-					os = hoverTextOutline;
+						scissorTestScreen(rectExpand(cam->viewPort, 1));
 
-					// Get text pos and clamp to graph rect.
-					Vec2 hoverPos = ad->hoveredPoint + vec2(settingHoverPointOffset,settingHoverPointOffset);
-					Rect textRect = rectBLDim(hoverPos, getTextDim(text, font));
-					Vec2 offset = rectInsideRectClamp(textRect, rectExpand(rGraphs, vec2(-textPadding*2)));
-					textRect = rectTrans(textRect, offset);
-					hoverPos = rectBL(textRect);
+						if(ad->sortByDate) {
+							if(ad->playlist.count > 1) {
+								drawLineStripHeader(statColor);
 
-					drawText(text, hoverPos, vec2i(-1,-1), ts);
-					drawPoint(ad->hoveredPoint, c);
-					glPointSize(1);
+								double xPos = avgStartX;
+								int endCount = ad->averagesLineGraph.count-1;
+								for(int i = 0; i < endCount; i++) {
+									if(xPos + avgWidth < cam->left) {
+										xPos += avgWidth;
+										continue;
+									}
+									if(xPos - avgWidth > cam->right) break;
+
+									{
+										Vec2 p0, p1, p2, p3;
+
+										p1 = graphCamMap(cam, xPos, ad->averagesLineGraph.points[graphIndex][i]);
+										p2 = graphCamMap(cam, xPos+avgWidth, ad->averagesLineGraph.points[graphIndex][i+1]);
+										
+										if(i != 0) p0 = graphCamMap(cam, xPos-avgWidth, ad->averagesLineGraph.points[graphIndex][i-1]);
+										else p0 = p1 + (p1 - p2);
+										if(i != endCount-1) p3 = graphCamMap(cam, xPos+avgWidth*2, ad->averagesLineGraph.points[graphIndex][i+2]);
+										else p3 = p2 - (p2 - p1);
+
+										int segmentCount = cubicBezierGuessLength(p0, p1, p2, p3)/Cubic_Curve_Segment_Mod;
+										segmentCount = clampMin(segmentCount, Cubic_Curve_Segment_Min);
+
+										for(int i = 0; i < segmentCount; i++) {
+											pushVec(cubicBezierInterpolationSeemless(p0, p1, p2, p3, (float)i/(segmentCount-1)));
+										}
+									}
+
+									xPos += avgWidth;
+								}
+								glEnd();
+							}
+
+						} else {
+							Statistic* stat = ad->stats + graphIndex;
+							float y = graphCamMapY(cam, stat->avg);
+							drawLine(vec2(cam->viewPort.left, y), vec2(cam->viewPort.right, y), statColor);
+						}
+
+					}
 
 					scissorState(false);
-
-					if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MLeft)) {
-						if(vi != ad->selectedVideo) {
-							ad->selectedPoint = ad->hoveredPoint;
-							ad->selectedVideo = vi;
-
-							downloadModeSet(&ad->modeData, Download_Mode_Snippet);
-						}
-					}
+					glLineWidth(1);
 				}
-			}
 
-			// Draw graph titles. 
-			scissorState();
-			for(int i = 0; i < ad->camCount; i++) {
-				Rect rGraph = graphRects[i];
-				Vec2 tp = rectTL(rGraph) + graphTitleOffset;
+				TIMER_BLOCK_END(drawGraphs);
 
-				scissorTestScreen(rGraph);
-
-				TextSettings ts = textSettings(graphTitleFont->boldFont, graphTitleColor, 2, vec2(0,0), graphTitleOutline, graphTitleOutlineColor);
-				char* text = graphTitles[i];
-				float textWidth = getTextDim(text, ts.font).w;
-
-				drawText(text, tp, ts);
-
-				// Sort buttons.
-				{
-					char* text = sortButtonText;
-					Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(getTextDim(text, font).w + textPadding*2, font->height));
-
-					ad->gui->zLevel++;
-					if(newGuiQuickButton(ad->gui, r, text)) {
-						if(ad->sortStat != i) {
-							ad->startLoadFile = true;
-							ad->sortByDate = false;
-							ad->sortStat = i;
-						}
-					}
-					ad->gui->zLevel--;
-				}
-			}
-			scissorState(false);
-
-			// Graph selection line.
-			if(ad->selectedVideo != -1)
-			{
-				float x;
-				if(ad->sortByDate) x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.n) + 1;
-				else x = graphCamMapX(&ad->cams[0], ad->selectedVideo);
-
-				glLineWidth(selectionWidth);
-				scissorState();
-				scissorTestScreen(rGraphs);
-				drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), selectionColor);
-				glLineWidth(1);
 				scissorState(false);
-			}
-		}
 
+				// Mouse hover.
+				{
+					TIMER_BLOCK_NAMED("Mouse Hover");
 
-		// Side panel.
-		if(ad->selectedVideo != -1 && rectW(rSidePanel) != 0) {
+					Font* font = graphTextFont;
+					Vec4 c = graphTextColor;
+					Vec4 cf = graphTextShadowColor;
+					float os = graphTextOutline;
 
-			TIMER_BLOCK_NAMED("SidePanel");
+					TextSettings ts = textSettings(font->boldFont, c, 2, vec2(0,0), os, cf);
 
-			float padding = as->padding;
+					int id = newGuiIncrementId(ad->gui);
+					bool mPosActive = newGuiGoMousePosAction(ad->gui, rGraphs, 0);
+					if(mPosActive && ad->hoveredVideo != -1) {
+						scissorTestScreen(rGraphs);
+						scissorState();
 
-			float resizeRegionSize = Grab_Region_Size;
-			Vec4 sidePanelColor = ac->background;
-			// float border = as->border;
-			float textPadding = font->height * as->textPaddingMod;
-			float border = textPadding;
-			Rect rPanel = rectExpand(rSidePanel, vec2(-border*2));
-			Font* font = ad->font;
-			float xMid = rectCen(rPanel).x;
-			float width = rectW(rPanel);
-			Vec4 fc = ac->font;
-			Vec4 fc2 = ac->font2;
-			Vec4 fcComment = ac->font;
+						int vi = ad->hoveredVideo;
 
-			float heightMod = as->heightMod;
-			float rowHeight = font->height * heightMod;
+						// Draw text top right.
 
-			float yOffset = padding;
+						Vec2 p = rChart.max - graphTextOffset;
+						drawText(fillString("%s", ad->videos[vi].title), p, vec2i(1,1), ts); p.y -= font->height;
+						drawText(fillString("%s", ad->videos[vi].dateString), p, vec2i(1,1), ts); p.y -= font->height;
+						drawText(fillString("%i", vi), p, vec2i(1,1), ts); p.y -= font->height;
 
-			float shadow = as->fontShadow;
-			Vec4 shadowColor = ac->fontShadow;
+						// Draw Point.
+						glPointSize(settingHoverPointSize);
+						char* text;
+						if(ad->hoveredVideoStat > 10) text = fillString("%i.", (int)ad->hoveredVideoStat);
+						else text = fillString("%f", ad->hoveredVideoStat);
+						os = hoverTextOutline;
 
-			float commentShadow = as->fontShadow;
-			Vec4 commentShadowColor = ac->fontShadow;
+						// Get text pos and clamp to graph rect.
+						Vec2 hoverPos = ad->hoveredPoint + vec2(settingHoverPointOffset,settingHoverPointOffset);
+						Rect textRect = rectBLDim(hoverPos, getTextDim(text, font));
+						Vec2 offset = rectInsideRectClamp(textRect, rectExpand(rGraphs, vec2(-textPadding*2)));
+						textRect = rectTrans(textRect, offset);
+						hoverPos = rectBL(textRect);
 
-			TextSettings boldLabelSettings = ad->gui->textSettings;
-			boldLabelSettings.font = boldLabelSettings.font->boldFont;
+						drawText(text, hoverPos, vec2i(-1,-1), ts);
+						drawPoint(ad->hoveredPoint, c);
+						glPointSize(1);
 
-			TextSettings darkerLabelSettings = ad->gui->textSettings;
-			darkerLabelSettings.color = fc2;
+						scissorState(false);
 
-			NewGui* gui = ad->gui;
+						if(newGuiGoButtonAction(ad->gui, id, rGraphs, 0, Gui_Focus_MLeft)) {
+							if(vi != ad->selectedVideo) {
+								ad->selectedPoint = ad->hoveredPoint;
+								ad->selectedVideo = vi;
 
-			// Panel width slider.
-			{
-				Rect r = rectCenDim(rectL(rSidePanel), vec2(resizeRegionSize, rectH(rSidePanel)));
-
-				int event = newGuiGoDragAction(gui, r, 1);
-				if(event == 1) gui->mouseAnchor.x = (ws->currentRes.w-input->mousePos.x) - ad->sidePanelWidth;
-				if(event > 0) {
-					ad->sidePanelWidth = (ws->currentRes.w-input->mousePos.x) - gui->mouseAnchor.x;
-					clamp(&ad->sidePanelWidth, Side_Panel_Min_Width, ws->currentRes.w*ad->sidePanelMax);
-				}
-
-				if(newGuiIsWasHotOrActive(gui)) setCursor(ws, IDC_SIZEWE);
-			}
-
-			drawRect(rSidePanel, sidePanelColor);
-
-			scissorState();
-			newGuiScissorPush(gui, rSidePanel);
-			newGuiLayoutPush(gui, layoutData(rPanel, rowHeight, yOffset, 0));
-			LayoutData* ld = gui->ld;
-
-
-			bool closePanel = false;
-			// Top gui.
-			{
-				Layout* lay = layoutAlloc(layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding, 0)));
-				Layout* l = layoutQuickRow(lay, newGuiLRectAdv(gui), 40, 0, 40, 30);
-
-				int modSelectedVideo = 0;
-				Rect r;
-
-				r = layoutInc(&l);
-				if(ad->selectedVideo > 0) {
-					if(newGuiQuickButton(gui, r, "")) modSelectedVideo = 1;
-					drawTriangle(rectCen(r), font->height/3, vec2(-1,0), fc);
-				}
-
-				if(newGuiQuickButton(gui, layoutInc(&l), "Open in Browser")) {
-					shellExecuteNoWindow(fillString("cmd.exe /c start \"link\" \"https://www.youtube.com/watch?v=%s\"", ad->videos[ad->selectedVideo].id));
-				}
-
-				r = layoutInc(&l);
-				if(ad->selectedVideo != ad->playlist.count-1) {
-					if(newGuiQuickButton(gui, r, "")) modSelectedVideo = 2;
-					drawTriangle(rectCen(r), font->height/3, vec2(1,0), fc);
-				}
-
-				r = layoutInc(&l);
-				if(newGuiQuickButton(gui, r, "")) closePanel = true;
-				drawCross(rectCen(r), font->height/3, 1, vec2(0,1), fc);
-
-				if(modSelectedVideo != 0) {
-					if(ad->selectedVideo != -1) {
-						int newSelection;
-						if(modSelectedVideo == 1) newSelection = clampMin(ad->selectedVideo - 1, 0);
-						else newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
-
-						if(newSelection != ad->selectedVideo) {
-							ad->selectedVideo = newSelection;
-
-							downloadModeSet(&ad->modeData, Download_Mode_Snippet);
+								downloadModeSet(&ad->modeData, Download_Mode_Snippet);
+							}
 						}
 					}
 				}
-			}
 
+				// Draw graph titles. 
+				scissorState();
+				for(int i = 0; i < ad->camCount; i++) {
+					Rect rGraph = graphRects[i];
+					Vec2 tp = rectTL(rGraph) + graphTitleOffset;
 
-			YoutubeVideo* sv = ad->videos + ad->selectedVideo;
-			VideoSnippet* sn = &ad->videoSnippet;
+					scissorTestScreen(rGraph);
 
-			newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id));
+					TextSettings ts = textSettings(graphTitleFont->boldFont, graphTitleColor, 2, vec2(0,0), graphTitleOutline, graphTitleOutlineColor);
+					char* text = graphTitles[i];
+					float textWidth = getTextDim(text, ts.font).w;
 
-			// Draw thumbnail.
-			{
-				Vec2 imageDim = vec2(Thumbnail_Size_X, Thumbnail_Size_Y);
-				if(imageDim.w > rectW(rPanel)) imageDim = vec2(rectW(rPanel), rectW(rPanel)*(divZero(imageDim.h, imageDim.w)));
-				Rect imageRect = rectCenDim(rectCenX(rPanel), ld->pos.y - imageDim.h/2, imageDim.w, imageDim.h);
-				newGuiLAdv(gui, rectH(imageRect));
+					drawText(text, tp, ts);
 
-				if(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 3) 
-					drawTriangle(rectCen(imageRect), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
-				else drawRect(imageRect, rect(0.01,0,0.99,1), sn->thumbnailTexture.id);
-			}
+					// Sort buttons.
+					{
+						char* text = sortButtonText;
+						Rect r = rectTLDim(tp + vec2(textWidth, 0) + sortButtonOffset, vec2(getTextDim(text, font).w + textPadding*2, font->height));
 
-			drawText(sv->title, vec2(xMid, ld->pos.y), vec2i(0,1), width, boldLabelSettings);
-			newGuiLAdv(gui, getTextDim(sv->title, boldLabelSettings.font, vec2(xMid, ld->pos.y), width).y);
-
-			{
-				Rect r = newGuiLRectAdv(gui);
-				rectSetDim(&r, vec2(ld->dim.w, rectH(r)*0.7f));
-
-				glLineWidth(1);
-				float dislikePercent = videoGetLikesDiff(sv);
-				drawBoxProgressHollow(r, 1-dislikePercent, ac->windowBorder, ac->edge);
-				newGuiQuickText(gui, r, fillString("%f%%", dislikePercent*100));
-			}
-
-			{
-				int lineCount = 6;
-				float height = font->height*lineCount;
-				Vec2 top = rectT(newGuiLRectAdv(gui, height)); 
-
-				float centerMargin = font->height;
-				char* text[] = {"Date:", "Duration:", "Views:", "Likes/Dislikes:", "Comments:", "Favorites:"};
-
-				Vec2 p;
-				p = top - vec2(centerMargin/2, 0);
-				for(int i = 0; i < lineCount; i++) {
-					char* t = text[i];
-
-					drawText(t, p, vec2i(1,1), gui->textSettings); 
-					p.y -= font->height;
-				}
-
-				p = top + vec2(centerMargin/2, 0);
-				// scissorTestScreen(rectTRDim(p, vec2(writeDim.w/2 - 1, height)));
-				for(int i = 0; i < lineCount; i++) {
-					char* t;
-					if(i == 0) t = fillString("%s%i..%s%i..%s%i | %s%i:%s%i:%s%i.", sv->date.d<10?"0":"", sv->date.d, sv->date.m<10?"0":"", sv->date.m, sv->date.y<10?"200":"20", sv->date.y, sv->date.h<10?"0":"", sv->date.h, sv->date.mins<10?"0":"", sv->date.mins, sv->date.secs<10?"0":"", sv->date.secs);
-					if(i == 1) t = fillString("%s%im %is", 
-					                          sv->duration.h > 0 ? fillString("%ih ", sv->duration.h) : "", 
-					                          sv->duration.mins, 
-					                          sv->duration.secs);
-						if(i == 2) t = fillString("%i.", sv->viewCount);
-					if(i == 3) t = fillString("%i | %i", sv->likeCount, sv->dislikeCount);
-					if(i == 4) t = fillString("%i", sv->commentCount);
-					if(i == 5) t = fillString("%i", sv->favoriteCount);
-
-					drawText(t, p, vec2i(-1,1), gui->textSettings); 
-					p.y -= font->height;
-				}
-			}
-
-			newGuiQuickText(gui, newGuiLRectAdv(gui), "Comments", &boldLabelSettings);
-
-			// Comments section.
-			{
-				static float scrollHeight = 200;
-				Rect r = rectTLDim(ld->pos, vec2(ld->dim.w, ld->pos.y - ld->region.bottom));
-
-				ScrollRegionValues scrollValues = {};
-				newGuiQuickScroll(gui, r, scrollHeight, &ad->commentScrollValue, &scrollValues, &ad->commentScrollSettings);
-
-				ld = newGuiLayoutPush(gui, scrollValues.region);
-				ld->pos = scrollValues.pos;
-				newGuiScissorPush(gui, scrollValues.scissor);
-
-				float wrapWidth = ld->dim.w;
-				if(!(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 4)) {
-					for(int i = 0; i < sn->selectedCommentCount; i++) {
-						drawText(sn->selectedTopComments[i], ld->pos, vec2i(-1,1), wrapWidth, gui->textSettings);
-						ld->pos.y -= getTextDim(sn->selectedTopComments[i], font, vec2(xMid, ld->pos.y), wrapWidth).y;
-
-						drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), ld->pos + vec2(ld->dim.w,0), vec2i(1,1), wrapWidth, darkerLabelSettings);
-						ld->pos.y -= font->height;
-						ld->pos.y -= 8;
+						ad->gui->zLevel++;
+						if(newGuiQuickButton(ad->gui, r, text)) {
+							if(ad->sortStat != i) {
+								ad->startLoadFile = true;
+								ad->sortByDate = false;
+								ad->sortStat = i;
+							}
+						}
+						ad->gui->zLevel--;
 					}
-					scrollHeight = scrollValues.pos.y - ld->pos.y + 4; // @Hack.
-				} else {
-					scrollHeight = rectH(r);
-					drawTriangle(rectCen(r), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
+				}
+				scissorState(false);
+
+				// Graph selection line.
+				if(ad->selectedVideo != -1)
+				{
+					float x;
+					if(ad->sortByDate) x = graphCamMapX(&ad->cams[0], ad->videos[ad->selectedVideo].date.n) + 1;
+					else x = graphCamMapX(&ad->cams[0], ad->selectedVideo);
+
+					glLineWidth(selectionWidth);
+					scissorState();
+					scissorTestScreen(rGraphs);
+					drawLine(vec2(x, rGraphs.bottom), vec2(x, rGraphs.top), selectionColor);
+					glLineWidth(1);
+					scissorState(false);
+				}
+			}
+
+			// Side panel.
+			if(ad->selectedVideo != -1 && rectW(rSidePanel) != 0) {
+
+				TIMER_BLOCK_NAMED("SidePanel");
+
+				float padding = as->padding;
+
+				float resizeRegionSize = Grab_Region_Size;
+				Vec4 sidePanelColor = ac->background;
+				// float border = as->border;
+				float textPadding = font->height * as->textPaddingMod;
+				float border = textPadding;
+				Rect rPanel = rectExpand(rSidePanel, vec2(-border*2));
+				Font* font = ad->font;
+				float xMid = rectCen(rPanel).x;
+				float width = rectW(rPanel);
+				Vec4 fc = ac->font;
+				Vec4 fc2 = ac->font2;
+				Vec4 fcComment = ac->font;
+
+				float heightMod = as->heightMod;
+				float rowHeight = font->height * heightMod;
+
+				float yOffset = padding;
+
+				float shadow = as->fontShadow;
+				Vec4 shadowColor = ac->fontShadow;
+
+				float commentShadow = as->fontShadow;
+				Vec4 commentShadowColor = ac->fontShadow;
+
+				TextSettings boldLabelSettings = ad->gui->textSettings;
+				boldLabelSettings.font = boldLabelSettings.font->boldFont;
+
+				TextSettings darkerLabelSettings = ad->gui->textSettings;
+				darkerLabelSettings.color = fc2;
+
+				NewGui* gui = ad->gui;
+
+				// Panel width slider.
+				{
+					Rect r = rectCenDim(rectL(rSidePanel), vec2(resizeRegionSize, rectH(rSidePanel)));
+
+					int event = newGuiGoDragAction(gui, r, 1);
+					if(event == 1) gui->mouseAnchor.x = (ws->currentRes.w-input->mousePos.x) - ad->sidePanelWidth;
+					if(event > 0) {
+						ad->sidePanelWidth = (ws->currentRes.w-input->mousePos.x) - gui->mouseAnchor.x;
+						clamp(&ad->sidePanelWidth, Side_Panel_Min_Width, ws->currentRes.w*ad->sidePanelMax);
+					}
+
+					if(newGuiIsWasHotOrActive(gui)) setCursor(ws, IDC_SIZEWE);
 				}
 
-				ld = newGuiLayoutPop(gui);
+				drawRect(rSidePanel, sidePanelColor);
+
+				scissorState();
+				newGuiScissorPush(gui, rSidePanel);
+				newGuiLayoutPush(gui, layoutData(rPanel, rowHeight, yOffset, 0));
+				LayoutData* ld = gui->ld;
+
+
+				bool closePanel = false;
+				// Top gui.
+				{
+					Layout* lay = layoutAlloc(layout(rect(0,0,0,0), false, vec2i(-1,0), vec2(padding, 0)));
+					Layout* l = layoutQuickRow(lay, newGuiLRectAdv(gui), 40, 0, 40, 30);
+
+					int modSelectedVideo = 0;
+					Rect r;
+
+					r = layoutInc(&l);
+					if(ad->selectedVideo > 0) {
+						if(newGuiQuickButton(gui, r, "")) modSelectedVideo = 1;
+						drawTriangle(rectCen(r), font->height/3, vec2(-1,0), fc);
+					}
+
+					if(newGuiQuickButton(gui, layoutInc(&l), "Open in Browser")) {
+						shellExecuteNoWindow(fillString("cmd.exe /c start \"link\" \"https://www.youtube.com/watch?v=%s\"", ad->videos[ad->selectedVideo].id));
+					}
+
+					r = layoutInc(&l);
+					if(ad->selectedVideo != ad->playlist.count-1) {
+						if(newGuiQuickButton(gui, r, "")) modSelectedVideo = 2;
+						drawTriangle(rectCen(r), font->height/3, vec2(1,0), fc);
+					}
+
+					r = layoutInc(&l);
+					if(newGuiQuickButton(gui, r, "")) closePanel = true;
+					drawCross(rectCen(r), font->height/3, 1, vec2(0,1), fc);
+
+					if(modSelectedVideo != 0) {
+						if(ad->selectedVideo != -1) {
+							int newSelection;
+							if(modSelectedVideo == 1) newSelection = clampMin(ad->selectedVideo - 1, 0);
+							else newSelection = clampMax(ad->selectedVideo + 1, ad->playlist.count - 1);
+
+							if(newSelection != ad->selectedVideo) {
+								ad->selectedVideo = newSelection;
+
+								downloadModeSet(&ad->modeData, Download_Mode_Snippet);
+							}
+						}
+					}
+				}
+
+
+				YoutubeVideo* sv = ad->videos + ad->selectedVideo;
+				VideoSnippet* sn = &ad->videoSnippet;
+
+				newGuiQuickTextBox(gui, newGuiLRectAdv(gui), fillString("Index: %i, VideoId: %s", ad->selectedVideo, sv->id));
+
+				// Draw thumbnail.
+				{
+					Vec2 imageDim = vec2(Thumbnail_Size_X, Thumbnail_Size_Y);
+					if(imageDim.w > rectW(rPanel)) imageDim = vec2(rectW(rPanel), rectW(rPanel)*(divZero(imageDim.h, imageDim.w)));
+					Rect imageRect = rectCenDim(rectCenX(rPanel), ld->pos.y - imageDim.h/2, imageDim.w, imageDim.h);
+					newGuiLAdv(gui, rectH(imageRect));
+
+					if(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 3) 
+						drawTriangle(rectCen(imageRect), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
+					else drawRect(imageRect, rect(0.01,0,0.99,1), sn->thumbnailTexture.id);
+				}
+
+				drawText(sv->title, vec2(xMid, ld->pos.y), vec2i(0,1), width, boldLabelSettings);
+				newGuiLAdv(gui, getTextDim(sv->title, boldLabelSettings.font, vec2(xMid, ld->pos.y), width).y);
+
+				{
+					Rect r = newGuiLRectAdv(gui);
+					rectSetDim(&r, vec2(ld->dim.w, rectH(r)*0.7f));
+
+					glLineWidth(1);
+					float dislikePercent = videoGetLikesDiff(sv);
+
+					// 0.15,0.58,0.90
+
+					drawBoxProgressHollow(r, 1-dislikePercent, ac->likes, ac->edge);
+					newGuiQuickText(gui, r, fillString("%f%%", dislikePercent*100));
+				}
+
+				{
+					int lineCount = 6;
+					float height = font->height*lineCount;
+					Vec2 top = rectT(newGuiLRectAdv(gui, height)); 
+
+					float centerMargin = font->height;
+					char* text[] = {"Date:", "Duration:", "Views:", "Likes/Dislikes:", "Comments:", "Favorites:"};
+
+					Vec2 p;
+					p = top - vec2(centerMargin/2, 0);
+					for(int i = 0; i < lineCount; i++) {
+						char* t = text[i];
+
+						drawText(t, p, vec2i(1,1), gui->textSettings); 
+						p.y -= font->height;
+					}
+
+					p = top + vec2(centerMargin/2, 0);
+					// scissorTestScreen(rectTRDim(p, vec2(writeDim.w/2 - 1, height)));
+					for(int i = 0; i < lineCount; i++) {
+						char* t;
+						if(i == 0) t = fillString("%s%i..%s%i..%s%i | %s%i:%s%i:%s%i.", sv->date.d<10?"0":"", sv->date.d, sv->date.m<10?"0":"", sv->date.m, sv->date.y<10?"200":"20", sv->date.y, sv->date.h<10?"0":"", sv->date.h, sv->date.mins<10?"0":"", sv->date.mins, sv->date.secs<10?"0":"", sv->date.secs);
+						if(i == 1) t = fillString("%s%im %is", 
+						                          sv->duration.h > 0 ? fillString("%ih ", sv->duration.h) : "", 
+						                          sv->duration.mins, 
+						                          sv->duration.secs);
+							if(i == 2) t = fillString("%i.", sv->viewCount);
+						if(i == 3) t = fillString("%i | %i", sv->likeCount, sv->dislikeCount);
+						if(i == 4) t = fillString("%i", sv->commentCount);
+						if(i == 5) t = fillString("%i", sv->favoriteCount);
+
+						drawText(t, p, vec2i(-1,1), gui->textSettings); 
+						p.y -= font->height;
+					}
+				}
+
+				newGuiQuickText(gui, newGuiLRectAdv(gui), "Comments", &boldLabelSettings);
+
+				// Comments section.
+				{
+					static float scrollHeight = 200;
+					Rect r = rectTLDim(ld->pos, vec2(ld->dim.w, ld->pos.y - ld->region.bottom));
+
+					ScrollRegionValues scrollValues = {};
+					newGuiQuickScroll(gui, r, scrollHeight, &ad->commentScrollValue, &scrollValues, &ad->commentScrollSettings);
+
+					ld = newGuiLayoutPush(gui, scrollValues.region);
+					ld->pos = scrollValues.pos;
+					newGuiScissorPush(gui, scrollValues.scissor);
+
+					float wrapWidth = ld->dim.w;
+					if(!(ad->modeData.downloadMode == Download_Mode_Snippet && ad->modeData.downloadStep < 4)) {
+						for(int i = 0; i < sn->selectedCommentCount; i++) {
+							drawText(sn->selectedTopComments[i], ld->pos, vec2i(-1,1), wrapWidth, gui->textSettings);
+							ld->pos.y -= getTextDim(sn->selectedTopComments[i], font, vec2(xMid, ld->pos.y), wrapWidth).y;
+
+							drawText(fillString("Likes: %i, Replies: %i", sn->selectedCommentLikeCount[i], sn->selectedCommentReplyCount[i]), ld->pos + vec2(ld->dim.w,0), vec2i(1,1), wrapWidth, darkerLabelSettings);
+							ld->pos.y -= font->height;
+							ld->pos.y -= 8;
+						}
+						scrollHeight = scrollValues.pos.y - ld->pos.y + 4; // @Hack.
+					} else {
+						scrollHeight = rectH(r);
+						drawTriangle(rectCen(r), font->height/2, rotateVec2(vec2(1,0), ad->time*2), fc);
+					}
+
+					ld = newGuiLayoutPop(gui);
+					newGuiScissorPop(gui);
+					ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
+				}
+
 				newGuiScissorPop(gui);
-				ld->pos.y = rectB((ld+1)->region).y - ld->yPadding;
-			}
-
-			newGuiScissorPop(gui);
-			newGuiLayoutPop(gui);
-			scissorState(false);
+				newGuiLayoutPop(gui);
+				scissorState(false);
 
 
-			if(closePanel) {
-				ad->selectedVideo = -1;
-				if(ad->modeData.downloadMode == Download_Mode_Snippet) {
-					downloadModeAbort(&ad->modeData);
+				if(closePanel) {
+					ad->selectedVideo = -1;
+					if(ad->modeData.downloadMode == Download_Mode_Snippet) {
+						downloadModeAbort(&ad->modeData);
+					}
 				}
 			}
-		}
 
-		// Draw Borders.
-		{
-			glLineWidth(0.5f);
-			drawRectOutline(rGraphs, ac->edge);
-			drawRectOutline(ad->clientRect, ac->edge);
+			// Draw Borders.
+			{
+				glLineWidth(0.5f);
+				drawRectOutline(rGraphs, ac->edge);
+				drawRectOutline(ad->clientRect, ac->edge);
+			}
 		}
-
 	}
 
 		TIMER_BLOCK_END(appMain);
@@ -6809,7 +6786,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				Rect modeRect = rectSetB(insideRect, insideRect.top - modeTabHeight);
 
 				insideRect.top -= modeTabHeight;
-				drawRectOutlined(insideRect, backgroundColor, edgeColor);
+				drawRectOutlined(rectRound(insideRect), backgroundColor, edgeColor);
 
 				// Panel mode switches.
 				{
@@ -6888,12 +6865,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					for(int i = 0; i < memberCount; i++) colorIndexes[i] = -1;
 				}
 
-
-				char* themeStrings[] = {"Light Theme", "Dark Theme"};
-				ComboBoxData cData = {ad->appSettings.darkTheme, themeStrings, arrayCount(themeStrings)};
-				if(newGuiQuickComboBox(gui, rectRSetR(newGuiLRectAdv(gui), 200), cData)) ad->appSettings.darkTheme = gui->comboBoxData.index;
-
-				AppColorsRelative* appColorsRelative = ad->appSettings.darkTheme?&ad->appColorsRelativeDark:&ad->appColorsRelativeLight;
+				AppColorsRelative* appColorsRelative = &ad->appColorsRelative;
 
 				{
 					newGuiLayoutPush(gui);
@@ -6969,9 +6941,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				if(newGuiQuickButton(gui, layoutInc(&l), "Open settings")) 
 					shellExecuteNoWindow(fillString("explorer.exe %s", App_Settings_File));
 				if(newGuiQuickButton(gui, layoutInc(&l), "Save settings")) 
-					writeAppSettingsToFile(App_Settings_File, &ad->appSettings, &ad->appColorsRelativeLight, &ad->appColorsRelativeDark);
-
-
+					writeAppSettingsToFile(App_Settings_File, &ad->appSettings, &ad->appColorsRelative);
 
 			} else if(ad->panelMode == 0) {
 
